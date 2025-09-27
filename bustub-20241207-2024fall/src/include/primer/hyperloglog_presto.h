@@ -83,6 +83,10 @@ class HyperLogLogPresto {
   uint64_t cardinality_;
 
   // TODO(student) - can add more data structures as required
+  //前导位数
+  int16_t b_;
+  //桶的数量
+  uint16_t m_;
 };
 
 }  // namespace bustub

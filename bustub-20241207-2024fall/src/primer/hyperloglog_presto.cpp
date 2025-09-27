@@ -3,7 +3,7 @@
 namespace bustub {
 
 template <typename KeyType>
-HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits) : cardinality_(0) {}
+HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits) : cardinality_(0), b_(n_leading_bits), m_(1 << n_leading_bits) {}
 
 template <typename KeyType>
 auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
