@@ -18,6 +18,8 @@
 
 /** @brief Total bucket size. */
 #define TOTAL_BUCKET_SIZE (DENSE_BUCKET_SIZE + OVERFLOW_BUCKET_SIZE)
+//定义bitset的容量
+#define BITSET_CAPACITY 64
 
 namespace bustub {
 
@@ -73,6 +75,8 @@ class HyperLogLogPresto {
     return 0;
   }
 
+
+  //注意这里密集桶和溢出桶存的都是二进制数
   /** @brief Structure holding dense buckets (or also known as registers). */
   std::vector<std::bitset<DENSE_BUCKET_SIZE>> dense_bucket_;
 
