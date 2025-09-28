@@ -4,19 +4,18 @@ namespace bustub {
 
 template <typename KeyType>
 HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits) :
-       cardinality_(0), b_(n_leading_bits), m_(1 << n_leading_bits), dense_bucket_(m_, 0), overflow_bucket_() {}
+      dense_bucket_(1 << n_leading_bits,0), overflow_bucket_(), cardinality_(0),  b_(n_leading_bits), m_(1 << n_leading_bits) {}
 
-auto denseNum = 1 << DENSE_BUCKET_SIZE;
-auto totalNum = 1 << TOTAL_BUCKET_SIZE;
+
 
 template <typename KeyType>
-auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY> {
+auto HyperLogLogPresto<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY> {
   /** @TODO(student) Implement this function! */
   return std::bitset<BITSET_CAPACITY>(hash);
 }
 
 template <typename KeyType> 
-auto HyperLogLog<KeyType>::NumberOfTrailingZeros(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
+auto HyperLogLogPresto<KeyType>::NumberOfTrailingZeros(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
   /** @TODO(student) Implement this function! */
   for (size_t i = 0; i < BITSET_CAPACITY; i++) {
     if (bset[i]) {
@@ -41,13 +40,14 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   //当后导零小于16时，更新密集桶
   if (trailing_zeros < denseNum) {
     auto current_value = dense_bucket_[index].to_ulong();
-    auto max_value = std::max(current_value,static_cast<uint8_t>(trailing_zeros));
+    auto max_value = std::max(current_value, static_cast<size_t>(trailing_zeros));
     dense_bucket_[index] = std::bitset<DENSE_BUCKET_SIZE>(max_value);
-  } else  if (trailing_zeros >= denseNum && trailing_zeros <= totalNum) {
+
+  } else if (trailing_zeros >= denseNum && trailing_zeros < totalNum) {
     //否则更新溢出桶,同时将密集桶对应位置取最大
     dense_bucket_[index] = std::bitset<DENSE_BUCKET_SIZE>(denseNum - 1);
     //构造或更新溢出桶
-    overflow_bucket_[index] = std::max(overflow_bucket_[index], trailing_zeros - denseNum + 1);  
+    overflow_bucket_[index] = std::max(overflow_bucket_[index].to_ulong(), static_cast<size_t>(trailing_zeros - denseNum + 1));  
   } else {
     //否则不做任何更新
     return;
@@ -55,7 +55,7 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
 }
 
 template <typename T>
-auto HyperLogLogPresto<T>::ComputeCardinality() ->  uint64_t {
+auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
   /** @TODO(student) Implement this function! */
   double sum = 0.0;
   //求调和平均值
@@ -75,7 +75,7 @@ auto HyperLogLogPresto<T>::ComputeCardinality() ->  uint64_t {
       }
     }
   }
-  return static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
+  cardinality_ = static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
 }
 
 template class HyperLogLogPresto<int64_t>;

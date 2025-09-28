@@ -80,6 +80,8 @@ class HyperLogLog {
    */
   auto PositionOfLeftmostOne(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t;
 
+
+
   /** @brief Cardinality value. */
   size_t cardinality_;
 
@@ -89,7 +91,7 @@ class HyperLogLog {
   //声明桶的数量m
   size_t m_;
   //声明寄存器数组
-  std::vector<uint8_t> registers_;
+  std::vector<std::bitset<8>> registers_;
 };
 
 }  // namespace bustub
