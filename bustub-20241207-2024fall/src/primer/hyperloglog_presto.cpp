@@ -1,3 +1,4 @@
+#include "primer/hyperloglog_presto.h"
 namespace bustub {
 
 template <typename KeyType>
@@ -18,10 +19,10 @@ auto HyperLogLogPresto<KeyType>::NumberOfTrailingZeros(const std::bitset<BITSET_
   size_t effective_bits = BITSET_CAPACITY - b_;
   for (size_t i = 0; i < effective_bits; i++) {
     if (bset[i]) {
-      return i + 1;
+      return static_cast<uint64_t>(i + 1) ;
     }
   }
-  return effective_bits;
+  return static_cast<uint64_t>(effective_bits + 1) ;
 }
 
 
@@ -39,8 +40,8 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   //计算后导零的数量
   auto trailing_zeros = NumberOfTrailingZeros(binary_low);
   //分离出低位和高位
-  auto LSBs = trailing_zeros & ((1 << DENSE_BUCKET_SIZE) - 1);
-  auto MSBs = trailing_zeros >> DENSE_BUCKET_SIZE;
+  uint64_t LSBs = trailing_zeros & ((1 << DENSE_BUCKET_SIZE) - 1);
+  uint64_t MSBs = trailing_zeros >> DENSE_BUCKET_SIZE;
   //更新溢出桶
   auto current_dense = dense_bucket_[index].to_ulong();
   auto new_dense = std::max(current_dense, LSBs);
@@ -78,8 +79,6 @@ auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
       total = (overflow_val << DENSE_BUCKET_SIZE) | dense_val;
     }
 
-    // 3) accumulate 2^{-reg}
-    // ensure reg isn't absurdly large for pow() exponent
     sum += std::pow(2.0, -static_cast<int>(total));
   }
 
