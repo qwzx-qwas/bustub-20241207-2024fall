@@ -91,7 +91,7 @@ class HyperLogLog {
   //声明桶的数量m
   size_t m_;
   //声明寄存器数组
-  std::vector<std::bitset<8>> registers_;
+  std::vector<uint8_t> registers_;
 };
 
 }  // namespace bustub

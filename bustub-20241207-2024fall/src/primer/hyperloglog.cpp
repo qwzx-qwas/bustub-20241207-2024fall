@@ -15,12 +15,13 @@ auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitse
 template <typename KeyType>
 auto HyperLogLog<KeyType>::PositionOfLeftmostOne(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
   /** @TODO(student) Implement this function! */
-  for (size_t i = 0; i < BITSET_CAPACITY; i++) {
-    if (bset[BITSET_CAPACITY - 1 - i]) {
+  size_t effective_bits = BITSET_CAPACITY - b_;
+  for (size_t i = 0; i < effective_bits; i++) {
+    if (bset[effective_bits - 1 - i]) {
       return i + 1;
     }
   }
-  return 0;
+  return BITSET_CAPACITY - b_ + 1;
 }
 
 template <typename KeyType>
@@ -28,17 +29,20 @@ auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
   /** @TODO(student) Implement this function! */
   //获取对应的hash值
   auto hash = CalculateHash(val);
-  //将hash值转换为二进制
-  auto binary = ComputeBinary(hash);
   //计算桶的索引
-  auto index = binary.to_ullong() >> (BITSET_CAPACITY - b_);
+  //auto index = hash >> (BITSET_CAPACITY - b_);
+  auto index = static_cast<size_t>(hash >> (BITSET_CAPACITY - b_)) & (m_ - 1);
+  //计算hash值的低位部分
+  auto low_bits = hash & ((1ULL << (BITSET_CAPACITY - b_)) - 1);
+  //low_bits是hash值的低位部分，不是二进制形式，所以要转化为二进制
+  auto binary_low = ComputeBinary(low_bits);
   //计算前导零的数量
-  auto leading_zeros = PositionOfLeftmostOne(binary << b_);
+  auto leading_zeros = PositionOfLeftmostOne(binary_low);
   //更新寄存器
-  auto current_value = registers_[index].to_ulong();
-  auto max_value = std::max(current_value, static_cast<size_t>(leading_zeros));
-  registers_[index] = std::bitset<8>(max_value);
-
+  auto current_value = registers_[index];
+  auto max_value = std::max(current_value, static_cast<uint8_t>(leading_zeros));
+  registers_[index] = max_value;
+  std::cout << "index: " << index << " leading_zeros: " << leading_zeros << " max_value: " << static_cast<int>(max_value) << std::endl;
   return;
 }
 
@@ -49,10 +53,23 @@ auto HyperLogLog<KeyType>::ComputeCardinality() -> void {
   //求寄存器中的调和平均值
   for (const auto &reg : registers_) {
     //static_cast<int>(reg)把 reg 从无符号强制转成有符号的 int，这样 -reg 才会真的变成负数。
-    sum += pow(2.0, -reg.to_ulong());
+    sum += pow(2.0, -static_cast<int>(reg));
   }
   //带入公式计算基数,并将其转化为小于或等于的整数赋值给cardinality_
-  cardinality_ = static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
+  //cardinality_ = static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
+  auto v = std::count(registers_.begin(), registers_.end(), 0);
+double estimate = CONSTANT * m_ * m_ / sum;
+
+// 空桶修正
+if (estimate <= 2.5 * m_ && v > 0) {
+  estimate = m_ * std::log(static_cast<double>(m_) / v);
+}
+
+// 估计结果更新
+cardinality_ = static_cast<uint64_t>(estimate);
+
+  std::cout << "cardinality: " << cardinality_ << std::endl;
+  return;
 }
 
 template class HyperLogLog<int64_t>;
