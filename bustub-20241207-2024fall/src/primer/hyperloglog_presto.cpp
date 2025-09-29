@@ -2,7 +2,7 @@ namespace bustub {
 
 template <typename KeyType>
 HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits) :
-      dense_bucket_(1 << n_leading_bits,0), overflow_bucket_(), cardinality_(0),  b_(n_leading_bits), m_(1 << n_leading_bits) {}
+      dense_bucket_(1 << n_leading_bits,std::bitset<DENSE_BUCKET_SIZE>(0)), overflow_bucket_(), cardinality_(0),  b_(n_leading_bits), m_(1 << n_leading_bits) {}
 
 
 
