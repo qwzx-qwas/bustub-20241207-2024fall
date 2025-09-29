@@ -18,11 +18,13 @@ auto HyperLogLogPresto<KeyType>::NumberOfTrailingZeros(const std::bitset<BITSET_
   /** @TODO(student) Implement this function! */
   size_t effective_bits = BITSET_CAPACITY - b_;
   for (size_t i = 0; i < effective_bits; i++) {
-    if (bset[i]) {
-      return static_cast<uint64_t>(i + 1) ;
+    if (!bset[i]) {
+      cout++;
+    } else {
+      break;
     }
   }
-  return static_cast<uint64_t>(effective_bits + 1) ;
+  return count;
 }
 
 
@@ -32,7 +34,7 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   //先转化为hash值
   auto hash = CalculateHash(val);
   //计算桶的索引
-  auto index = hash >> (BITSET_CAPACITY - b_);
+  auto index = hash >> (BITSET_CAPACITY - b_) & (m_ - 1);
   //计算hash值的低位部分
   auto low_bits = hash & ((1ULL << (BITSET_CAPACITY - b_)) - 1);
   //low_bits是hash值的低位部分，不是二进制形式，所以要转化为二进制
@@ -88,7 +90,7 @@ auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
     cardinality_ = static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
   }
   
-  
+  std::cout << "sum: " << sum << " cardinality_: " << cardinality_ << std::endl; 
 }
 
 template class HyperLogLogPresto<int64_t>;
