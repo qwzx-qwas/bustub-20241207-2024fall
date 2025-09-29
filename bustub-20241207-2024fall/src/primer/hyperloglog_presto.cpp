@@ -16,10 +16,11 @@ auto HyperLogLogPresto<KeyType>::ComputeBinary(const hash_t &hash) const -> std:
 template <typename KeyType> 
 auto HyperLogLogPresto<KeyType>::NumberOfTrailingZeros(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
   /** @TODO(student) Implement this function! */
-  size_t effective_bits = BITSET_CAPACITY - b_;
-  for (size_t i = 0; i < effective_bits; i++) {
+  //size_t effective_bits = BITSET_CAPACITY - b_;
+  uint64_t count = 0;
+  for (size_t i = 0; i < BITSET_CAPACITY; i++) {
     if (!bset[i]) {
-      cout++;
+      count++;
     } else {
       break;
     }
@@ -34,7 +35,7 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   //先转化为hash值
   auto hash = CalculateHash(val);
   //计算桶的索引
-  auto index = hash >> (BITSET_CAPACITY - b_) & (m_ - 1);
+  auto index = (hash >> (BITSET_CAPACITY - b_)) & (m_ - 1);
   //计算hash值的低位部分
   auto low_bits = hash & ((1ULL << (BITSET_CAPACITY - b_)) - 1);
   //low_bits是hash值的低位部分，不是二进制形式，所以要转化为二进制
@@ -42,14 +43,19 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   //计算后导零的数量
   auto trailing_zeros = NumberOfTrailingZeros(binary_low);
   //分离出低位和高位
-  uint64_t LSBs = trailing_zeros & ((1 << DENSE_BUCKET_SIZE) - 1);
-  uint64_t MSBs = trailing_zeros >> DENSE_BUCKET_SIZE;
+  //uint64_t LSBs = trailing_zeros & ((1 << DENSE_BUCKET_SIZE) - 1);
+  //uint64_t MSBs = trailing_zeros >> DENSE_BUCKET_SIZE;
+  uint64_t max_LSB = (1ULL << DENSE_BUCKET_SIZE) - 1;
+  uint64_t LSBs = std::min(trailing_zeros, max_LSB);
+  uint64_t MSBs = trailing_zeros > max_LSB ? trailing_zeros - max_LSB : 0;
   //更新溢出桶
   auto current_dense = dense_bucket_[index].to_ulong();
   auto new_dense = std::max(current_dense, LSBs);
   dense_bucket_[index] = std::bitset<DENSE_BUCKET_SIZE>(new_dense);
   //如果MSB大于0，说明需要更新溢出桶
   if (MSBs > 0) {
+    //注意 MSBs 超过 OVERFLOW_BUCKET_SIZE 时会丢位，需要加保护
+    MSBs = std::min(MSBs, static_cast<uint64_t>((1ULL << OVERFLOW_BUCKET_SIZE) - 1));
     auto it = overflow_bucket_.find(index);
     if (it == overflow_bucket_.end()) {
       overflow_bucket_.emplace(index, std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long>(MSBs)));
@@ -81,7 +87,7 @@ auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
       total = (overflow_val << DENSE_BUCKET_SIZE) | dense_val;
     }
 
-    sum += std::pow(2.0, -static_cast<int>(total));
+    sum += std::pow(2.0, -static_cast<double>(total));
   }
 
   if (sum <= 0.0) {

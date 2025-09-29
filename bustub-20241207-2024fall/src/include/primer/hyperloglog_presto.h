@@ -96,9 +96,6 @@ class HyperLogLogPresto {
   int16_t b_;
   //桶的数量
   uint16_t m_;
-  //声明最大容积
-  static constexpr size_t denseNum = 1 << DENSE_BUCKET_SIZE;
-  static constexpr size_t totalNum = 1 << TOTAL_BUCKET_SIZE;
 };
 
 }  // namespace bustub
