@@ -16,7 +16,7 @@ namespace bustub {
 
 template <typename KeyType>
 class HyperLogLog {
-  /** @brief Constant for HLL. */  
+  /** @brief Constant for HLL. */
   //修正因子
   static constexpr double CONSTANT = 0.79402;
 
@@ -79,8 +79,6 @@ class HyperLogLog {
    * @returns leading zeros of given binary set
    */
   auto PositionOfLeftmostOne(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t;
-
-
 
   /** @brief Cardinality value. */
   size_t cardinality_;

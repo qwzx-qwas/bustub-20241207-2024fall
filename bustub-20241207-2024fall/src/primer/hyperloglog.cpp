@@ -76,3 +76,62 @@ template class HyperLogLog<int64_t>;
 template class HyperLogLog<std::string>;
 
 }  // namespace bustub
+/*#include "primer/hyperloglog.h"
+
+namespace bustub {
+
+template <typename KeyType>
+HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits) : cardinality_(0), b_(n_bits), m_(1 << n_bits), registers_(m_, 0) {}
+
+template <typename KeyType>
+auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY> {
+  return std::bitset<BITSET_CAPACITY>(hash);
+}
+
+template <typename KeyType>
+auto HyperLogLog<KeyType>::PositionOfLeftmostOne(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
+  size_t effective_bits = BITSET_CAPACITY - b_;
+  for (size_t i = 0; i < effective_bits; ++i) {
+    if (bset[effective_bits - 1 - i]) {
+      return i + 1;
+    }
+  }
+  return static_cast<uint64_t>(BITSET_CAPACITY - b_ + 1);
+}
+
+template <typename KeyType>
+auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
+  auto hash = CalculateHash(val);
+  size_t index = static_cast<size_t>((hash >> (BITSET_CAPACITY - b_)) & (m_ - 1));
+
+  uint64_t low_bits = hash & ((1ULL << (BITSET_CAPACITY - b_)) - 1);
+  auto binary_low = ComputeBinary(low_bits);
+  auto leading_zeros = PositionOfLeftmostOne(binary_low);
+
+  uint8_t current_value = registers_[index];
+  uint8_t new_value = static_cast<uint8_t>(std::max(current_value, static_cast<uint8_t>(leading_zeros)));
+  registers_[index] = new_value;
+}
+
+template <typename KeyType>
+auto HyperLogLog<KeyType>::ComputeCardinality() -> void {
+  double sum = 0.0;
+  for (const auto &reg : registers_) {
+    sum += std::pow(2.0, -static_cast<int>(reg));
+  }
+
+  auto zero_count = static_cast<double>(std::count(registers_.begin(), registers_.end(), 0));
+  double estimate = CONSTANT * m_ * m_ / sum;
+
+  if (estimate <= 2.5 * m_ && zero_count > 0) {
+    estimate = m_ * std::log(static_cast<double>(m_) / zero_count);
+  }
+
+  cardinality_ = static_cast<uint64_t>(estimate);
+}
+
+template class HyperLogLog<int64_t>;
+template class HyperLogLog<std::string>;
+
+}  // namespace bustub
+*/
