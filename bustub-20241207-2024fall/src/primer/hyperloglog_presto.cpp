@@ -1,5 +1,7 @@
 #include "primer/hyperloglog_presto.h"
 
+#include <limits>
+
 namespace bustub {
 
 template <typename KeyType>
@@ -20,15 +22,15 @@ auto HyperLogLogPresto<KeyType>::ComputeBinary(const hash_t &hash) const
 
 template <typename KeyType>
 auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
-  // 1. Compute hash and extract bucket index.
+  // 1. 计算哈希并提取桶索引。
   auto hash = CalculateHash(val);
   auto index = (hash >> (BITSET_CAPACITY - b_)) & (m_ - 1);
 
-  // 2. Extract low bits for zero-counting (BITSET_CAPACITY - b_ bits).
+  // 2. 提取用于计数尾部零的低位（BITSET_CAPACITY - b_ 位）。
   uint64_t tail_mask = (1ULL << (BITSET_CAPACITY - b_)) - 1;
   uint64_t tail_bits = hash & tail_mask;
 
-  // 3. Count trailing zeros (Z).
+  // 3. 统计尾随零的个数（Z）。
   uint64_t trailing_zeros;
   if (tail_bits == 0) {
     trailing_zeros = BITSET_CAPACITY - b_;
@@ -36,11 +38,11 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
     trailing_zeros = static_cast<uint64_t>(__builtin_ctzll(tail_bits));
   }
 
-  // Clamp Z to the maximum representable value.
+  // 将 Z 限制为可表示的最大值。
   uint64_t max_z_value = BITSET_CAPACITY - b_;
   trailing_zeros = std::min(trailing_zeros, max_z_value);
 
-  // 4. Read current stored Z (combine overflow MSBs and dense LSBs).
+  // 4. 读取当前存储的 Z（将溢出桶的高位与稠密桶的低位合并）。
   uint64_t current_msbs = 0;
   auto it = overflow_bucket_.find(index);
   if (it != overflow_bucket_.end()) {
@@ -50,23 +52,23 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   uint64_t current_lsbs = dense_bucket_[index].to_ulong();
   uint64_t current_z = (current_msbs << DENSE_BUCKET_SIZE) | current_lsbs;
 
-  // 5. Compare and update if new Z is larger.
+  // 5. 如果新的 Z 更大则更新。
   if (trailing_zeros > current_z) {
     uint64_t lsbs = trailing_zeros & ((1ULL << DENSE_BUCKET_SIZE) - 1);
     uint64_t msbs = trailing_zeros >> DENSE_BUCKET_SIZE;
 
-    // Update dense bucket (LSBs).
+    // 更新稠密桶（低位）。
     dense_bucket_[index] =
         std::bitset<DENSE_BUCKET_SIZE>(static_cast<unsigned long>(lsbs));
 
-    // Update overflow bucket (MSBs).
+    // 更新溢出桶（高位）。
     if (msbs > 0) {
       uint64_t max_overflow = (1ULL << OVERFLOW_BUCKET_SIZE) - 1;
       msbs = std::min(msbs, max_overflow);
       overflow_bucket_[index] =
           std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long>(msbs));
     } else if (it != overflow_bucket_.end()) {
-      // If MSBs become 0, remove any previous overflow entry.
+      // 如果 MSBs 变为 0，则移除之前的溢出条目。
       overflow_bucket_.erase(it);
     }
   }
@@ -76,7 +78,7 @@ template <typename T>
 auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
   double sum = 0.0;
 
-  // Harmonic mean of 2^{-register}.
+  // 计算 2^{-register} 的调和和。
   for (size_t idx = 0; idx < m_; ++idx) {
     uint64_t dense_val = dense_bucket_[idx].to_ulong();
 
@@ -90,7 +92,13 @@ auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
     sum += std::pow(2.0, -static_cast<double>(total));
   }
 
-  // Compute cardinality without additional zero correction.
+  // 防护：避免 sum 非正导致的除零或下溢。
+  if (sum <= 0.0) {
+    cardinality_ = std::numeric_limits<uint64_t>::max();
+    return;
+  }
+
+  // 计算基数（不做额外的空桶修正）。
   cardinality_ =
       static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
 }
