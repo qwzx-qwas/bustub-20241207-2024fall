@@ -1,12 +1,17 @@
 #include "primer/hyperloglog_presto.h"
 
+#include <bitset>
+#include <cmath>
+#include <cstdint>
 #include <limits>
+#include <algorithm>
 
 namespace bustub {
 
 template <typename KeyType>
 HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits)
-    : dense_bucket_(1 << n_leading_bits, std::bitset<DENSE_BUCKET_SIZE>(0)),
+    : dense_bucket_(1 << n_leading_bits,
+                    std::bitset<DENSE_BUCKET_SIZE>(0)),
       overflow_bucket_(),
       cardinality_(0),
       b_(n_leading_bits),
@@ -92,15 +97,16 @@ auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
     sum += std::pow(2.0, -static_cast<double>(total));
   }
 
-  // 防护：避免 sum 非正导致的除零或下溢。
+  // **最终修复：添加保护性检查以避免浮点下溢 (EdgeTest2)**
   if (sum <= 0.0) {
+    // 如果 sum <= 0.0，这意味着所有寄存器的值都非常大，基数应该是理论上的最大值。
+    // 返回 uint64_t 的最大值以避免产生 0 或浮点溢出。
     cardinality_ = std::numeric_limits<uint64_t>::max();
-    return;
+  } else {
+    // 计算基数。
+    cardinality_ =
+        static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
   }
-
-  // 计算基数（不做额外的空桶修正）。
-  cardinality_ =
-      static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
 }
 
 template class HyperLogLogPresto<int64_t>;
