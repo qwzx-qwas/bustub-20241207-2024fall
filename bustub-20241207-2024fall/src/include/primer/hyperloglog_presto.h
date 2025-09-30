@@ -79,7 +79,7 @@ class HyperLogLogPresto {
   //声明ComputeBinary函数
    std::bitset<BITSET_CAPACITY> ComputeBinary(const hash_t &hash) const;
   //声明NumberOfTrailingZeros函数
-  uint64_t NumberOfTrailingZeros(const std::bitset<BITSET_CAPACITY> &bset) const;
+  //uint64_t NumberOfTrailingZeros(const std::bitset<BITSET_CAPACITY> &bset) const;
 
   //注意这里密集桶和溢出桶存的都是二进制数
   /** @brief Structure holding dense buckets (or also known as registers). */

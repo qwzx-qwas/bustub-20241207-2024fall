@@ -1,85 +1,85 @@
 #include "primer/hyperloglog_presto.h"
+
 namespace bustub {
 
 template <typename KeyType>
-HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits) :
-      dense_bucket_(1 << n_leading_bits,std::bitset<DENSE_BUCKET_SIZE>(0)), overflow_bucket_(), cardinality_(0),  b_(n_leading_bits), m_(1 << n_leading_bits) {}
-
-
+HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits)
+    : dense_bucket_(1 << n_leading_bits, std::bitset<DENSE_BUCKET_SIZE>(0)),
+      overflow_bucket_(),
+      cardinality_(0),
+      b_(n_leading_bits),
+      m_(1 << n_leading_bits) {
+  overflow_bucket_.reserve(m_);
+}
 
 template <typename KeyType>
-auto HyperLogLogPresto<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY> {
-  /** @TODO(student) Implement this function! */
+auto HyperLogLogPresto<KeyType>::ComputeBinary(const hash_t &hash) const
+    -> std::bitset<BITSET_CAPACITY> {
   return std::bitset<BITSET_CAPACITY>(hash);
 }
 
-template <typename KeyType> 
-auto HyperLogLogPresto<KeyType>::NumberOfTrailingZeros(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
-  /** @TODO(student) Implement this function! */
-  //size_t effective_bits = BITSET_CAPACITY - b_;
-  uint64_t count = 0;
-  for (size_t i = 0; i < BITSET_CAPACITY; i++) {
-    if (!bset[i]) {
-      count++;
-    } else {
-      break;
-    }
-  }
-  return count;
-}
-
-
 template <typename KeyType>
 auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
-  /** @TODO(student) Implement this function! */
-  //先转化为hash值
+  // 1. Compute hash and extract bucket index.
   auto hash = CalculateHash(val);
-  //计算桶的索引
   auto index = (hash >> (BITSET_CAPACITY - b_)) & (m_ - 1);
-  //计算hash值的低位部分
-  auto low_bits = hash & ((1ULL << (BITSET_CAPACITY - b_)) - 1);
-  //low_bits是hash值的低位部分，不是二进制形式，所以要转化为二进制
-  auto binary_low = ComputeBinary(low_bits);
-  //计算后导零的数量
-  auto trailing_zeros = NumberOfTrailingZeros(binary_low);
-  //分离出低位和高位
-  //uint64_t LSBs = trailing_zeros & ((1 << DENSE_BUCKET_SIZE) - 1);
-  //uint64_t MSBs = trailing_zeros >> DENSE_BUCKET_SIZE;
-  uint64_t max_LSB = (1ULL << DENSE_BUCKET_SIZE) - 1;
-  uint64_t LSBs = std::min(trailing_zeros, max_LSB);
-  uint64_t MSBs = trailing_zeros > max_LSB ? trailing_zeros - max_LSB : 0;
-  //更新溢出桶
-  auto current_dense = dense_bucket_[index].to_ulong();
-  auto new_dense = std::max(current_dense, LSBs);
-  dense_bucket_[index] = std::bitset<DENSE_BUCKET_SIZE>(new_dense);
-  //如果MSB大于0，说明需要更新溢出桶
-  if (MSBs > 0) {
-    //注意 MSBs 超过 OVERFLOW_BUCKET_SIZE 时会丢位，需要加保护
-    MSBs = std::min(MSBs, static_cast<uint64_t>((1ULL << OVERFLOW_BUCKET_SIZE) - 1));
-    auto it = overflow_bucket_.find(index);
-    if (it == overflow_bucket_.end()) {
-      overflow_bucket_.emplace(index, std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long>(MSBs)));
-    } else {
-      unsigned long cur_over = it->second.to_ulong();
-      if (MSBs > cur_over) {
-        it->second = std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long>(MSBs));
-      }
+
+  // 2. Extract low bits for zero-counting (BITSET_CAPACITY - b_ bits).
+  uint64_t tail_mask = (1ULL << (BITSET_CAPACITY - b_)) - 1;
+  uint64_t tail_bits = hash & tail_mask;
+
+  // 3. Count trailing zeros (Z).
+  uint64_t trailing_zeros;
+  if (tail_bits == 0) {
+    trailing_zeros = BITSET_CAPACITY - b_;
+  } else {
+    trailing_zeros = static_cast<uint64_t>(__builtin_ctzll(tail_bits));
+  }
+
+  // Clamp Z to the maximum representable value.
+  uint64_t max_z_value = BITSET_CAPACITY - b_;
+  trailing_zeros = std::min(trailing_zeros, max_z_value);
+
+  // 4. Read current stored Z (combine overflow MSBs and dense LSBs).
+  uint64_t current_msbs = 0;
+  auto it = overflow_bucket_.find(index);
+  if (it != overflow_bucket_.end()) {
+    current_msbs = it->second.to_ulong();
+  }
+
+  uint64_t current_lsbs = dense_bucket_[index].to_ulong();
+  uint64_t current_z = (current_msbs << DENSE_BUCKET_SIZE) | current_lsbs;
+
+  // 5. Compare and update if new Z is larger.
+  if (trailing_zeros > current_z) {
+    uint64_t lsbs = trailing_zeros & ((1ULL << DENSE_BUCKET_SIZE) - 1);
+    uint64_t msbs = trailing_zeros >> DENSE_BUCKET_SIZE;
+
+    // Update dense bucket (LSBs).
+    dense_bucket_[index] =
+        std::bitset<DENSE_BUCKET_SIZE>(static_cast<unsigned long>(lsbs));
+
+    // Update overflow bucket (MSBs).
+    if (msbs > 0) {
+      uint64_t max_overflow = (1ULL << OVERFLOW_BUCKET_SIZE) - 1;
+      msbs = std::min(msbs, max_overflow);
+      overflow_bucket_[index] =
+          std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long>(msbs));
+    } else if (it != overflow_bucket_.end()) {
+      // If MSBs become 0, remove any previous overflow entry.
+      overflow_bucket_.erase(it);
     }
   }
-  std::cout << "index: " << index << " trailing_zeros: " << trailing_zeros << " LSBs: " << LSBs << " MSBs: " << MSBs << std::endl;
-  return;
 }
-
 
 template <typename T>
 auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
-  /** @TODO(student) Implement this function! */
   double sum = 0.0;
-  //求调和平均值
-  for(size_t idx = 0;idx < m_; idx++) {
+
+  // Harmonic mean of 2^{-register}.
+  for (size_t idx = 0; idx < m_; ++idx) {
     uint64_t dense_val = dense_bucket_[idx].to_ulong();
 
-    // 2) overflow part if exists
     uint64_t total = dense_val;
     auto it = overflow_bucket_.find(idx);
     if (it != overflow_bucket_.end()) {
@@ -90,15 +90,12 @@ auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
     sum += std::pow(2.0, -static_cast<double>(total));
   }
 
-  if (sum <= 0.0) {
-    cardinality_ = 0;
-  } else {
-    cardinality_ = static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
-  }
-  
-  std::cout << "sum: " << sum << " cardinality_: " << cardinality_ << std::endl; 
+  // Compute cardinality without additional zero correction.
+  cardinality_ =
+      static_cast<uint64_t>(std::floor(CONSTANT * m_ * m_ / sum));
 }
 
 template class HyperLogLogPresto<int64_t>;
 template class HyperLogLogPresto<std::string>;
+
 }  // namespace bustub
