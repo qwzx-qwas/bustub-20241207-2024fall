@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <vector>
+#include <cstdint>
 #include "primer/orset.h"
 
 namespace bustub {

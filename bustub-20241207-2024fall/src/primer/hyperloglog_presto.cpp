@@ -14,8 +14,8 @@ HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits)
                     std::bitset<DENSE_BUCKET_SIZE>(0)),
       overflow_bucket_(),
       cardinality_(0),
-      b_(n_leading_bits),
-      m_(1 << n_leading_bits) {
+      b_(std::max(static_cast<int16_t>(0), n_leading_bits)),
+      m_(1 << b_) {
   overflow_bucket_.reserve(m_);
 }
 
@@ -50,11 +50,13 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   // 4. 读取当前存储的 Z（将溢出桶的高位与稠密桶的低位合并）。
   uint64_t current_msbs = 0;
   auto it = overflow_bucket_.find(index);
+  // 如果溢出桶中存在该索引，则读取其值。
   if (it != overflow_bucket_.end()) {
     current_msbs = it->second.to_ulong();
   }
-
+  
   uint64_t current_lsbs = dense_bucket_[index].to_ulong();
+  // 合并高位和低位以获取当前的 Z 值。
   uint64_t current_z = (current_msbs << DENSE_BUCKET_SIZE) | current_lsbs;
 
   // 5. 如果新的 Z 更大则更新。
@@ -93,15 +95,15 @@ auto HyperLogLogPresto<T>::ComputeCardinality() -> void {
       uint64_t overflow_val = it->second.to_ulong();
       total = (overflow_val << DENSE_BUCKET_SIZE) | dense_val;
     }
-
-    sum += std::pow(2.0, -static_cast<double>(total));
+    // 不要对无符号数取负数，会变成一个很大的数！要先转换为有符号数后再取负数，要么就少用无符号数！
+    sum += 1.0 / std::pow(2.0, static_cast<double>(total));
   }
 
   // **最终修复：添加保护性检查以避免浮点下溢 (EdgeTest2)**
   if (sum <= 0.0) {
     // 如果 sum <= 0.0，这意味着所有寄存器的值都非常大，基数应该是理论上的最大值。
     // 返回 uint64_t 的最大值以避免产生 0 或浮点溢出。
-    cardinality_ = std::numeric_limits<uint64_t>::max();
+    cardinality_ = std::numeric_limits<uint64_t>::max(); ;
   } else {
     // 计算基数。
     cardinality_ =

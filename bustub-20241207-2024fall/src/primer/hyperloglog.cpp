@@ -8,7 +8,7 @@ namespace bustub {
 template <typename KeyType>
 HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits)
     : cardinality_(0),
-      b_(n_bits),
+      b_(std::max(static_cast<int16_t>(0), n_bits)),
       m_(1 << n_bits),
       registers_(m_, 0) {}
 
@@ -26,6 +26,7 @@ auto HyperLogLog<KeyType>::PositionOfLeftmostOne(
   size_t effective_bits = BITSET_CAPACITY - b_;
   for (size_t i = 0; i < effective_bits; ++i) {
     if (bset[effective_bits - 1 - i]) {
+    //if (bset[i]) {
       return i + 1;
     }
   }
@@ -54,6 +55,7 @@ auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
   uint8_t max_value =
       static_cast<uint8_t>(std::max(current_value, static_cast<uint8_t>(leading_zeros)));
   registers_[index] = max_value;
+
 }
 
 template <typename KeyType>
@@ -61,7 +63,8 @@ auto HyperLogLog<KeyType>::ComputeCardinality() -> void {
   /** @TODO(student) Implement this function! */
   double sum = 0.0;
   for (const auto &reg : registers_) {
-    sum += std::pow(2.0, -static_cast<int>(reg));
+    // 不要对无符号数取负数，会变成一个很大的数！要先转换为有符号数后再取负数，要么就少用无符号数！
+    sum += 1.0 / std::pow(2.0, static_cast<double>(reg));
   }
 
   auto zero_count = static_cast<double>(std::count(registers_.begin(), registers_.end(), 0));
@@ -72,7 +75,7 @@ auto HyperLogLog<KeyType>::ComputeCardinality() -> void {
     estimate = m_ * std::log(static_cast<double>(m_) / zero_count);
   }
 
-  cardinality_ = static_cast<uint64_t>(estimate);
+  cardinality_ = static_cast<uint64_t>(std::floor(estimate));
 }
 
 template class HyperLogLog<int64_t>;

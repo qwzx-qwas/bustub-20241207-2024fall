@@ -1,0 +1,37 @@
+// tasks.json
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "MinGW: build hyperloglog_test",
+            // 关键修正: 使用 "process" 类型直接启动 bash.exe
+            "type": "process", 
+            
+            // 关键修正: command 仅指定 bash.exe 的路径
+            "command": "D:\\msys64\\usr\\bin\\bash.exe", 
+            
+            "args": [
+                // 参数 1: 启动 MinGW 环境
+                "-l",
+                // 参数 2: 告诉 bash 执行后续的命令字符串
+                "-c",
+                // 参数 3: 实际编译命令 (将整个命令字符串作为一个参数)
+                "cd /d/cmu15445/bustub-20241207-2024fall/bustub-20241207-2024fall/build && /usr/bin/make hyperloglog_test" 
+            ],
+            
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            
+            "options": {
+                // 工作目录
+                "cwd": "D:\\msys64\\usr\\bin"
+            },
+            
+            "problemMatcher": [
+                "$gcc" 
+            ]
+        }
+    ]
+}
