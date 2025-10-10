@@ -23,6 +23,8 @@ template <typename KeyType>
 auto HyperLogLog<KeyType>::PositionOfLeftmostOne(
     const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
   /** @TODO(student) Implement this function! */
+  //
+  //计算除去桶索引位后的前导1位置
   size_t effective_bits = BITSET_CAPACITY - b_;
   for (size_t i = 0; i < effective_bits; ++i) {
     if (bset[effective_bits - 1 - i]) {
@@ -36,24 +38,25 @@ auto HyperLogLog<KeyType>::PositionOfLeftmostOne(
 template <typename KeyType>
 auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
   /** @TODO(student) Implement this function! */
+  //
+  std::lock_guard<std::mutex> lock(mtx_);
   // 获取对应的哈希值。
-  auto hash = CalculateHash(val);
+  hash_t hash = CalculateHash(val);
 
-  // 计算桶的索引。
+  // 将hash右移b_位，取高位作为桶索引。(考虑到鲁棒性，使用&运算确保索引在范围内)
   auto index =
-      static_cast<size_t>((hash >> (BITSET_CAPACITY - b_)) & (m_ - 1));
+         static_cast<size_t>((hash >> (BITSET_CAPACITY - b_)) & (m_ - 1));
 
-  // 计算 hash 的低位部分用于前导 1 的检测。
-  auto low_bits = hash & ((1ULL << (BITSET_CAPACITY - b_)) - 1);
-
-  // 将低位转换为二进制并计算前导 1 的位置（等价于前导零计数 + 1）。
-  auto binary_low = ComputeBinary(low_bits);
+  // 将hash转换为二进制并计算前导 1 的位置（等价于前导零计数 + 1）。
+  auto binary_low = ComputeBinary(hash);
   auto leading_zeros = PositionOfLeftmostOne(binary_low);
 
   // 更新寄存器（取更大值）。
   uint8_t current_value = registers_[index];
+  //避免std::max会提升类型（int)导致错误
+  uint8_t new_value = static_cast<uint8_t>(leading_zeros);
   uint8_t max_value =
-      static_cast<uint8_t>(std::max(current_value, static_cast<uint8_t>(leading_zeros)));
+      static_cast<uint8_t>(std::max(current_value, new_value));
   registers_[index] = max_value;
 
 }
@@ -66,18 +69,10 @@ auto HyperLogLog<KeyType>::ComputeCardinality() -> void {
     // 不要对无符号数取负数，会变成一个很大的数！要先转换为有符号数后再取负数，要么就少用无符号数！
     sum += 1.0 / std::pow(2.0, static_cast<double>(reg));
   }
-
-  auto zero_count = static_cast<double>(std::count(registers_.begin(), registers_.end(), 0));
+  
   double estimate = CONSTANT * m_ * m_ / sum;
-
-  // 小基数时做空桶修正。
-  if (estimate <= 2.5 * m_ && zero_count > 0) {
-    estimate = m_ * std::log(static_cast<double>(m_) / zero_count);
-  }
-
   cardinality_ = static_cast<uint64_t>(std::floor(estimate));
 }
-
 template class HyperLogLog<int64_t>;
 template class HyperLogLog<std::string>;
 

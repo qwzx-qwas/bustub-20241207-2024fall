@@ -95,6 +95,8 @@ class HyperLogLogPresto {
   int16_t b_;
   //桶的数量
   uint16_t m_;
+  std::mutex mtx_;
+
 };
 
 }  // namespace bustub
