@@ -23,7 +23,7 @@ HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits) : cardinality_(0) {
 
 template <typename KeyType>
 auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const
-    -> std::bitset<BITSET_CAPACITY> {
+     -> std::bitset<BITSET_CAPACITY> {
   // Convert the hash to a BITSET_CAPACITY-bit bitset.
   return std::bitset<BITSET_CAPACITY>(hash);
 }

@@ -30,7 +30,7 @@ HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits)
 
 template <typename KeyType>
 auto HyperLogLogPresto<KeyType>::ComputeBinary(const hash_t &hash) const
-    -> std::bitset<BITSET_CAPACITY> {
+     -> std::bitset<BITSET_CAPACITY> {
   return std::bitset<BITSET_CAPACITY>(hash);
 }
 
@@ -60,7 +60,7 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
 
   // 3. 统计尾随零的个数（Z）。
   uint64_t trailing_zeros =
-      (tail_bits == 0) ? (BITSET_CAPACITY - b_) : (__builtin_ctzll(tail_bits));
+       (tail_bits == 0) ? (BITSET_CAPACITY - b_) : (__builtin_ctzll(tail_bits));
 
   // 4. 读取当前存储的 Z（将溢出桶的高位与稠密桶的低位合并）。
   uint64_t current_msbs = 0;
@@ -81,14 +81,14 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
 
     // 更新稠密桶（低位）。
     dense_bucket_[index] =
-        std::bitset<DENSE_BUCKET_SIZE>(static_cast<unsigned long long>(lsbs));
+         std::bitset<DENSE_BUCKET_SIZE>(static_cast<unsigned long long>(lsbs));
 
     // 更新溢出桶（高位）。
     if (msbs > 0) {
       uint64_t max_overflow = (1ULL << OVERFLOW_BUCKET_SIZE) - 1;
       msbs = std::min(msbs, max_overflow);
       overflow_bucket_[index] =
-          std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long long>(msbs));
+           std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long long>(msbs));
     } else if (it != overflow_bucket_.end()) {
       // 如果 MSBs 变为 0，则移除之前的溢出条目。
       overflow_bucket_.erase(it);
