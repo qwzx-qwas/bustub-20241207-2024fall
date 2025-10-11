@@ -60,7 +60,7 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
 
   // 3. 统计尾随零的个数（Z）。
   uint64_t trailing_zeros =
-       (tail_bits == 0) ? (BITSET_CAPACITY - b_) : (__builtin_ctzll(tail_bits));
+      (tail_bits == 0) ? (BITSET_CAPACITY - b_) : (__builtin_ctzll(tail_bits));
 
   // 4. 读取当前存储的 Z（将溢出桶的高位与稠密桶的低位合并）。
   uint64_t current_msbs = 0;

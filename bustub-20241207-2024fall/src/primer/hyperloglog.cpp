@@ -23,14 +23,14 @@ HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits) : cardinality_(0) {
 
 template <typename KeyType>
 auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const
-     -> std::bitset<BITSET_CAPACITY> {
+    -> std::bitset<BITSET_CAPACITY> {
   // Convert the hash to a BITSET_CAPACITY-bit bitset.
   return std::bitset<BITSET_CAPACITY>(hash);
 }
 
 template <typename KeyType>
 auto HyperLogLog<KeyType>::PositionOfLeftmostOne(
-    const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
+      const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
   // Compute the position of the leftmost 1 bit after excluding the index bits.
   size_t effective_bits = BITSET_CAPACITY - b_;
   for (size_t i = 0; i < effective_bits; ++i) {
