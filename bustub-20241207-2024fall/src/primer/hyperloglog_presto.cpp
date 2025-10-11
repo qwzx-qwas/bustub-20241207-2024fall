@@ -7,15 +7,24 @@
 #include <algorithm>
 
 namespace bustub {
-
+//对负值进行移位操作是未定义行为,因为输入的n_leading_bits是决定尺寸的
 template <typename KeyType>
 HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits)
-    : dense_bucket_(1 << n_leading_bits,
-                    std::bitset<DENSE_BUCKET_SIZE>(0)),
+    : dense_bucket_(),
       overflow_bucket_(),
-      cardinality_(0), 
-      b_ = (std::max(static_cast<int16_t>(0), n_leading_bits)),
-      m_ = (1 << b_) {
+      cardinality_(0) {
+  int16_t effective_b;
+  if (n_leading_bits < 0) {
+    effective_b = 0;
+  } else if (n_leading_bits > 16) {
+    effective_b = 16;
+  } else {
+    effective_b = n_leading_bits;
+  }
+
+  b_ = effective_b;
+  m_ = 1 << b_;
+  dense_bucket_.resize(m_, std::bitset<DENSE_BUCKET_SIZE>(0));
   overflow_bucket_.reserve(m_);
 }
 
@@ -35,12 +44,22 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   auto index = (hash >> (BITSET_CAPACITY - b_)) & (m_ - 1);
 
   // 2. 提取用于计数尾部零的低位（BITSET_CAPACITY - b_ 位）。
-  uint64_t tail_mask = (1ULL << (BITSET_CAPACITY - b_)) - 1;
+  uint64_t tail_mask;
+  uint64_t num_tail_bits = BITSET_CAPACITY - b_;
+
+  //需要考虑到num_tail_bits等于BITSET_CAPACITY的情况
+  //对 64 位无符号整数进行 1≪64 的操作会导致未定义行为
+  if (num_tail_bits == BITSET_CAPACITY) {
+    tail_mask = ~0ULL;
+  } else {
+    tail_mask = (1ULL << num_tail_bits) - 1;
+  }
+
   uint64_t tail_bits = hash & tail_mask;
 
   // 3. 统计尾随零的个数（Z）。
   uint64_t trailing_zeros = (tail_bits == 0) ? (BITSET_CAPACITY - b_)
-                                              : (__builtin_ctzll(tail_bits) );
+                                              : (__builtin_ctzll(tail_bits));
 
   // 4. 读取当前存储的 Z（将溢出桶的高位与稠密桶的低位合并）。
   uint64_t current_msbs = 0;
@@ -48,7 +67,7 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   // 如果溢出桶中存在该索引，则读取其值。
   if (it != overflow_bucket_.end()) {
     current_msbs = it->second.to_ullong();
-  }
+  } 
   
   uint64_t current_lsbs = dense_bucket_[index].to_ullong();
   // 合并高位和低位以获取当前的 Z 值。
@@ -58,17 +77,16 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
   if (trailing_zeros > current_z) {
     uint64_t lsbs = trailing_zeros & ((1ULL << DENSE_BUCKET_SIZE) - 1);
     uint64_t msbs = trailing_zeros >> DENSE_BUCKET_SIZE;
-
     // 更新稠密桶（低位）。
     dense_bucket_[index] =
-        std::bitset<DENSE_BUCKET_SIZE>(static_cast<unsigned long long>(lsbs));
-
+        std::bitset<DENSE_BUCKET_SIZE>(static_cast<unsigned long long>(lsbs));   
     // 更新溢出桶（高位）。
     if (msbs > 0) {
       uint64_t max_overflow = (1ULL << OVERFLOW_BUCKET_SIZE) - 1;
       msbs = std::min(msbs, max_overflow);
       overflow_bucket_[index] =
           std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long long>(msbs));
+          
     } else if (it != overflow_bucket_.end()) {
       // 如果 MSBs 变为 0，则移除之前的溢出条目。
       overflow_bucket_.erase(it);

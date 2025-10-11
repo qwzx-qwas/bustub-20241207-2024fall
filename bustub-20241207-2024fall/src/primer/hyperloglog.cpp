@@ -7,10 +7,21 @@ namespace bustub {
 
 template <typename KeyType>
 HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits)
-    : cardinality_(0),
-      b_(std::max(static_cast<int16_t>(0), n_bits)),
-      m_(1 << n_bits),
-      registers_(m_, 0) {}
+    : cardinality_(0) {
+       
+  int16_t effective_b;
+  if (n_bits < 0) {
+    effective_b = 0;
+  } else if (n_bits > 16) {
+    effective_b = 16;
+  } else {
+    effective_b = n_bits;
+  }
+
+  b_ = effective_b;
+  m_ = 1 << b_;
+  registers_.resize(m_, 0);
+      }
 
 template <typename KeyType>
 auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const
@@ -38,7 +49,7 @@ auto HyperLogLog<KeyType>::PositionOfLeftmostOne(
 template <typename KeyType>
 auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
   /** @TODO(student) Implement this function! */
-  //
+  //使用RSII自动锁管理来处理多线程
   std::lock_guard<std::mutex> lock(mtx_);
   // 获取对应的哈希值。
   hash_t hash = CalculateHash(val);
