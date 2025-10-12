@@ -91,6 +91,7 @@ class HyperLogLog {
   //声明寄存器数组
   std::vector<uint8_t> registers_;
   std::mutex mtx_;
+  
 };
 
 }  // namespace bustub
