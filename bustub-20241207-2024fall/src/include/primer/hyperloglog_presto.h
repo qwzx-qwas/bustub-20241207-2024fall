@@ -89,7 +89,7 @@ class HyperLogLogPresto {
   uint64_t cardinality_;
 
   // TODO(student) - can add more data structures as required
-  //前导位数
+  //前导位数，不能为0
   int16_t b_;
   //桶的数量
   uint16_t m_;
