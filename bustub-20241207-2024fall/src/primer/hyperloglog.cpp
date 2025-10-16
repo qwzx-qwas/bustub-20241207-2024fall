@@ -24,7 +24,7 @@ HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits) : cardinality_(0) {
 template <typename KeyType>
 auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY> {
   // Convert the hash to a BITSET_CAPACITY-bit bitset.
-  return std::bitset<BITSET_CAPACITY>(hash);
+  return {hash};
 }
 
 template <typename KeyType>
@@ -55,9 +55,9 @@ auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
   auto leading_zeros = PositionOfLeftmostOne(binary_low);
 
   // Update register with the max value.
-  uint8_t current_value = registers_[index];
-  uint8_t new_value = static_cast<uint8_t>(leading_zeros);
-  uint8_t max_value = static_cast<uint8_t>(std::max(current_value, new_value));
+  auto current_value = registers_[index];
+  auto new_value = static_cast<uint8_t>(leading_zeros);
+  auto max_value = static_cast<uint8_t>(std::max(current_value, new_value));
   registers_[index] = max_value;
 }
 

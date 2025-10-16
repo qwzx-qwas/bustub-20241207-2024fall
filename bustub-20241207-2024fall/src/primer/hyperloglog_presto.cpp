@@ -11,8 +11,7 @@ namespace bustub {
 
 // 对负值进行移位操作是未定义行为, 因为输入的 n_leading_bits 是决定尺寸的
 template <typename KeyType>
-HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits)
-    : dense_bucket_(), overflow_bucket_(), cardinality_(0) {
+HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits) {
   int16_t effective_b;
   if (n_leading_bits < 0) {
     effective_b = 0;
@@ -26,11 +25,12 @@ HyperLogLogPresto<KeyType>::HyperLogLogPresto(int16_t n_leading_bits)
   m_ = 1 << b_;
   dense_bucket_.resize(m_, std::bitset<DENSE_BUCKET_SIZE>(0));
   overflow_bucket_.reserve(m_);
+  cardinality_ = 0;
 }
 
 template <typename KeyType>
 auto HyperLogLogPresto<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY> {
-  return std::bitset<BITSET_CAPACITY>(hash);
+  return {hash};
 }
 
 template <typename KeyType>
@@ -78,13 +78,13 @@ auto HyperLogLogPresto<KeyType>::AddElem(KeyType val) -> void {
     uint64_t msbs = trailing_zeros >> DENSE_BUCKET_SIZE;
 
     // 更新稠密桶（低位）。
-    dense_bucket_[index] = std::bitset<DENSE_BUCKET_SIZE>(static_cast<unsigned long long>(lsbs));
+    dense_bucket_[index] = std::bitset<DENSE_BUCKET_SIZE>(static_cast<uint64_t>(lsbs));
 
     // 更新溢出桶（高位）。
     if (msbs > 0) {
       uint64_t max_overflow = (1ULL << OVERFLOW_BUCKET_SIZE) - 1;
       msbs = std::min(msbs, max_overflow);
-      overflow_bucket_[index] = std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<unsigned long long>(msbs));
+      overflow_bucket_[index] = std::bitset<OVERFLOW_BUCKET_SIZE>(static_cast<uint64_t>(msbs));
     } else if (it != overflow_bucket_.end()) {
       // 如果 MSBs 变为 0，则移除之前的溢出条目。
       overflow_bucket_.erase(it);
