@@ -1,5 +1,5 @@
 {
-    "cmake.sourceDirectory": "D:/cmu15445/bustub-20241207-2024fall/bustub-20241207-2024fall",
+    "cmake.sourceDirectory": "/mnt/d/cmu15445/bustub-20241207-2024fall",
 
     "C_Cpp.loggingLevel": "Debug"
 }
