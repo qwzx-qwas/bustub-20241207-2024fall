@@ -22,40 +22,55 @@ LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_fra
 }
 //找出应被淘汰的frame（具有最大向后k距离的frame），没有就返回std::nullopt
 auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
-    //加锁
+    // 加锁
     std::lock_guard<std::mutex> lock(latch_);
-    //遍历node_store_，找出具有最大向后k距离的frame
+
+    // 遍历 node_store_，找出具有最大向后 k 距离的 frame
     frame_id_t evict_frame_id = -1;
     size_t max_k_distance = 0;
+    bool has_infinite_distance = false;
+    auto earliestAccessTimeOfLowFrequencyFrames = std::numeric_limits<size_t>::max();
+
     for (const auto &pair : node_store_) {
         const LRUKNode &node = pair.second;
         if (!node.IsEvictable()) {
-            //如果frame不可回收，跳过
+            // 如果 frame 不可回收，跳过
             continue;
         }
+
         size_t k_distance = 0;
         const auto &history = node.GetHistory();
+
         if (history.size() < k_) {
-            //如果访问历史少于k次，向后k距离为无穷大
+            // 如果访问历史少于 k 次，向后 k 距离为无穷大
             k_distance = std::numeric_limits<size_t>::max();
+            if (!has_infinite_distance) {
+                earliestAccessTimeOfLowFrequencyFrames = *history.begin();
+            }
+            has_infinite_distance = true;
         } else {
-            //计算向后k距离
-            k_distance = current_timestamp_ - history.back();
+            // 计算向后 k 距离
+            k_distance = current_timestamp_ - *std::next(history.begin(), history.size() - k_);
         }
-        //更新最大向后k距离及对应的frame_id
-        if (k_distance > max_k_distance) {
+
+        // 更新最大向后 k 距离及对应的 frame_id
+        if (k_distance > max_k_distance && !has_infinite_distance) {
             max_k_distance = k_distance;
             evict_frame_id = node.GetFid();
+        } else if (k_distance == std::numeric_limits<size_t>::max() && has_infinite_distance) {
+            if (history.front() < earliestAccessTimeOfLowFrequencyFrames) {
+                earliestAccessTimeOfLowFrequencyFrames = history.front();
+                evict_frame_id = node.GetFid();
+            }
         }
     }
+
     if (evict_frame_id != -1) {
-        //找到应被淘汰的frame，更新相关数据结构并返回frame_id（算法驱逐）
-        node_store_.erase(evict_frame_id);
-        curr_size_--;
         return evict_frame_id;
     }
-    return std::nullopt; 
+    return std::nullopt;
 }
+
 
 void LRUKReplacer::RecordAccess(frame_id_t frame_id,  AccessType access_type) {
     //加锁
@@ -73,7 +88,7 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id,  AccessType access_type) {
         new_node.SetFid(frame_id);
         new_node.SetK(k_);
         new_node.GetHistoryMutable().push_back(current_timestamp_);
-        new_node.SetIsEvictable(true);
+        new_node.SetIsEvictable(false);
         node_store_[frame_id] = new_node;
     } else {
         //如果frame_id存在，则更新访问历史
@@ -103,7 +118,7 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
         //如果变为可回收，curr_size_加一；否则减一
         if (set_evictable) {
             curr_size_++;
-        } else {
+        } else if (curr_size_ > 0) {
             curr_size_--;
         }
     }
@@ -128,7 +143,7 @@ void LRUKReplacer::Remove(frame_id_t frame_id) {
     }  
     //移除frame_id及其访问历史
     node_store_.erase(it);
-    curr_size_--;
+    curr_size_ = std::max(curr_size_ - 1, size_t(0));
 }
 
 auto LRUKReplacer::Size() -> size_t { 

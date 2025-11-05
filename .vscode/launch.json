@@ -1,34 +1,47 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) Launch",
+            "name": "Debug Bustub LRU-K Replacer Test (Task 1)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/test/hyperloglog_test",
-            "args": ["--gtest_filter=HyperLogLogTest.PrestoBasicTest1"],
+            "program": "${workspaceFolder}/build/test/lru_k_replacer_test",
+            "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/bustub-20241207-2024fall/build",
-            "environment": [],
-            "externalConsole": false,
+            "cwd": "${workspaceFolder}",
+            
+            // ************ 核心修改在这里 ************
+            "environment": [
+                // 告诉 Address/Leak Sanitizer 在调试时禁用泄漏检测
+                // 这将阻止它因为检测到 GDB 而崩溃
+                {
+                    "name": "ASAN_OPTIONS",
+                    "value": "detect_leaks=0" 
+                },
+                // 也设置 LSAN_OPTIONS 以防 ASAN_OPTIONS 不起作用
+                {
+                    "name": "LSAN_OPTIONS",
+                    "value": "detect_leaks=0" 
+                }
+            ],
+            // ****************************************
+            
             "MIMode": "gdb",
-            "miDebuggerPath": "D:/msys64/mingw64/bin/gdb.exe",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "externalConsole": false,
             "setupCommands": [
+                {
+                    "description": "Disable LeakSanitizer for debugging",
+                    // 这是一个 GDB 命令，用于在运行程序前设置环境变量
+                    "text": "set environment ASAN_OPTIONS detect_leaks=0", 
+                    "ignoreFailures": true
+                },
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
-                },
-                {
-                    "description": "Set Disassembly Flavor to Intel",
-                    "text": "-gdb-set disassembly-flavor intel",
-                    "ignoreFailures": true
                 }
             ]
         }
-
     ]
 }
