@@ -39,6 +39,12 @@ class LRUKNode {
    frame_id_t fid_;
    //表示该节点是否可以被移除
    bool is_evictable_{false};
+
+public:
+   auto GetHistory() -> std::list<size_t> { return history_; }
+   auto GetK() -> size_t { return k_; }
+   auto GetFid() -> frame_id_t { return fid_; }
+   auto IsEvictable() -> bool { return is_evictable_; }
 };
 
 /**
