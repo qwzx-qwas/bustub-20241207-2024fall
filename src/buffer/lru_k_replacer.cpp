@@ -46,8 +46,10 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
             k_distance = std::numeric_limits<size_t>::max();
             if (!has_infinite_distance) {
                 earliestAccessTimeOfLowFrequencyFrames = *history.begin();
-            }
-            has_infinite_distance = true;
+                // 记录第一个遇到的无穷大距离的 frame_id,不记录就会漏掉（因为后面的判断条件不够完善）
+                evict_frame_id = node.GetFid();
+                has_infinite_distance = true;
+            }        
         } else {
             // 计算向后 k 距离
             k_distance = current_timestamp_ - *std::next(history.begin(), history.size() - k_);
@@ -66,6 +68,8 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
     }
 
     if (evict_frame_id != -1) {
+        node_store_.erase(evict_frame_id);
+        curr_size_ = std::max(curr_size_ - 1, size_t(0));
         return evict_frame_id;
     }
     return std::nullopt;
@@ -84,12 +88,12 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id,  AccessType access_type) {
     auto it = node_store_.find(frame_id);
     if (it == node_store_.end()) {
         //如果frame_id不存在，则创建新的LRUKNode
-        LRUKNode new_node;
-        new_node.SetFid(frame_id);
-        new_node.SetK(k_);
-        new_node.GetHistoryMutable().push_back(current_timestamp_);
-        new_node.SetIsEvictable(false);
-        node_store_[frame_id] = new_node;
+        auto &node = node_store_[frame_id];
+        node.SetFid(frame_id);
+        node.SetK(k_);
+        node.GetHistoryMutable().push_back(current_timestamp_);
+        //新节点默认不可回收
+        node.SetIsEvictable(false);
     } else {
         //如果frame_id存在，则更新访问历史
         it->second.GetHistoryMutable().push_back(current_timestamp_);

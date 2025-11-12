@@ -2,43 +2,44 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Bustub LRU-K Replacer Test (Task 1)",
+            "name": "Debug Bustub LRU-K Test",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/test/lru_k_replacer_test",
-            "args": [],
+            "args": ["--gtest_filter=*"], 
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
+            "externalConsole": false, // 保持为 false，使用集成终端
+            "internalConsoleOptions": "openOnSessionStart", 
             
-            // ************ 核心修改在这里 ************
-            "environment": [
-                // 告诉 Address/Leak Sanitizer 在调试时禁用泄漏检测
-                // 这将阻止它因为检测到 GDB 而崩溃
-                {
-                    "name": "ASAN_OPTIONS",
-                    "value": "detect_leaks=0" 
-                },
-                // 也设置 LSAN_OPTIONS 以防 ASAN_OPTIONS 不起作用
-                {
-                    "name": "LSAN_OPTIONS",
-                    "value": "detect_leaks=0" 
-                }
-            ],
-            // ****************************************
+            // ----------------------------------------------------
+            // **移除/注释掉 environment 数组**
+            // ----------------------------------------------------
+            // "environment": [
+            //     { "name": "ASAN_OPTIONS", "value": "detect_leaks=0" },
+            //     { "name": "LSAN_OPTIONS", "value": "detect_leaks=0" }
+            // ],
             
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb",
-            "externalConsole": false,
             "setupCommands": [
                 {
-                    "description": "Disable LeakSanitizer for debugging",
-                    // 这是一个 GDB 命令，用于在运行程序前设置环境变量
-                    "text": "set environment ASAN_OPTIONS detect_leaks=0", 
+                    "description": "Enable GDB pretty-printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                // ----------------------------------------------------
+                // **新增：通过 GDB set environment 命令设置变量**
+                // GDB 的 set environment 命令通常比 launch 配置中的 'environment' 更可靠
+                // ----------------------------------------------------
+                {
+                    "description": "Disable ASAN leak detection for debugger",
+                    "text": "set environment ASAN_OPTIONS detect_leaks=0",
                     "ignoreFailures": true
                 },
                 {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
+                    "description": "Disable LSAN leak detection for debugger",
+                    "text": "set environment LSAN_OPTIONS detect_leaks=0",
                     "ignoreFailures": true
                 }
             ]
