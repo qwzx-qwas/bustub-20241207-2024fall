@@ -5,7 +5,7 @@
             "name": "Debug Bustub LRU-K Test",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/test/lru_k_replacer_test",
+            "program": "${workspaceFolder}/build/test/disk_scheduler_test",
             "args": ["--gtest_filter=*"], 
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

@@ -164,15 +164,15 @@ class LRUKReplacer {
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
   //用于记录每个frame的访问历史，key是frame_id，value是对应的LRUKNode（记录访问历史）
-  std::unordered_map<frame_id_t, LRUKNode> node_store_;
+  [[maybe_unused]]std::unordered_map<frame_id_t, LRUKNode> node_store_;
   //记录当前时间戳（全局时间戳）
-  size_t current_timestamp_{0};
+  [[maybe_unused]] size_t current_timestamp_{0};
   //记录当前可驱逐帧的数量
-  size_t curr_size_{0};
+  [[maybe_unused]] size_t curr_size_{0};
   //记录replacer的大小，即buffer pool的帧数
-  size_t replacer_size_;
+  [[maybe_unused]] size_t replacer_size_;
   //LRU-k中的k值
-  size_t k_;
+  [[maybe_unused]] size_t k_;
   //物理锁latch
   std::mutex latch_;
 };
