@@ -26,6 +26,18 @@ namespace bustub {
  * @param replacer A shared pointer to the buffer pool manager's replacer.
  * @param bpm_latch A shared pointer to the buffer pool manager's latch.
  */
+/**
+ * @brief 只读页面保护器 `ReadPageGuard` 的唯一构造函数，用于创建有效的保护器。
+ *
+ * 注意：只有缓冲池管理器被允许调用此构造函数。
+ *
+ * TODO(P1)：添加实现。
+ *
+ * @param page_id 要读取的页面的页面 ID。
+ * @param frame 指向包含要保护页面的帧的共享指针。
+ * @param replacer 指向缓冲池管理器 replacer 的共享指针。
+ * @param bpm_latch 指向缓冲池管理器 latch 的共享指针。
+ */
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
     : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
@@ -47,6 +59,21 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
  *
  * @param that The other page guard.
  */
+/**
+ * @brief `ReadPageGuard` 的移动构造函数。
+ *
+ * ### 实现说明
+ *
+ * 如果你对移动语义不熟悉，请在线查阅相关学习资料。有许多优质资源（文章、微软教程、
+ * YouTube 视频等）对其进行了深入讲解。
+ *
+ * 确保使另一个保护器失效，否则可能遇到 double free 问题！对于两个对象，
+ * 你至少需要更新 5 个字段。
+ *
+ * TODO(P1)：添加实现。
+ *
+ * @param that 另一个页面保护器。
+ */
 ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {}
 
 /**
@@ -66,10 +93,29 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {}
  * @param that The other page guard.
  * @return ReadPageGuard& The newly valid `ReadPageGuard`.
  */
+/**
+ * @brief `ReadPageGuard` 的移动赋值运算符。
+ *
+ * ### 实现说明
+ *
+ * 如果你对移动语义不熟悉，请在线查阅相关学习资料。有许多优质资源（文章、微软教程、
+ * YouTube 视频等）对其进行了深入讲解。
+ *
+ * 确保使另一个保护器失效，否则可能遇到 double free 问题！对于两个对象，
+ * 你至少需要更新 5 个字段；对于当前对象，确保释放它可能持有的任何资源。
+ *
+ * TODO(P1)：添加实现。
+ *
+ * @param that 另一个页面保护器。
+ * @return ReadPageGuard& 新的有效 `ReadPageGuard` 引用。
+ */
 auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & { return *this; }
 
 /**
  * @brief Gets the page ID of the page this guard is protecting.
+ */
+/**
+ * @brief 获取该保护器所保护页面的页面 ID。
  */
 auto ReadPageGuard::GetPageId() const -> page_id_t {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");
@@ -79,6 +125,9 @@ auto ReadPageGuard::GetPageId() const -> page_id_t {
 /**
  * @brief Gets a `const` pointer to the page of data this guard is protecting.
  */
+/**
+ * @brief 获取指向该保护器保护的页面数据的只读指针（const 指针）。
+ */
 auto ReadPageGuard::GetData() const -> const char * {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");
   return frame_->GetData();
@@ -86,6 +135,9 @@ auto ReadPageGuard::GetData() const -> const char * {
 
 /**
  * @brief Returns whether the page is dirty (modified but not flushed to the disk).
+ */
+/**
+ * @brief 返回页面是否为脏页（已修改但尚未刷写到磁盘）。
  */
 auto ReadPageGuard::IsDirty() const -> bool {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");
@@ -103,9 +155,20 @@ auto ReadPageGuard::IsDirty() const -> bool {
  *
  * TODO(P1): Add implementation.
  */
+/**
+ * @brief 手动释放一个有效 `ReadPageGuard` 的资源。如果该保护器无效，此函数不执行任何操作。
+ *
+ * ### 实现说明
+ *
+ * 确保不要重复释放（double free）！同时要非常仔细地考虑你所拥有的资源以及释放这些资源的顺序。
+ * 如果顺序错误，很可能导致后续的 Gradescope 测试失败。在某些特定场景下，你可能还需要获取缓冲池管理器的 latch。
+ *
+ * TODO(P1)：添加实现。
+ */
 void ReadPageGuard::Drop() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
+/** @brief `ReadPageGuard` 的析构函数。该析构函数简单地调用 `Drop()`。 */
 ReadPageGuard::~ReadPageGuard() { Drop(); }
 
 /**********************************************************************************************************************/
@@ -123,6 +186,18 @@ ReadPageGuard::~ReadPageGuard() { Drop(); }
  * @param frame A shared pointer to the frame that holds the page we want to protect.
  * @param replacer A shared pointer to the buffer pool manager's replacer.
  * @param bpm_latch A shared pointer to the buffer pool manager's latch.
+ */
+/**
+ * @brief 只写页面保护器 `WritePageGuard` 的唯一构造函数，用于创建有效的保护器。
+ *
+ * 注意：只有缓冲池管理器被允许调用此构造函数。
+ *
+ * TODO(P1)：添加实现。
+ *
+ * @param page_id 要写入的页面的页面 ID。
+ * @param frame 指向包含要保护页面的帧的共享指针。
+ * @param replacer 指向缓冲池管理器 replacer 的共享指针。
+ * @param bpm_latch 指向缓冲池管理器 latch 的共享指针。
  */
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
@@ -145,6 +220,21 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
  *
  * @param that The other page guard.
  */
+/**
+ * @brief `WritePageGuard` 的移动构造函数。
+ *
+ * ### 实现说明
+ *
+ * 如果你对移动语义不熟悉，请在线查阅相关学习资料。有许多优质资源（文章、微软教程、
+ * YouTube 视频等）对其进行了深入讲解。
+ *
+ * 确保使另一个保护器失效，否则可能遇到 double free 问题！对于两个对象，
+ * 你至少需要更新 5 个字段。
+ *
+ * TODO(P1)：添加实现。
+ *
+ * @param that 另一个页面保护器。
+ */
 WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {}
 
 /**
@@ -164,10 +254,29 @@ WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {}
  * @param that The other page guard.
  * @return WritePageGuard& The newly valid `WritePageGuard`.
  */
+/**
+ * @brief `WritePageGuard` 的移动赋值运算符。
+ *
+ * ### 实现说明
+ *
+ * 如果你对移动语义不熟悉，请在线查阅相关学习资料。有许多优质资源（文章、微软教程、
+ * YouTube 视频等）对其进行了深入讲解。
+ *
+ * 确保使另一个保护器失效，否则可能遇到 double free 问题！对于两个对象，
+ * 你至少需要更新 5 个字段；对于当前对象，确保释放它可能持有的任何资源。
+ *
+ * TODO(P1)：添加实现。
+ *
+ * @param that 另一个页面保护器。
+ * @return WritePageGuard& 新的有效 `WritePageGuard` 引用。
+ */
 auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard & { return *this; }
 
 /**
  * @brief Gets the page ID of the page this guard is protecting.
+ */
+/**
+ * @brief 获取该保护器所保护页面的页面 ID。
  */
 auto WritePageGuard::GetPageId() const -> page_id_t {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
@@ -177,6 +286,9 @@ auto WritePageGuard::GetPageId() const -> page_id_t {
 /**
  * @brief Gets a `const` pointer to the page of data this guard is protecting.
  */
+/**
+ * @brief 获取指向该保护器保护的页面数据的只读指针（const 指针）。
+ */
 auto WritePageGuard::GetData() const -> const char * {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
   return frame_->GetData();
@@ -185,6 +297,9 @@ auto WritePageGuard::GetData() const -> const char * {
 /**
  * @brief Gets a mutable pointer to the page of data this guard is protecting.
  */
+/**
+ * @brief 获取指向该保护器保护的页面数据的可变指针（用于写操作）。
+ */
 auto WritePageGuard::GetDataMut() -> char * {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
   return frame_->GetDataMut();
@@ -192,6 +307,9 @@ auto WritePageGuard::GetDataMut() -> char * {
 
 /**
  * @brief Returns whether the page is dirty (modified but not flushed to the disk).
+ */
+/**
+ * @brief 返回页面是否为脏页（已修改但尚未刷写到磁盘）。
  */
 auto WritePageGuard::IsDirty() const -> bool {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
@@ -209,9 +327,20 @@ auto WritePageGuard::IsDirty() const -> bool {
  *
  * TODO(P1): Add implementation.
  */
+/**
+ * @brief 手动释放一个有效 `WritePageGuard` 的资源。如果该保护器无效，此函数不执行任何操作。
+ *
+ * ### 实现说明
+ *
+ * 确保不要重复释放（double free）！同时要非常仔细地考虑你所拥有的资源以及释放这些资源的顺序。
+ * 如果顺序错误，很可能导致后续的 Gradescope 测试失败。在某些特定场景下，你可能还需要获取缓冲池管理器的 latch。
+ *
+ * TODO(P1)：添加实现。
+ */
 void WritePageGuard::Drop() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
 
 /** @brief The destructor for `WritePageGuard`. This destructor simply calls `Drop()`. */
+/** @brief `WritePageGuard` 的析构函数。该析构函数简单地调用 `Drop()`。 */
 WritePageGuard::~WritePageGuard() { Drop(); }
 
 }  // namespace bustub
