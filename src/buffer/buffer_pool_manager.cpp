@@ -167,6 +167,7 @@ auto BufferPoolManager::UnpinPage(frame_id_t frame_id) -> void {
   if (frames_[frame_id] -> pin_count_.load() > 0) {
     frames_[frame_id] -> pin_count_.fetch_sub(1);
     if (frames_[frame_id] -> pin_count_.load() == 0) {
+      //只标记为可驱逐，不进行驱逐操作
       replacer_ -> SetEvictable(frame_id, true);
     }
   }
@@ -207,7 +208,18 @@ auto BufferPoolManager::UnpinPage(frame_id_t frame_id) -> void {
  *
  * @return 新分配页面的页面 ID。
  */
-auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::NewPage() -> page_id_t {
+  std::scoped_lock latch(*bpm_latch_);
+
+  //创建一个新的page id
+  page_id_t new_page_id = next_page_id_.fetch_add(1);
+
+  //通知disk scheduler增加磁盘空间
+  disk_scheduler_ -> IncreaseDiskSpace();
+
+  return new_page_id;
+  
+}
 
 /**
  * @brief Removes a page from the database, both on disk and in memory.
@@ -254,7 +266,37 @@ auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add im
  * @param page_id 要删除的页面 ID。
  * @return 如果页面存在但无法删除返回 `false`，如果页面不存在或删除成功返回 `true`。
  */
-auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { 
+  std::scoped_lock latch(*bpm_latch_);
+  //检查页面是否在页表中
+  auto page_table_iter = page_table_.find(page_id);
+  if (page_table_iter == page_table_.end()) {
+    //页面不存在，返回true
+    return true;
+  } else {
+    frame_id_t frame_id = page_table_iter->second;;
+    //检查页面是否被固定
+    if (GetPinCount(frame_id) > 0) { 
+      //页面被固定，无法删除，返回false
+      return false;
+    } else {
+      //页面未被固定，可以删除
+      //如果页面是脏的，则先写回磁盘
+      if (frames_[frame_id] -> is_dirty_) {
+        CheckedWritePage(page_id, frames_[frame_id] -> GetData());
+      }
+      //清空当前帧数据
+      frames_[frame_id] -> Reset();
+      //从页表中移除页面
+      page_table_.erase(page_table_iter);
+      //将帧标记为可驱逐
+      replacer_ -> setEvictable(frame_id, true);
+      //将帧加入空闲帧列表
+      free_frames_.push_back(frame_id);
+      return true;
+    }
+  }
+}
 
 /**
  * @brief Acquires an optional write-locked guard over a page of data. The user can specify an `AccessType` if needed.
@@ -300,9 +342,11 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("T
  *
  * 如果无法将页面数据加载到内存中，该函数将返回 `std::nullopt`。
  *
- * 页面数据只能通过页面保护器访问。`BufferPoolManager` 的使用者应根据需要获取 `ReadPageGuard` 或 `WritePageGuard`，以保证对数据的线程安全访问。
+ * 页面数据只能通过页面保护器访问。`BufferPoolManager` 的使用者应根据需要获取 `ReadPageGuard` 或 `WritePageGuard`，
+ * 以保证对数据的线程安全访问。
  *
- * 同一时间只允许一个 `WritePageGuard` 对页面进行读写。这使得数据访问可以是不可变或可变的，持有 `WritePageGuard` 的线程可以任意修改页面数据。
+ * 同一时间只允许一个 `WritePageGuard` 对页面进行读写。这使得数据访问可以是不可变或可变的，
+ * 持有 `WritePageGuard` 的线程可以任意修改页面数据。
  * 如果用户想让多个线程同时读取页面，则应使用 `CheckedReadPage` 获取 `ReadPageGuard`。
  *
  * ### 实现说明
@@ -321,12 +365,63 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("T
  *
  * @param page_id 要写入的页面的 ID。
  * @param access_type 页面访问类型。
- * @return std::optional<WritePageGuard> 如果没有可用空闲帧（内存耗尽）返回 `std::nullopt`，否则返回保证独占可变访问的 `WritePageGuard`。
+ * @return std::optional<WritePageGuard> 如果没有可用空闲帧（内存耗尽）返回 `std::nullopt`，
+ * 否则返回保证独占可变访问的 `WritePageGuard`。
  */
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::scoped_lock latch(*bpm_latch_);
+  
+  if (!free_frames_.empty()) {
+    //内存充足而且页面已在内存中
+    auto page_table_iter = page_table_.find(page_id);
+    if (page_table_iter != page_table_.end()) {
+      return WritePageGuard(this, page_id, page_table_iter->second, access_type);
+    } else {
+      //内存充足但页面不在内存中
+      //从空闲帧列表中取出一个空闲帧
+      frame_id_t frame_id = free_frames_.front();
+      //将该帧从空闲列表中移除
+      free_frames_.pop_front();
+      //更新页表,即将page_id映射到frame_id
+      page_table_[page_id] = frame_id;
+      //从磁盘读取页面数据到该帧
+      disk_scheduler_ -> ReadPage(page_id, frames_[frame_id] -> GetDataMut());
+      //返回WritePageGuard
+      return WritePageGuard(this, page_id, frame_id, access_type);
+    }
+  } else {
+    //内存不足需要驱逐页面
+    //尝试从替换器中选择一个可驱逐的帧
+    auto evict_frame_id_opt = replacer_ -> evict();
+    //检查是否成功选择了一个帧
+    if (!evict_frame_id_opt.has_value()) {
+      //没有可驱逐的帧，返回std::nullopt
+      return std::nullopt;
+    }
+    //获取要驱逐的帧ID
+    frame_id_t evict_frame_id = evict_frame_id_opt.value();
+    //获取该帧对应的页面ID
+    page_id_t evict_page_id = 0;
+    for (const auto &entry : page_table_) {
+      if (entry.second == evict_frame_id) {
+        evict_page_id = entry.first;
+        break;
+      }
+    }
+    //如果该页面是脏的，则先写回磁盘
+    if (frames_[evict_frame_id] -> is_dirty_) {
+      disk_scheduler_ -> WritePage(evict_page_id, frames_[evict_frame_id] -> GetData());
+    }
+    //从页表中移除被驱逐页面的映射
+    page_table_.erase(evict_page_id);
+    //更新页表,即将新的page_id映射到被驱逐的frame_id
+    page_table_[page_id] = evict_frame_id;
+    //从磁盘读取新页面数据到该帧
+    disk_scheduler_ -> ReadPage(page_id, frames_[evict_frame_id] -> GetDataMut());
+    //返回WritePageGuard
+    return WritePageGuard(this, page_id, evict_frame_id, access_type);
+  }
 }
-
 /**
  * @brief Acquires an optional read-locked guard over a page of data. The user can specify an `AccessType` if needed.
  *
@@ -356,9 +451,11 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  *
  * 如果无法将页面数据加载到内存中，该函数将返回 `std::nullopt`。
  *
- * 页面数据只能通过页面保护器访问。`BufferPoolManager` 的使用者应根据需要获取 `ReadPageGuard` 或 `WritePageGuard`，以保证对数据的线程安全访问。
+ * 页面数据只能通过页面保护器访问。`BufferPoolManager` 的使用者应根据需要获取 `ReadPageGuard` 或 `WritePageGuard`，
+ * 以保证对数据的线程安全访问。
  *
- * 可以同时存在任意数量的 `ReadPageGuard` 在不同线程中读取同一页面，但所有访问必须是只读的。如果需要修改页面数据，应使用 `CheckedWritePage` 获取 `WritePageGuard`。
+ * 可以同时存在任意数量的 `ReadPageGuard` 在不同线程中读取同一页面，但所有访问必须是只读的。如果需要修改页面数据，
+ * 应使用 `CheckedWritePage` 获取 `WritePageGuard`。
  *
  * ### 实现说明
  *
@@ -371,7 +468,57 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  * @return std::optional<ReadPageGuard> 如果没有可用空闲帧（内存耗尽）返回 `std::nullopt`，否则返回保证共享只读访问的 `ReadPageGuard`。
  */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::scoped_lock latch(*bpm_latch_);
+  
+  if (!free_frames_.empty()) {
+    //内存充足而且页面已在内存中
+    auto page_table_iter = page_table_.find(page_id);
+    if (page_table_iter != page_table_.end()) {
+      return ReadPageGuard(this, page_id, page_table_iter->second, access_type);
+    } else {
+      //内存充足但页面不在内存中
+      //从空闲帧列表中取出一个空闲帧
+      frame_id_t frame_id = free_frames_.front();
+      //将该帧从空闲列表中移除
+      free_frames_.pop_front();
+      //更新页表,即将page_id映射到frame_id
+      page_table_[page_id] = frame_id;
+      //从磁盘读取页面数据到该帧
+      disk_scheduler_ -> ReadPage(page_id, frames_[frame_id] -> GetDataMut());
+      //返回ReadPageGuard
+      return ReadPageGuard(this, page_id, frame_id, access_type);
+    }
+  } else {
+    //内存不足需要驱逐页面
+    //尝试从替换器中选择一个可驱逐的帧
+    auto evict_frame_id_opt = replacer_ -> evict();
+    //检查是否成功选择了一个帧
+    if (!evict_frame_id_opt.has_value()) {
+      //没有可驱逐的帧，返回std::nullopt
+      return std::nullopt;
+    }
+    //获取要驱逐的帧ID
+    frame_id_t evict_frame_id = evict_frame_id_opt.value();
+    //获取该帧对应的页面ID
+    page_id_t evict_page_id = 0;
+    for (const auto &entry : page_table_) {
+      if (entry.second == evict_frame_id) {
+        evict_page_id = entry.first;
+        break;
+      }
+    }
+    //如果该页面是脏的，则先写回磁盘
+    if (frames_[evict_frame_id] -> is_dirty_) {
+      disk_scheduler_ -> WritePage(evict_page_id, frames_[evict_frame_id] -> GetData());
+    }
+    //从页表中移除被驱逐页面的映射
+    page_table_.erase(evict_page_id);
+    //更新页表,即将新的page_id映射到被驱逐的frame_id
+    page_table_[page_id] = evict_frame_id;
+    //从磁盘读取新页面数据到该帧
+    disk_scheduler_ -> ReadPage(page_id, frames_[evict_frame_id] -> GetDataMut());
+    //返回ReadPageGuard
+    return ReadPageGuard(this, page_id, evict_frame_id, access_type);
 }
 
 /**
