@@ -82,7 +82,9 @@ class FrameHeader {
   explicit FrameHeader(frame_id_t frame_id);
 
  private:
+  //只读访问
   auto GetData() const -> const char *;
+  //可变访问
   auto GetDataMut() -> char *;
   void Reset();
 
@@ -165,6 +167,7 @@ class BufferPoolManager {
   auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
   auto PinPage(frame_id_t frame_id) -> void;
   auto UnpinPage(frame_id_t frame_id) -> void;
+  auto ReadPageFromDisk(page_id_t page_id, std::shared_ptr<FrameHeader> frame) -> void;
 
  private:
   /** @brief The number of frames in the buffer pool. */

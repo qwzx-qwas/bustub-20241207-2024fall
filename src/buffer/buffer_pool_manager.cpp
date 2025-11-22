@@ -283,7 +283,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
       //页面未被固定，可以删除
       //如果页面是脏的，则先写回磁盘
       if (frames_[frame_id] -> is_dirty_) {
-        CheckedWritePage(page_id, frames_[frame_id] -> GetData());
+        FlushPage(page_id);
       }
       //清空当前帧数据
       frames_[frame_id] -> Reset();
@@ -368,6 +368,29 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
  * @return std::optional<WritePageGuard> 如果没有可用空闲帧（内存耗尽）返回 `std::nullopt`，
  * 否则返回保证独占可变访问的 `WritePageGuard`。
  */
+
+ //二者的辅助方法
+
+ //从磁盘读取页面到帧
+ auto BufferPoolManager::ReadPageFromDisk(page_id_t page_id, std::shared_ptr<FrameHeader> frame) -> void {
+  //创建promise和future用于异步操作 
+  std::promise<void> promise;
+  auto future = promise.get_future();
+
+  //创建磁盘请求
+  DiskRequest req;
+  req.is_write = false;
+  req.page_id = page_id;
+  req.data_ = frame -> GetData();
+  req.callback_ = std::move(promise);
+  //将请求添加到磁盘调度器
+  disk_scheduler_ -> ScheduleRequest(std::move(req));
+  //等待异步操作完成
+  future.get();
+ }
+
+
+
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
   std::scoped_lock latch(*bpm_latch_);
   
@@ -375,6 +398,9 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     //内存充足而且页面已在内存中
     auto page_table_iter = page_table_.find(page_id);
     if (page_table_iter != page_table_.end()) {
+      //让pin_count+1
+      PinPage(page_table_iter->second);
+      //返回WritePageGuard
       return WritePageGuard(this, page_id, page_table_iter->second, access_type);
     } else {
       //内存充足但页面不在内存中
@@ -385,7 +411,9 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       //更新页表,即将page_id映射到frame_id
       page_table_[page_id] = frame_id;
       //从磁盘读取页面数据到该帧
-      disk_scheduler_ -> ReadPage(page_id, frames_[frame_id] -> GetDataMut());
+      ReadPageFromDisk(page_id, frames_[frame_id]);
+      //对pin_count进行+1操作
+      PinPage(frame_id);
       //返回WritePageGuard
       return WritePageGuard(this, page_id, frame_id, access_type);
     }
@@ -410,14 +438,16 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     }
     //如果该页面是脏的，则先写回磁盘
     if (frames_[evict_frame_id] -> is_dirty_) {
-      disk_scheduler_ -> WritePage(evict_page_id, frames_[evict_frame_id] -> GetData());
+      FlushPage(evict_page_id);
     }
     //从页表中移除被驱逐页面的映射
     page_table_.erase(evict_page_id);
     //更新页表,即将新的page_id映射到被驱逐的frame_id
     page_table_[page_id] = evict_frame_id;
     //从磁盘读取新页面数据到该帧
-    disk_scheduler_ -> ReadPage(page_id, frames_[evict_frame_id] -> GetDataMut());
+    ReadPageFromDisk(page_id, frames_[evict_frame_id]);
+    //对pin_count进行+1操作
+    PinPage(evict_frame_id);
     //返回WritePageGuard
     return WritePageGuard(this, page_id, evict_frame_id, access_type);
   }
@@ -474,6 +504,8 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     //内存充足而且页面已在内存中
     auto page_table_iter = page_table_.find(page_id);
     if (page_table_iter != page_table_.end()) {
+      //对pin_count进行+1操作
+      PinPage(page_table_iter->second);
       return ReadPageGuard(this, page_id, page_table_iter->second, access_type);
     } else {
       //内存充足但页面不在内存中
@@ -484,7 +516,9 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
       //更新页表,即将page_id映射到frame_id
       page_table_[page_id] = frame_id;
       //从磁盘读取页面数据到该帧
-      disk_scheduler_ -> ReadPage(page_id, frames_[frame_id] -> GetDataMut());
+      ReadPageFromDisk(page_id, frames_[frame_id]);
+      //对pin_count进行+1操作
+      PinPage(frame_id);
       //返回ReadPageGuard
       return ReadPageGuard(this, page_id, frame_id, access_type);
     }
@@ -509,14 +543,16 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     }
     //如果该页面是脏的，则先写回磁盘
     if (frames_[evict_frame_id] -> is_dirty_) {
-      disk_scheduler_ -> WritePage(evict_page_id, frames_[evict_frame_id] -> GetData());
+      FlushPage(evict_page_id);
     }
     //从页表中移除被驱逐页面的映射
     page_table_.erase(evict_page_id);
     //更新页表,即将新的page_id映射到被驱逐的frame_id
     page_table_[page_id] = evict_frame_id;
     //从磁盘读取新页面数据到该帧
-    disk_scheduler_ -> ReadPage(page_id, frames_[evict_frame_id] -> GetDataMut());
+    ReadPageFromDisk(page_id, frames_[evict_frame_id]);
+    //对pin_count进行+1操作
+    PinPage(evict_frame_id);
     //返回ReadPageGuard
     return ReadPageGuard(this, page_id, evict_frame_id, access_type);
 }
@@ -627,7 +663,38 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * @param page_id 要刷新的页面 ID。
  * @return 如果页表中找不到页面返回 `false`，否则返回 `true`。
  */
-auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
+  std::scoped_lock latch(*bpm_latch_);
+  //检查页面是否在页表中
+  auto page_table_iter = page_table_.find(page_id);
+  if (page_table_iter == page_table_.end()) {
+    //如果内存中找不到页面，返回false
+    return false;
+  }
+  frame_id_t frame_id = page_table_iter->second;
+  if (frames_[frame_id] -> is_dirty_) {
+    //如果页面是脏的，则写回磁盘
+
+    //构造写请求
+    std::promise<bool> promise;
+    std::future<bool> future = promise.get_future();
+
+    DiskRequest req;
+    req.is_write_ = true;
+    req.page_id_ = page_id;
+    req.data_ = frames_[frame_id] -> GetDataMut();
+    req.callback_ = std::move(promise);
+
+    //将写请求添加到磁盘调度器
+    disk_scheduler_ -> ScheduleRequest(std::move(req));
+    //等待写操作完成
+    future.get(); 
+
+    //将页面标记为非脏
+    frames_[frame_id] -> is_dirty_ = false;
+  }
+  return true;
+}
 
 /**
  * @brief Flushes all page data that is in memory to disk.
@@ -648,7 +715,11 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TO
  *
  * TODO(P1)：添加实现。
  */
-void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void BufferPoolManager::FlushAllPages() { 
+  for (const auto &entry : page_table_) {
+   FlushPage(entry.first);
+  }
+ }
 
 /**
  * @brief Retrieves the pin count of a page. If the page does not exist in memory, return `std::nullopt`.
@@ -708,5 +779,5 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   }
   return frames_[frame_id]->pin_count_.load();
 }
-
+}
 }  // namespace bustub
