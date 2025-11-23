@@ -76,7 +76,20 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
  *
  * @param that 另一个页面保护器。
  */
-ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {}
+ //移动构造函数
+ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
+  this.page_id_ = that.page_id_;
+  this.frame_ = std::move(that.frame_);
+  this.replacer_ = std::move(that.replacer_);
+  this.bpm_latch_ = std::move(that.bpm_latch_);
+  this.is_valid_ = that.is_valid_;
+  // 确保使 `that` 失效
+  that.page_id_ = INVALID_PAGE_ID;
+  that.frame_ = nullptr;
+  that.replacer_ = nullptr;
+  that.bpm_latch_ = nullptr;
+  that.is_valid_ = false;
+}
 
 /**
  * @brief The move assignment operator for `ReadPageGuard`.
@@ -111,7 +124,30 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {}
  * @param that 另一个页面保护器。
  * @return ReadPageGuard& 新的有效 `ReadPageGuard` 引用。
  */
-auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & { return *this; }
+ //移动赋值运算符
+auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
+  //防止自赋值
+  if (this == &that) {
+    return *this;
+  }
+  //释放当前对象的资源
+  if(is_valid_) {
+    Drop();
+  }
+  this.page_id_ = that.page_id_;
+  this.frame_ = std::move(that.frame_);
+  this.replacer_ = std::move(that.replacer_);
+  this.bpm_latch_ = std::move(that.bpm_latch_);
+  this.is_valid_ = that.is_valid_;
+
+  //清空that的资源
+  that.page_id_ = INVALID_PAGE_ID;
+  that.frame_ = nullptr;
+  that.replacer_ = nullptr;
+  that.bpm_latch_ = nullptr;
+  that.is_valid_ = false;
+  return *this;
+}
 
 /**
  * @brief Gets the page ID of the page this guard is protecting.
@@ -167,7 +203,9 @@ auto ReadPageGuard::IsDirty() const -> bool {
  *
  * TODO(P1)：添加实现。
  */
-void ReadPageGuard::Drop() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void ReadPageGuard::Drop() {
+  
+}
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
 /** @brief `ReadPageGuard` 的析构函数。该析构函数简单地调用 `Drop()`。 */
@@ -204,7 +242,10 @@ ReadPageGuard::~ReadPageGuard() { Drop(); }
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
     : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  frame_->pin_count_.fetch_add(1);
+  replacer_->RecordAccess(frame_->frame_id_);
+  replacer_->SetEvictable(frame_->frame_id_, false);
+
 }
 
 /**
@@ -237,7 +278,19 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
  *
  * @param that 另一个页面保护器。
  */
-WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {}
+WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
+  this.page_id_ = that.page_id_;
+  this.frame_ = std::move(that.frame_);
+  this.replacer_ = std::move(that.replacer_);
+  this.bpm_latch_ = std::move(that.bpm_latch_);
+  this.is_valid_ = that.is_valid_;
+  // 确保使 `that` 失效
+  that.page_id_ = INVALID_PAGE_ID;
+  that.frame_ = nullptr;
+  that.replacer_ = nullptr;
+  that.bpm_latch_ = nullptr;
+  that.is_valid_ = false;
+}
 
 /**
  * @brief The move assignment operator for `WritePageGuard`.
@@ -272,7 +325,27 @@ WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {}
  * @param that 另一个页面保护器。
  * @return WritePageGuard& 新的有效 `WritePageGuard` 引用。
  */
-auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard & { return *this; }
+auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard & {
+  if (this == &that) {
+    return *this;
+  }
+  //释放当前对象的资源
+  if(is_valid_) {
+    Drop();
+  }
+  this.page_id_ = that.page_id_;
+  this.frame_ = std::move(that.frame_);
+  this.replacer_ = std::move(that.replacer_);
+  this.bpm_latch_ = std::move(that.bpm_latch_);
+  this.is_valid_ = that.is_valid_;
+  // 确保使 `that` 失效
+  that.page_id_ = INVALID_PAGE_ID;
+  that.frame_ = nullptr;
+  that.replacer_ = nullptr;
+  that.bpm_latch_ = nullptr;
+  that.is_valid_ = false;
+  return *this; 
+}
 
 /**
  * @brief Gets the page ID of the page this guard is protecting.
@@ -339,7 +412,9 @@ auto WritePageGuard::IsDirty() const -> bool {
  *
  * TODO(P1)：添加实现。
  */
-void WritePageGuard::Drop() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void WritePageGuard::Drop() {
+  
+}
 
 /** @brief The destructor for `WritePageGuard`. This destructor simply calls `Drop()`. */
 /** @brief `WritePageGuard` 的析构函数。该析构函数简单地调用 `Drop()`。 */

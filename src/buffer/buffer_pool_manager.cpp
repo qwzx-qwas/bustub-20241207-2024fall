@@ -161,18 +161,18 @@ auto BufferPoolManager::PinPage(frame_id_t frame_id) -> void {
   replacer_ -> RecordAccess(frame_id);
 }
 
-//UnpinPage
+/*UnpinPage
 auto BufferPoolManager::UnpinPage(frame_id_t frame_id) -> void {
-  std::scoped_lock latch(*bpm_latch_);
+  std::scoped_lock latch(*bpm_latch_); 
   if (frames_[frame_id] -> pin_count_.load() > 0) {
     frames_[frame_id] -> pin_count_.fetch_sub(1);
-    if (frames_[frame_id] -> pin_count_.load() == 0) {
+  if (frames_[frame_id] -> pin_count_.load() == 0) {
       //只标记为可驱逐，不进行驱逐操作
-      replacer_ -> SetEvictable(frame_id, true);
+    replacer_ -> SetEvictable(frame_id, true);
     }
   }
 }
-
+*/
 /**
  * @brief Allocates a new page on disk.
  *
