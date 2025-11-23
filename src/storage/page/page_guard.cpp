@@ -137,7 +137,7 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
   this.page_id_ = that.page_id_;
   this.frame_ = std::move(that.frame_);
   this.replacer_ = std::move(that.replacer_);
-  this.bpm_latch_ = std::move(that.bpm_latch_);
+  this.bpm_latch_ = std::move(that.bpm_latch_); 
   this.is_valid_ = that.is_valid_;
 
   //清空that的资源
@@ -204,7 +204,26 @@ auto ReadPageGuard::IsDirty() const -> bool {
  * TODO(P1)：添加实现。
  */
 void ReadPageGuard::Drop() {
-  
+  if(page_id_ == INVALID_PAGE_ID) {
+    return;
+  }
+  //释放页面读锁
+  page_->RUnlatch();
+  //更新pin计数
+  std::scoped_lock latch(*bpm_latch_); 
+  if (frame_->pin_count_.load() > 0) {
+    frame_->pin_count_.fetch_sub(1);
+    if (frame_->pin_count_.load() == 0) {
+      //只标记为可驱逐，不进行驱逐操作
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
+  }
+  //将当前对象置为无效
+  page_id_ = INVALID_PAGE_ID;
+  frame_ = nullptr;
+  replacer_ = nullptr;
+  bpm_latch_ = nullptr;
+  is_valid_ = false;
 }
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
@@ -413,7 +432,26 @@ auto WritePageGuard::IsDirty() const -> bool {
  * TODO(P1)：添加实现。
  */
 void WritePageGuard::Drop() {
-  
+  if(page_id_ == INVALID_PAGE_ID) {
+    return;
+  }
+  //释放页面写锁
+  page_->WUnlatch();
+  //更新pin计数
+  std::scoped_lock latch(*bpm_latch_); 
+  if (frame_->pin_count_.load() > 0) {
+    frame_->pin_count_.fetch_sub(1);
+  }
+  if (frame_->pin_count_.load() == 0) {
+    //只标记为可驱逐，不进行驱逐操作
+    replacer_->SetEvictable(frame_->frame_id_, true);
+  }
+  //将当前对象置为无效
+  page_id_ = INVALID_PAGE_ID;
+  frame_ = nullptr;
+  replacer_ = nullptr;
+  bpm_latch_ = nullptr;
+  is_valid_ = false;
 }
 
 /** @brief The destructor for `WritePageGuard`. This destructor simply calls `Drop()`. */
