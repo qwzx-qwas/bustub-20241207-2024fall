@@ -215,7 +215,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
   page_id_t new_page_id = next_page_id_.fetch_add(1);
 
   //通知disk scheduler增加磁盘空间
-  disk_scheduler_ -> IncreaseDiskSpace();
+  disk_scheduler_ -> IncreaseDiskSpace(1);
 
   return new_page_id;
   
@@ -290,7 +290,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
       //从页表中移除页面
       page_table_.erase(page_table_iter);
       //将帧标记为可驱逐
-      replacer_ -> setEvictable(frame_id, true);
+      replacer_ -> SetEvictable(frame_id, true);
       //将帧加入空闲帧列表
       free_frames_.push_back(frame_id);
       return true;
@@ -374,17 +374,17 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
  //从磁盘读取页面到帧
  auto BufferPoolManager::ReadPageFromDisk(page_id_t page_id, std::shared_ptr<FrameHeader> frame) -> void {
   //创建promise和future用于异步操作 
-  std::promise<void> promise;
+  std::promise<bool> promise;
   auto future = promise.get_future();
 
   //创建磁盘请求
   DiskRequest req;
-  req.is_write = false;
-  req.page_id = page_id;
-  req.data_ = frame -> GetData();
+  req.is_write_ = false;
+  req.page_id_ = page_id;
+  req.data_ = frame -> GetDataMut();
   req.callback_ = std::move(promise);
   //将请求添加到磁盘调度器
-  disk_scheduler_ -> ScheduleRequest(std::move(req));
+  disk_scheduler_ -> Schedule(std::move(req));
   //等待异步操作完成
   future.get();
  }
@@ -401,7 +401,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       //让pin_count+1
       PinPage(page_table_iter->second);
       //返回WritePageGuard
-      return WritePageGuard(this, page_id, page_table_iter->second, access_type);
+      return WritePageGuard(page_id, frames_[page_table_iter->second], replacer_, bpm_latch_);
     } else {
       //内存充足但页面不在内存中
       //从空闲帧列表中取出一个空闲帧
@@ -410,17 +410,19 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       free_frames_.pop_front();
       //更新页表,即将page_id映射到frame_id
       page_table_[page_id] = frame_id;
+
+      std::shared_ptr<FrameHeader> frame = frames_[frame_id];
       //从磁盘读取页面数据到该帧
-      ReadPageFromDisk(page_id, frames_[frame_id]);
+      ReadPageFromDisk(page_id, frame);
       //对pin_count进行+1操作
       PinPage(frame_id);
       //返回WritePageGuard
-      return WritePageGuard(this, page_id, frame_id, access_type);
+      return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
     }
   } else {
     //内存不足需要驱逐页面
     //尝试从替换器中选择一个可驱逐的帧
-    auto evict_frame_id_opt = replacer_ -> evict();
+    auto evict_frame_id_opt = replacer_ -> Evict();
     //检查是否成功选择了一个帧
     if (!evict_frame_id_opt.has_value()) {
       //没有可驱逐的帧，返回std::nullopt
@@ -449,7 +451,8 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     //对pin_count进行+1操作
     PinPage(evict_frame_id);
     //返回WritePageGuard
-    return WritePageGuard(this, page_id, evict_frame_id, access_type);
+    std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
+    return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
   }
 }
 /**
@@ -506,7 +509,9 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     if (page_table_iter != page_table_.end()) {
       //对pin_count进行+1操作
       PinPage(page_table_iter->second);
-      return ReadPageGuard(this, page_id, page_table_iter->second, access_type);
+      std::shared_ptr<FrameHeader> frame = frames_[page_table_iter->second];
+      //返回ReadPageGuard
+      return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
     } else {
       //内存充足但页面不在内存中
       //从空闲帧列表中取出一个空闲帧
@@ -516,16 +521,17 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
       //更新页表,即将page_id映射到frame_id
       page_table_[page_id] = frame_id;
       //从磁盘读取页面数据到该帧
-      ReadPageFromDisk(page_id, frames_[frame_id]);
+      std::shared_ptr<FrameHeader> frame = frames_[frame_id];
+      ReadPageFromDisk(page_id, frame);
       //对pin_count进行+1操作
       PinPage(frame_id);
       //返回ReadPageGuard
-      return ReadPageGuard(this, page_id, frame_id, access_type);
+      return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
     }
   } else {
     //内存不足需要驱逐页面
     //尝试从替换器中选择一个可驱逐的帧
-    auto evict_frame_id_opt = replacer_ -> evict();
+    auto evict_frame_id_opt = replacer_ -> Evict();
     //检查是否成功选择了一个帧
     if (!evict_frame_id_opt.has_value()) {
       //没有可驱逐的帧，返回std::nullopt
@@ -550,11 +556,13 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     //更新页表,即将新的page_id映射到被驱逐的frame_id
     page_table_[page_id] = evict_frame_id;
     //从磁盘读取新页面数据到该帧
-    ReadPageFromDisk(page_id, frames_[evict_frame_id]);
+    std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
+    ReadPageFromDisk(page_id, frame);
     //对pin_count进行+1操作
     PinPage(evict_frame_id);
     //返回ReadPageGuard
-    return ReadPageGuard(this, page_id, evict_frame_id, access_type);
+    return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
+}
 }
 
 /**
@@ -686,7 +694,7 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     req.callback_ = std::move(promise);
 
     //将写请求添加到磁盘调度器
-    disk_scheduler_ -> ScheduleRequest(std::move(req));
+    disk_scheduler_ -> Schedule(std::move(req));
     //等待写操作完成
     future.get(); 
 
@@ -779,5 +787,5 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   }
   return frames_[frame_id]->pin_count_.load();
 }
-}
+
 }  // namespace bustub

@@ -129,6 +129,10 @@ class FrameHeader {
    * 一个可选的优化是记录 `FrameHeader` 当前存储的页面 ID（可选类型），
    * 这样可以在某些情况下避免在缓冲池管理器的其他结构中查找 (page ID, frame ID) 对。
    */
+   auto GetLatch() -> std::shared_mutex & {
+    return rwlatch_;
+}
+
 };
 
 /**

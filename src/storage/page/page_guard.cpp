@@ -41,7 +41,7 @@ namespace bustub {
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
     : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  frame_->pincount_.fetch_add(1);
+  frame_->pin_count_.fetch_add(1);
   replacer_->RecordAccess(frame_->frame_id_);
   replacer_->SetEvictable(frame_->frame_id_, false);
 }
@@ -78,11 +78,11 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
  */
  //移动构造函数
 ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
-  this.page_id_ = that.page_id_;
-  this.frame_ = std::move(that.frame_);
-  this.replacer_ = std::move(that.replacer_);
-  this.bpm_latch_ = std::move(that.bpm_latch_);
-  this.is_valid_ = that.is_valid_;
+  this->page_id_ = that.page_id_;
+  this->frame_ = std::move(that.frame_);
+  this->replacer_ = std::move(that.replacer_);
+  this->bpm_latch_ = std::move(that.bpm_latch_);
+  this->is_valid_ = that.is_valid_;
   // 确保使 `that` 失效
   that.page_id_ = INVALID_PAGE_ID;
   that.frame_ = nullptr;
@@ -134,12 +134,11 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
   if(is_valid_) {
     Drop();
   }
-  this.page_id_ = that.page_id_;
-  this.frame_ = std::move(that.frame_);
-  this.replacer_ = std::move(that.replacer_);
-  this.bpm_latch_ = std::move(that.bpm_latch_); 
-  this.is_valid_ = that.is_valid_;
-
+  this->page_id_ = that.page_id_;
+  this->frame_ = std::move(that.frame_);
+  this->replacer_ = std::move(that.replacer_);
+  this->bpm_latch_ = std::move(that.bpm_latch_); 
+  this->is_valid_ = that.is_valid_;
   //清空that的资源
   that.page_id_ = INVALID_PAGE_ID;
   that.frame_ = nullptr;
@@ -208,7 +207,7 @@ void ReadPageGuard::Drop() {
     return;
   }
   //释放页面读锁
-  page_->RUnlatch();
+  frame_->rwlatch_.unlock();
   //更新pin计数
   std::scoped_lock latch(*bpm_latch_); 
   if (frame_->pin_count_.load() > 0) {
@@ -298,11 +297,11 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
  * @param that 另一个页面保护器。
  */
 WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
-  this.page_id_ = that.page_id_;
-  this.frame_ = std::move(that.frame_);
-  this.replacer_ = std::move(that.replacer_);
-  this.bpm_latch_ = std::move(that.bpm_latch_);
-  this.is_valid_ = that.is_valid_;
+  this->page_id_ = that.page_id_;
+  this->frame_ = std::move(that.frame_);
+  this->replacer_ = std::move(that.replacer_);
+  this->bpm_latch_ = std::move(that.bpm_latch_);
+  this->is_valid_ = that.is_valid_;
   // 确保使 `that` 失效
   that.page_id_ = INVALID_PAGE_ID;
   that.frame_ = nullptr;
@@ -352,11 +351,11 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   if(is_valid_) {
     Drop();
   }
-  this.page_id_ = that.page_id_;
-  this.frame_ = std::move(that.frame_);
-  this.replacer_ = std::move(that.replacer_);
-  this.bpm_latch_ = std::move(that.bpm_latch_);
-  this.is_valid_ = that.is_valid_;
+  this->page_id_ = that.page_id_;
+  this->frame_ = std::move(that.frame_);
+  this->replacer_ = std::move(that.replacer_);
+  this->bpm_latch_ = std::move(that.bpm_latch_);
+  this->is_valid_ = that.is_valid_;
   // 确保使 `that` 失效
   that.page_id_ = INVALID_PAGE_ID;
   that.frame_ = nullptr;
@@ -436,7 +435,7 @@ void WritePageGuard::Drop() {
     return;
   }
   //释放页面写锁
-  page_->WUnlatch();
+  frame_->rwlatch_.unlock();
   //更新pin计数
   std::scoped_lock latch(*bpm_latch_); 
   if (frame_->pin_count_.load() > 0) {
