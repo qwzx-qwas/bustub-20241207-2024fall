@@ -44,6 +44,7 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
   frame_->pin_count_.fetch_add(1);
   replacer_->RecordAccess(frame_->frame_id_);
   replacer_->SetEvictable(frame_->frame_id_, false);
+  is_valid_ = true;
 }
 
 /**
@@ -263,7 +264,7 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
   frame_->pin_count_.fetch_add(1);
   replacer_->RecordAccess(frame_->frame_id_);
   replacer_->SetEvictable(frame_->frame_id_, false);
-
+  is_valid_ = true;
 }
 
 /**

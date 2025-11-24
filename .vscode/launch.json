@@ -5,7 +5,7 @@
             "name": "Debug Bustub LRU-K Test",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/test/disk_scheduler_test",
+            "program": "${workspaceFolder}/build/test/buffer_pool_manager_test",
             "args": ["--gtest_filter=*"], 
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

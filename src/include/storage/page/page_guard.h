@@ -150,6 +150,7 @@ class ReadPageGuard {
    * 如果不维护此标志，则移动构造或移动赋值可能会尝试析构或调用 `Drop()` 在无效成员上，
    * 导致段错误（segmentation fault）。
    */
+   //标记它为有效标明它现在是一个活跃的保护器
   bool is_valid_{false};
 
   /**
@@ -302,6 +303,7 @@ class WritePageGuard {
    * 如果不维护此标志，则移动构造或移动赋值可能会尝试析构或调用 `Drop()` 在无效成员上，
    * 导致段错误（segmentation fault）。
    */
+   //标记它为有效标明它现在是一个活跃的保护器
   bool is_valid_{false};
 
   /**

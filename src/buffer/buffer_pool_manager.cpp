@@ -155,7 +155,7 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
 
 //PinPage
 auto BufferPoolManager::PinPage(frame_id_t frame_id) -> void {
-  std::scoped_lock latch(*bpm_latch_);
+  //std::scoped_lock latch(*bpm_latch_);
   frames_[frame_id] -> pin_count_.fetch_add(1);
   replacer_ -> SetEvictable(frame_id, false);
   replacer_ -> RecordAccess(frame_id);
@@ -215,7 +215,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
   page_id_t new_page_id = next_page_id_.fetch_add(1);
 
   //通知disk scheduler增加磁盘空间
-  disk_scheduler_ -> IncreaseDiskSpace(1);
+  disk_scheduler_ -> IncreaseDiskSpace(new_page_id + 1);
 
   return new_page_id;
   
@@ -398,8 +398,8 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     //内存充足而且页面已在内存中
     auto page_table_iter = page_table_.find(page_id);
     if (page_table_iter != page_table_.end()) {
-      //让pin_count+1
-      PinPage(page_table_iter->second);
+      //让pin_count+1，由于writepageguard会调用pinpage，所以这里不需要再调用pinpage,以防止多加一次
+      //PinPage(page_table_iter->second);
       //返回WritePageGuard
       return WritePageGuard(page_id, frames_[page_table_iter->second], replacer_, bpm_latch_);
     } else {
@@ -415,7 +415,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       //从磁盘读取页面数据到该帧
       ReadPageFromDisk(page_id, frame);
       //对pin_count进行+1操作
-      PinPage(frame_id);
+      //PinPage(frame_id);
       //返回WritePageGuard
       return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
     }
@@ -449,7 +449,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     //从磁盘读取新页面数据到该帧
     ReadPageFromDisk(page_id, frames_[evict_frame_id]);
     //对pin_count进行+1操作
-    PinPage(evict_frame_id);
+    //PinPage(evict_frame_id);
     //返回WritePageGuard
     std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
     return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
@@ -507,8 +507,8 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     //内存充足而且页面已在内存中
     auto page_table_iter = page_table_.find(page_id);
     if (page_table_iter != page_table_.end()) {
-      //对pin_count进行+1操作
-      PinPage(page_table_iter->second);
+      //对pin_count进行+1操作，理由同上
+      //PinPage(page_table_iter->second);
       std::shared_ptr<FrameHeader> frame = frames_[page_table_iter->second];
       //返回ReadPageGuard
       return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
@@ -524,7 +524,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
       std::shared_ptr<FrameHeader> frame = frames_[frame_id];
       ReadPageFromDisk(page_id, frame);
       //对pin_count进行+1操作
-      PinPage(frame_id);
+      //PinPage(frame_id);
       //返回ReadPageGuard
       return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
     }
@@ -559,7 +559,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
     ReadPageFromDisk(page_id, frame);
     //对pin_count进行+1操作
-    PinPage(evict_frame_id);
+    //PinPage(evict_frame_id);
     //返回ReadPageGuard
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
 }
@@ -777,7 +777,7 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   {
     //scoped_lcok接收一个mutex对象的引用，并在其作用域结束时自动释放锁，从而确保线程安全。
     //注意这里使用了bpm_latch_，它是一个shared_ptr对象，指向一个mutex对象，因此解引用后获得mutex对象的地址传递给scoped_lock。
-    std::scoped_lock latch(*bpm_latch_);
+    //std::scoped_lock latch(*bpm_latch_);
     auto page_table_iter = page_table_.find(page_id);
     if (page_table_iter == page_table_.end()) {
       return std::nullopt;
