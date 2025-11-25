@@ -393,12 +393,14 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 
 
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  std::scoped_lock latch(*bpm_latch_);
+  //std::scoped_lock latch(*bpm_latch_);
+  bpm_latch_ -> lock();
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter != page_table_.end()) {
     //让pin_count+1，由于writepageguard会调用pinpage，所以这里不需要再调用pinpage,以防止多加一次
     //PinPage(page_table_iter->second);
     //返回WritePageGuard
+    bpm_latch_ -> unlock();
     return WritePageGuard(page_id, frames_[page_table_iter->second], replacer_, bpm_latch_);
   } else {
   if (!free_frames_.empty()) {    
@@ -416,10 +418,12 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       //对pin_count进行+1操作
       //PinPage(frame_id);
       //返回WritePageGuard
+      bpm_latch_ -> unlock();
       return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
     } else {
     //内存不足需要驱逐页面
     //尝试从替换器中选择一个可驱逐的帧
+    bpm_latch_ -> unlock();
     auto evict_frame_id_opt = replacer_ -> Evict();
     //检查是否成功选择了一个帧
     if (!evict_frame_id_opt.has_value()) {
@@ -440,6 +444,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     if (frames_[evict_frame_id] -> is_dirty_) {
       FlushPage(evict_page_id);
     }
+    bpm_latch_ -> lock();
     //从页表中移除被驱逐页面的映射
     page_table_.erase(evict_page_id);
     //更新页表,即将新的page_id映射到被驱逐的frame_id
@@ -449,6 +454,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     //对pin_count进行+1操作
     //PinPage(evict_frame_id);
     //返回WritePageGuard
+    bpm_latch_ -> unlock();
     std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
     return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
   }
