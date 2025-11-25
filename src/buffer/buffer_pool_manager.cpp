@@ -507,11 +507,81 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  */
  //找page_id对应的帧
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  std::scoped_lock latch(*bpm_latch_);
-  
-  if (!free_frames_.empty()) {
+  //std::scoped_lock latch(*bpm_latch_);
+  bpm_latch_ -> lock();
+  auto page_table_iter = page_table_.find(page_id);
+  //先检查页面是否在页表中
+  if (page_table_iter != page_table_.end()) {
+    //让pin_count+1，由于readpageguard会调用pinpage，所以这里不需要再调用pinpage,以防止多加一次
+    //PinPage(page_table_iter->second);
+    //返回ReadPageGuard
+    std::shared_ptr<FrameHeader> frame = frames_[page_table_iter->second];
+    bpm_latch_ -> unlock();
+    return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
+  } else {
+    //页面不在内存中
+    if (!free_frames_.empty()) {    
+      //内存充足但页面不在内存中
+      //从空闲帧列表中取出一个空闲帧
+      frame_id_t frame_id = free_frames_.front();
+      //将该帧从空闲列表中移除
+      free_frames_.pop_front();
+      //更新页表,即将page_id映射到frame_id
+      page_table_[page_id] = frame_id;
+      std::shared_ptr<FrameHeader> frame = frames_[frame_id];
+      //从磁盘读取页面数据到该帧
+      bpm_latch_ -> unlock();
+      ReadPageFromDisk(page_id, frame);
+      return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
+    } else {
+      //内存不足需要驱逐页面
+    //尝试从替换器中选择一个可驱逐的帧
+    bpm_latch_ -> unlock();
+    auto evict_frame_id_opt = replacer_ -> Evict();
+    //检查是否成功选择了一个帧
+    if (!evict_frame_id_opt.has_value()) {
+      //没有可驱逐的帧，返回std::nullopt
+      return std::nullopt;
+    }
+    bpm_latch_ -> lock();
+    //获取要驱逐的帧ID
+    frame_id_t evict_frame_id = evict_frame_id_opt.value();
+    //获取该帧对应的页面ID
+    page_id_t evict_page_id = -1;
+    for (const auto &entry : page_table_) {
+      if (entry.second == evict_frame_id) {
+        evict_page_id = entry.first;
+        break;
+      }
+    }
+    bpm_latch_ -> unlock();
+    //如果该页面是脏的，则先写回磁盘
+    if (frames_[evict_frame_id] -> is_dirty_) {
+      FlushPage(evict_page_id);
+    }
+    bpm_latch_ -> lock();
+    //从页表中移除被驱逐页面的映射
+    page_table_.erase(evict_page_id);
+    //更新页表,即将新的page_id映射到被驱逐的frame_id
+    page_table_[page_id] = evict_frame_id;
+    //从磁盘读取新页面数据到该帧
+    std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
+    bpm_latch_ -> unlock();
+    ReadPageFromDisk(page_id, frame);
+    //对pin_count进行+1操作
+    //PinPage(evict_frame_id);
+    //返回ReadPageGuard
+    
+    return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
+    }    
+  }
+}
+
+
+/*if (!free_frames_.empty()) {
     //内存充足而且页面已在内存中
     auto page_table_iter = page_table_.find(page_id);
+
     if (page_table_iter != page_table_.end()) {
       //对pin_count进行+1操作，理由同上
       //PinPage(page_table_iter->second);
@@ -568,8 +638,10 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     //PinPage(evict_frame_id);
     //返回ReadPageGuard
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
-}
-}
+}    
+    */
+
+
 
 /**
  * @brief A wrapper around `CheckedWritePage` that unwraps the inner value if it exists.
