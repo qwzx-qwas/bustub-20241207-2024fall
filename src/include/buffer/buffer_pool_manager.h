@@ -132,6 +132,7 @@ class FrameHeader {
    auto GetLatch() -> std::shared_mutex & {
     return rwlatch_;
 }
+    //可以增加一个page_id,直接从 frame_header 里拿到 page_id,而不需要遍历
 
 };
 
