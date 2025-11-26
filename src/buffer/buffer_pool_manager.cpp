@@ -568,10 +568,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
     bpm_latch_ -> unlock();
     ReadPageFromDisk(page_id, frame);
-    //对pin_count进行+1操作
-    //PinPage(evict_frame_id);
-    //返回ReadPageGuard
-    
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
     }    
   }
