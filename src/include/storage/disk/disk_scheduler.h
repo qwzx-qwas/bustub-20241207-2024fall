@@ -34,7 +34,7 @@ struct DiskRequest {
    *  Pointer to the start of the memory location where a page is either:
    *   1. being read into from disk (on a read).
    *   2. being written out to disk (on a write).
-   *  
+   *
    *  指向页面在内存中起始位置的指针，页面数据用于以下两种情况：
    *   1. 在读操作时从磁盘读入内存。
    *   2. 在写操作时从内存写回磁盘。
@@ -68,26 +68,26 @@ class DiskScheduler {
   ~DiskScheduler();
 
   /**
-  * TODO(P1): Add implementation
-  *
-  * @brief Schedules a request for the DiskManager to execute.
-  * @brief 将请求调度给 DiskManager 执行。
-  *
-  * @param r The request to be scheduled.
+   * TODO(P1): Add implementation
+   *
+   * @brief Schedules a request for the DiskManager to execute.
+   * @brief 将请求调度给 DiskManager 执行。
+   *
+   * @param r The request to be scheduled.
    */
   void Schedule(DiskRequest r);
 
   /**
-  * TODO(P1): Add implementation
-  *
-  * @brief Background worker thread function that processes scheduled requests.
-  * @brief 后台工作线程函数，用于处理已调度的请求。
-  *
-  * The background thread needs to process requests while the DiskScheduler exists, i.e., this function should not
-  * return until ~DiskScheduler() is called. At that point you need to make sure that the function does return.
-  *
-  * 在 `DiskScheduler` 存在期间后台线程需要持续处理请求；也就是说，该函数在 `~DiskScheduler()` 被调用
-  * 之前不应返回。到析构时需要确保该函数能够正常返回以便线程退出。
+   * TODO(P1): Add implementation
+   *
+   * @brief Background worker thread function that processes scheduled requests.
+   * @brief 后台工作线程函数，用于处理已调度的请求。
+   *
+   * The background thread needs to process requests while the DiskScheduler exists, i.e., this function should not
+   * return until ~DiskScheduler() is called. At that point you need to make sure that the function does return.
+   *
+   * 在 `DiskScheduler` 存在期间后台线程需要持续处理请求；也就是说，该函数在 `~DiskScheduler()` 被调用
+   * 之前不应返回。到析构时需要确保该函数能够正常返回以便线程退出。
    */
   void StartWorkerThread();
 
@@ -114,7 +114,7 @@ class DiskScheduler {
    *
    * @param pages The number of pages the caller wants the file used for storage to support.
    */
-   //确保磁盘文件的大小足以容纳至少 pages 个页面
+  //确保磁盘文件的大小足以容纳至少 pages 个页面
   void IncreaseDiskSpace(size_t pages) { disk_manager_->IncreaseDiskSpace(pages); }
 
   /**

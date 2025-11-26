@@ -153,17 +153,17 @@ BufferPoolManager::~BufferPoolManager() = default;
  */
 auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
 
-//PinPage
+// PinPage
 auto BufferPoolManager::PinPage(frame_id_t frame_id) -> void {
-  //std::scoped_lock latch(*bpm_latch_);
-  frames_[frame_id] -> pin_count_.fetch_add(1);
-  replacer_ -> SetEvictable(frame_id, false);
-  replacer_ -> RecordAccess(frame_id);
+  // std::scoped_lock latch(*bpm_latch_);
+  frames_[frame_id]->pin_count_.fetch_add(1);
+  replacer_->SetEvictable(frame_id, false);
+  replacer_->RecordAccess(frame_id);
 }
 
 /*UnpinPage
 auto BufferPoolManager::UnpinPage(frame_id_t frame_id) -> void {
-  std::scoped_lock latch(*bpm_latch_); 
+  std::scoped_lock latch(*bpm_latch_);
   if (frames_[frame_id] -> pin_count_.load() > 0) {
     frames_[frame_id] -> pin_count_.fetch_sub(1);
   if (frames_[frame_id] -> pin_count_.load() == 0) {
@@ -215,10 +215,9 @@ auto BufferPoolManager::NewPage() -> page_id_t {
   page_id_t new_page_id = next_page_id_.fetch_add(1);
 
   //通知disk scheduler增加磁盘空间
-  disk_scheduler_ -> IncreaseDiskSpace(new_page_id + 1);
+  disk_scheduler_->IncreaseDiskSpace(new_page_id + 1);
 
   return new_page_id;
-
 }
 
 /**
@@ -250,11 +249,13 @@ auto BufferPoolManager::NewPage() -> page_id_t {
 /**
  * @brief 从数据库中删除一个页面，包括磁盘和内存中的内容。
  *
- * 如果页面在缓冲池中被固定（pinned），该函数什么也不做并返回 `false`。否则，从磁盘和内存中移除该页面（如果仍在缓冲池中），并返回 `true`。
+ * 如果页面在缓冲池中被固定（pinned），该函数什么也不做并返回
+ * `false`。否则，从磁盘和内存中移除该页面（如果仍在缓冲池中），并返回 `true`。
  *
  * ### 实现说明
  *
- * 考虑页面或页面元数据可能存在的所有位置，并据此实现该函数。建议在实现 `CheckedReadPage` 和 `CheckedWritePage` 之后实现此函数。
+ * 考虑页面或页面元数据可能存在的所有位置，并据此实现该函数。建议在实现 `CheckedReadPage` 和 `CheckedWritePage`
+ * 之后实现此函数。
  *
  * 理想情况下，我们希望有效利用磁盘上的空间，即将已删除页面占用的空间回收并供 `NewPage` 分配使用。
  * 如果你想尝试这个优化，可以实现它；但当前实现允许假设不会耗尽磁盘空间，从而在 `NewPage` 中继续向上分配空间。
@@ -266,37 +267,35 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * @param page_id 要删除的页面 ID。
  * @return 如果页面存在但无法删除返回 `false`，如果页面不存在或删除成功返回 `true`。
  */
-auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { 
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   std::scoped_lock latch(*bpm_latch_);
   //检查页面是否在页表中
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter == page_table_.end()) {
     //页面不存在，返回true
     return true;
-  } else {
-    frame_id_t frame_id = page_table_iter->second;;
-    //检查页面是否被固定
-    if (frames_[frame_id]->pin_count_.load() > 0) { 
-      //页面被固定，无法删除，返回false
-      return false;
-    } else {
-      //页面未被固定，可以删除
-      //如果页面是脏的，则先写回磁盘
-      if (frames_[frame_id] -> is_dirty_) {
-        FlushPage(page_id);
-      }
-      replacer_ -> Remove(frame_id);
-      //清空当前帧数据
-      frames_[frame_id] -> Reset();
-      //从页表中移除页面
-      page_table_.erase(page_table_iter);
-      //将帧标记为可驱逐
-      //replacer_ -> SetEvictable(frame_id, true);
-      //将帧加入空闲帧列表
-      free_frames_.push_back(frame_id);
-      return true;
-    }
   }
+  frame_id_t frame_id = page_table_iter->second;
+  //检查页面是否被固定
+  if (frames_[frame_id]->pin_count_.load() > 0) {
+    //页面被固定，无法删除，返回false
+    return false;
+  }
+  //页面未被固定，可以删除
+  //如果页面是脏的，则先写回磁盘
+  if (frames_[frame_id]->is_dirty_) {
+    FlushPage(page_id);
+  }
+  replacer_->Remove(frame_id);
+  //清空当前帧数据
+  frames_[frame_id]->Reset();
+  //从页表中移除页面
+  page_table_.erase(page_table_iter);
+  //将帧标记为可驱逐
+  // replacer_ -> SetEvictable(frame_id, true);
+  //将帧加入空闲帧列表
+  free_frames_.push_back(frame_id);
+  return true;
 }
 
 /**
@@ -370,11 +369,11 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
  * 否则返回保证独占可变访问的 `WritePageGuard`。
  */
 
- //二者的辅助方法
+//二者的辅助方法
 
- //从磁盘读取页面到帧
- auto BufferPoolManager::ReadPageFromDisk(page_id_t page_id, std::shared_ptr<FrameHeader> frame) -> void {
-  //创建promise和future用于异步操作 
+//从磁盘读取页面到帧
+auto BufferPoolManager::ReadPageFromDisk(page_id_t page_id, const std::shared_ptr<FrameHeader> &frame) -> void {
+  //创建promise和future用于异步操作
   std::promise<bool> promise;
   auto future = promise.get_future();
 
@@ -382,83 +381,79 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   DiskRequest req;
   req.is_write_ = false;
   req.page_id_ = page_id;
-  req.data_ = frame -> GetDataMut();
+  req.data_ = frame->GetDataMut();
   req.callback_ = std::move(promise);
   //将请求添加到磁盘调度器
-  disk_scheduler_ -> Schedule(std::move(req));
+  disk_scheduler_->Schedule(std::move(req));
   //等待异步操作完成
   future.get();
- }
-
-
+}
 
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  //std::scoped_lock latch(*bpm_latch_);
-  bpm_latch_ -> lock();
+  // std::scoped_lock latch(*bpm_latch_);
+  bpm_latch_->lock();
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter != page_table_.end()) {
     //让pin_count+1，由于writepageguard会调用pinpage，所以这里不需要再调用pinpage,以防止多加一次
-    //PinPage(page_table_iter->second);
+    // PinPage(page_table_iter->second);
     //返回WritePageGuard
-    bpm_latch_ -> unlock();
+    bpm_latch_->unlock();
     return WritePageGuard(page_id, frames_[page_table_iter->second], replacer_, bpm_latch_);
-  } else {
-  if (!free_frames_.empty()) {    
-      //内存充足但页面不在内存中
-      //从空闲帧列表中取出一个空闲帧
-      frame_id_t frame_id = free_frames_.front();
-      //将该帧从空闲列表中移除
-      free_frames_.pop_front();
-      //更新页表,即将page_id映射到frame_id
-      page_table_[page_id] = frame_id;
+  }
+  if (!free_frames_.empty()) {
+    //内存充足但页面不在内存中
+    //从空闲帧列表中取出一个空闲帧
+    frame_id_t frame_id = free_frames_.front();
+    //将该帧从空闲列表中移除
+    free_frames_.pop_front();
+    //更新页表,即将page_id映射到frame_id
+    page_table_[page_id] = frame_id;
 
-      std::shared_ptr<FrameHeader> frame = frames_[frame_id];
-      //从磁盘读取页面数据到该帧
-      ReadPageFromDisk(page_id, frame);
-      //对pin_count进行+1操作
-      //PinPage(frame_id);
-      //返回WritePageGuard
-      bpm_latch_ -> unlock();
-      return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
-    } else {
-    //内存不足需要驱逐页面
-    //尝试从替换器中选择一个可驱逐的帧
-    bpm_latch_ -> unlock();
-    auto evict_frame_id_opt = replacer_ -> Evict();
-    //检查是否成功选择了一个帧
-    if (!evict_frame_id_opt.has_value()) {
-      //没有可驱逐的帧，返回std::nullopt
-      return std::nullopt;
-    }
-    //获取要驱逐的帧ID
-    frame_id_t evict_frame_id = evict_frame_id_opt.value();
-    //获取该帧对应的页面ID
-    page_id_t evict_page_id = 0;
-    for (const auto &entry : page_table_) {
-      if (entry.second == evict_frame_id) {
-        evict_page_id = entry.first;
-        break;
-      }
-    }
-    //如果该页面是脏的，则先写回磁盘
-    if (frames_[evict_frame_id] -> is_dirty_) {
-      FlushPage(evict_page_id);
-    }
-    bpm_latch_ -> lock();
-    //从页表中移除被驱逐页面的映射
-    page_table_.erase(evict_page_id);
-    //更新页表,即将新的page_id映射到被驱逐的frame_id
-    page_table_[page_id] = evict_frame_id;
-    //从磁盘读取新页面数据到该帧
-    ReadPageFromDisk(page_id, frames_[evict_frame_id]);
+    std::shared_ptr<FrameHeader> frame = frames_[frame_id];
+    //从磁盘读取页面数据到该帧
+    ReadPageFromDisk(page_id, frame);
     //对pin_count进行+1操作
-    //PinPage(evict_frame_id);
+    // PinPage(frame_id);
     //返回WritePageGuard
-    bpm_latch_ -> unlock();
-    std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
+    bpm_latch_->unlock();
     return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
   }
-}
+  //内存不足需要驱逐页面
+  //尝试从替换器中选择一个可驱逐的帧
+  bpm_latch_->unlock();
+  auto evict_frame_id_opt = replacer_->Evict();
+  //检查是否成功选择了一个帧
+  if (!evict_frame_id_opt.has_value()) {
+    //没有可驱逐的帧，返回std::nullopt
+    return std::nullopt;
+  }
+  //获取要驱逐的帧ID
+  frame_id_t evict_frame_id = evict_frame_id_opt.value();
+  //获取该帧对应的页面ID
+  page_id_t evict_page_id = 0;
+  for (const auto &entry : page_table_) {
+    if (entry.second == evict_frame_id) {
+      evict_page_id = entry.first;
+      break;
+    }
+  }
+  //如果该页面是脏的，则先写回磁盘
+  if (frames_[evict_frame_id]->is_dirty_) {
+    FlushPage(evict_page_id);
+  }
+  bpm_latch_->lock();
+  //从页表中移除被驱逐页面的映射
+  page_table_.erase(evict_page_id);
+  //更新页表,即将新的page_id映射到被驱逐的frame_id
+  page_table_[page_id] = evict_frame_id;
+  //从磁盘读取新页面数据到该帧
+  ReadPageFromDisk(page_id, frames_[evict_frame_id]);
+  //对pin_count进行+1操作
+  // PinPage(evict_frame_id);
+  //返回WritePageGuard
+  bpm_latch_->unlock();
+  std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
+  return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
 }
 /**
  * @brief Acquires an optional read-locked guard over a page of data. The user can specify an `AccessType` if needed.
@@ -503,141 +498,74 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  *
  * @param page_id 要读取的页面的 ID。
  * @param access_type 页面访问类型。
- * @return std::optional<ReadPageGuard> 如果没有可用空闲帧（内存耗尽）返回 `std::nullopt`，否则返回保证共享只读访问的 `ReadPageGuard`。
+ * @return std::optional<ReadPageGuard> 如果没有可用空闲帧（内存耗尽）返回 `std::nullopt`，否则返回保证共享只读访问的
+ * `ReadPageGuard`。
  */
- //找page_id对应的帧
+//找page_id对应的帧
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  //std::scoped_lock latch(*bpm_latch_);
-  bpm_latch_ -> lock();
+  // std::scoped_lock latch(*bpm_latch_);
+  bpm_latch_->lock();
   auto page_table_iter = page_table_.find(page_id);
   //先检查页面是否在页表中
   if (page_table_iter != page_table_.end()) {
     //让pin_count+1，由于readpageguard会调用pinpage，所以这里不需要再调用pinpage,以防止多加一次
-    //PinPage(page_table_iter->second);
+    // PinPage(page_table_iter->second);
     //返回ReadPageGuard
     std::shared_ptr<FrameHeader> frame = frames_[page_table_iter->second];
-    bpm_latch_ -> unlock();
+    bpm_latch_->unlock();
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
-  } else {
-    //页面不在内存中
-    if (!free_frames_.empty()) {    
-      //内存充足但页面不在内存中
-      //从空闲帧列表中取出一个空闲帧
-      frame_id_t frame_id = free_frames_.front();
-      //将该帧从空闲列表中移除
-      free_frames_.pop_front();
-      //更新页表,即将page_id映射到frame_id
-      page_table_[page_id] = frame_id;
-      std::shared_ptr<FrameHeader> frame = frames_[frame_id];
-      //从磁盘读取页面数据到该帧
-      bpm_latch_ -> unlock();
-      ReadPageFromDisk(page_id, frame);
-      return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
-    } else {
-      //内存不足需要驱逐页面
-    //尝试从替换器中选择一个可驱逐的帧
-    bpm_latch_ -> unlock();
-    auto evict_frame_id_opt = replacer_ -> Evict();
-    //检查是否成功选择了一个帧
-    if (!evict_frame_id_opt.has_value()) {
-      //没有可驱逐的帧，返回std::nullopt
-      return std::nullopt;
-    }
-    bpm_latch_ -> lock();
-    //获取要驱逐的帧ID
-    frame_id_t evict_frame_id = evict_frame_id_opt.value();
-    //获取该帧对应的页面ID
-    page_id_t evict_page_id = -1;
-    for (const auto &entry : page_table_) {
-      if (entry.second == evict_frame_id) {
-        evict_page_id = entry.first;
-        break;
-      }
-    }
-    bpm_latch_ -> unlock();
-    //如果该页面是脏的，则先写回磁盘
-    if (frames_[evict_frame_id] -> is_dirty_) {
-      FlushPage(evict_page_id);
-    }
-    bpm_latch_ -> lock();
-    //从页表中移除被驱逐页面的映射
-    page_table_.erase(evict_page_id);
-    //更新页表,即将新的page_id映射到被驱逐的frame_id
-    page_table_[page_id] = evict_frame_id;
-    //从磁盘读取新页面数据到该帧
-    std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
-    bpm_latch_ -> unlock();
-    ReadPageFromDisk(page_id, frame);
-    return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
-    }    
   }
-}
-
-
-/*if (!free_frames_.empty()) {
-    //内存充足而且页面已在内存中
-    auto page_table_iter = page_table_.find(page_id);
-
-    if (page_table_iter != page_table_.end()) {
-      //对pin_count进行+1操作，理由同上
-      //PinPage(page_table_iter->second);
-      std::shared_ptr<FrameHeader> frame = frames_[page_table_iter->second];
-      //返回ReadPageGuard
-      return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
-    } else {
-      //内存充足但页面不在内存中
-      //从空闲帧列表中取出一个空闲帧
-      frame_id_t frame_id = free_frames_.front();
-      //将该帧从空闲列表中移除
-      free_frames_.pop_front();
-      //更新页表,即将page_id映射到frame_id
-      page_table_[page_id] = frame_id;
-      //从磁盘读取页面数据到该帧
-      std::shared_ptr<FrameHeader> frame = frames_[frame_id];
-      ReadPageFromDisk(page_id, frame);
-      //对pin_count进行+1操作
-      //PinPage(frame_id);
-      //返回ReadPageGuard
-      return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
-    }
-  } else {
-    //内存不足需要驱逐页面
-    //尝试从替换器中选择一个可驱逐的帧
-    auto evict_frame_id_opt = replacer_ -> Evict();
-    //检查是否成功选择了一个帧
-    if (!evict_frame_id_opt.has_value()) {
-      //没有可驱逐的帧，返回std::nullopt
-      return std::nullopt;
-    }
-    //获取要驱逐的帧ID
-    frame_id_t evict_frame_id = evict_frame_id_opt.value();
-    //获取该帧对应的页面ID
-    page_id_t evict_page_id = -1;
-    for (const auto &entry : page_table_) {
-      if (entry.second == evict_frame_id) {
-        evict_page_id = entry.first;
-        break;
-      }
-    }
-    //如果该页面是脏的，则先写回磁盘
-    if (frames_[evict_frame_id] -> is_dirty_) {
-      FlushPage(evict_page_id);
-    }
-    //从页表中移除被驱逐页面的映射
-    page_table_.erase(evict_page_id);
-    //更新页表,即将新的page_id映射到被驱逐的frame_id
-    page_table_[page_id] = evict_frame_id;
-    //从磁盘读取新页面数据到该帧
-    std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
+  //页面不在内存中
+  if (!free_frames_.empty()) {
+    //内存充足但页面不在内存中
+    //从空闲帧列表中取出一个空闲帧
+    frame_id_t frame_id = free_frames_.front();
+    //将该帧从空闲列表中移除
+    free_frames_.pop_front();
+    //更新页表,即将page_id映射到frame_id
+    page_table_[page_id] = frame_id;
+    std::shared_ptr<FrameHeader> frame = frames_[frame_id];
+    //从磁盘读取页面数据到该帧
+    bpm_latch_->unlock();
     ReadPageFromDisk(page_id, frame);
-    //对pin_count进行+1操作
-    //PinPage(evict_frame_id);
-    //返回ReadPageGuard
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
-}    
-    */
-
-
+  }
+  //内存不足需要驱逐页面
+  //尝试从替换器中选择一个可驱逐的帧
+  bpm_latch_->unlock();
+  auto evict_frame_id_opt = replacer_->Evict();
+  //检查是否成功选择了一个帧
+  if (!evict_frame_id_opt.has_value()) {
+    //没有可驱逐的帧，返回std::nullopt
+    return std::nullopt;
+  }
+  bpm_latch_->lock();
+  //获取要驱逐的帧ID
+  frame_id_t evict_frame_id = evict_frame_id_opt.value();
+  //获取该帧对应的页面ID
+  page_id_t evict_page_id = -1;
+  for (const auto &entry : page_table_) {
+    if (entry.second == evict_frame_id) {
+      evict_page_id = entry.first;
+      break;
+    }
+  }
+  bpm_latch_->unlock();
+  //如果该页面是脏的，则先写回磁盘
+  if (frames_[evict_frame_id]->is_dirty_) {
+    FlushPage(evict_page_id);
+  }
+  bpm_latch_->lock();
+  //从页表中移除被驱逐页面的映射
+  page_table_.erase(evict_page_id);
+  //更新页表,即将新的page_id映射到被驱逐的frame_id
+  page_table_[page_id] = evict_frame_id;
+  //从磁盘读取新页面数据到该帧
+  std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
+  bpm_latch_->unlock();
+  ReadPageFromDisk(page_id, frame);
+  return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
+}
 
 /**
  * @brief A wrapper around `CheckedWritePage` that unwraps the inner value if it exists.
@@ -746,7 +674,7 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * @return 如果页表中找不到页面返回 `false`，否则返回 `true`。
  */
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
-  //std::scoped_lock latch(*bpm_latch_);
+  // std::scoped_lock latch(*bpm_latch_);
   //检查页面是否在页表中
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter == page_table_.end()) {
@@ -754,7 +682,7 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     return false;
   }
   frame_id_t frame_id = page_table_iter->second;
-  if (frames_[frame_id] -> is_dirty_) {
+  if (frames_[frame_id]->is_dirty_) {
     //如果页面是脏的，则写回磁盘
 
     //构造写请求
@@ -766,18 +694,18 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     req.page_id_ = page_id;
     // 使用 GetData() 获取只读指针，然后使用 const_cast
     // 将其转换为 DiskRequest 所需的非 const char * 类型。
-    // 这是安全的，因为 FlushPage 的调用者 (BPM/DiskScheduler) 
+    // 这是安全的，因为 FlushPage 的调用者 (BPM/DiskScheduler)
     // 保证了数据在写入过程中不会被修改。
-    req.data_ = const_cast<char *>(frames_[frame_id] -> GetData());
+    req.data_ = const_cast<char *>(frames_[frame_id]->GetData());
     req.callback_ = std::move(promise);
 
     //将写请求添加到磁盘调度器
-    disk_scheduler_ -> Schedule(std::move(req));
+    disk_scheduler_->Schedule(std::move(req));
     //等待写操作完成
-    future.get(); 
+    future.get();
 
     //将页面标记为非脏
-    frames_[frame_id] -> is_dirty_ = false;
+    frames_[frame_id]->is_dirty_ = false;
   }
   return true;
 }
@@ -801,11 +729,11 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
  *
  * TODO(P1)：添加实现。
  */
-void BufferPoolManager::FlushAllPages() { 
+void BufferPoolManager::FlushAllPages() {
   for (const auto &entry : page_table_) {
-   FlushPage(entry.first);
+    FlushPage(entry.first);
   }
- }
+}
 
 /**
  * @brief Retrieves the pin count of a page. If the page does not exist in memory, return `std::nullopt`.
@@ -853,18 +781,17 @@ void BufferPoolManager::FlushAllPages() {
 auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
   frame_id_t frame_id{-1};
   {
-    //scoped_lcok接收一个mutex对象的引用，并在其作用域结束时自动释放锁，从而确保线程安全。
+    // scoped_lcok接收一个mutex对象的引用，并在其作用域结束时自动释放锁，从而确保线程安全。
     //注意这里使用了bpm_latch_，它是一个shared_ptr对象，指向一个mutex对象，因此解引用后获得mutex对象的地址传递给scoped_lock。
 
     //后续考虑是否加入局部锁
-    
-    //std::scoped_lock latch(*bpm_latch_);
+
+    // std::scoped_lock latch(*bpm_latch_);
     auto page_table_iter = page_table_.find(page_id);
     if (page_table_iter == page_table_.end()) {
       return std::nullopt;
-    } else {
-      frame_id = page_table_iter->second;
     }
+    frame_id = page_table_iter->second;
   }
   return frames_[frame_id]->pin_count_.load();
 }

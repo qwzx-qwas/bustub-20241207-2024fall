@@ -42,7 +42,7 @@ void DiskScheduler::Schedule(DiskRequest r) {
 }
 
 void DiskScheduler::StartWorkerThread() {
-  while(true) {
+  while (true) {
     //从channel中获取请求,注意返回的是optional类型
     auto request_opt = request_queue_.Get();
     if (!request_opt.has_value()) {
@@ -51,7 +51,7 @@ void DiskScheduler::StartWorkerThread() {
     }
     //在该线程中处理请求
     DiskRequest request = std::move(request_opt).value();
-    if(request.is_write_) {
+    if (request.is_write_) {
       // 如果是写请求，调用DiskManager的WritePage方法
       disk_manager_->WritePage(request.page_id_, request.data_);
     } else {
@@ -59,7 +59,7 @@ void DiskScheduler::StartWorkerThread() {
       disk_manager_->ReadPage(request.page_id_, request.data_);
     }
     // 完成请求后，设置promise的值为true，表示操作成功，唤醒等待的future
-      request.callback_.set_value(true);
+    request.callback_.set_value(true);
   }
 }
 

@@ -78,7 +78,7 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
  *
  * @param that 另一个页面保护器。
  */
- //移动构造函数
+//移动构造函数
 ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
   this->page_id_ = that.page_id_;
   this->frame_ = std::move(that.frame_);
@@ -126,20 +126,20 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
  * @param that 另一个页面保护器。
  * @return ReadPageGuard& 新的有效 `ReadPageGuard` 引用。
  */
- //移动赋值运算符
+//移动赋值运算符
 auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
   //防止自赋值
   if (this == &that) {
     return *this;
   }
   //释放当前对象的资源
-  if(is_valid_) {
+  if (is_valid_) {
     Drop();
   }
   this->page_id_ = that.page_id_;
   this->frame_ = std::move(that.frame_);
   this->replacer_ = std::move(that.replacer_);
-  this->bpm_latch_ = std::move(that.bpm_latch_); 
+  this->bpm_latch_ = std::move(that.bpm_latch_);
   this->is_valid_ = that.is_valid_;
   //清空that的资源
   that.page_id_ = INVALID_PAGE_ID;
@@ -205,12 +205,12 @@ auto ReadPageGuard::IsDirty() const -> bool {
  * TODO(P1)：添加实现。
  */
 void ReadPageGuard::Drop() {
-  if(page_id_ == INVALID_PAGE_ID) {
+  if (page_id_ == INVALID_PAGE_ID) {
     return;
   }
   frame_->rwlatch_.unlock();
   //更新pin计数
-  std::scoped_lock latch(*bpm_latch_); 
+  std::scoped_lock latch(*bpm_latch_);
   if (frame_->pin_count_.load() > 0) {
     frame_->pin_count_.fetch_sub(1);
     if (frame_->pin_count_.load() == 0) {
@@ -298,27 +298,27 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
  *
  * @param that 另一个页面保护器。
  */
- /*
+/*
 WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
-  this->page_id_ = that.page_id_;
-  this->frame_ = std::move(that.frame_);
-  this->replacer_ = std::move(that.replacer_);
-  this->bpm_latch_ = std::move(that.bpm_latch_);
-  this->is_valid_ = that.is_valid_;
-  // 确保使 `that` 失效
-  that.page_id_ = INVALID_PAGE_ID;
-  //that.frame_ = nullptr;
-  that.replacer_ = nullptr;
-  that.bpm_latch_ = nullptr;
-  that.is_valid_ = false;
+ this->page_id_ = that.page_id_;
+ this->frame_ = std::move(that.frame_);
+ this->replacer_ = std::move(that.replacer_);
+ this->bpm_latch_ = std::move(that.bpm_latch_);
+ this->is_valid_ = that.is_valid_;
+ // 确保使 `that` 失效
+ that.page_id_ = INVALID_PAGE_ID;
+ //that.frame_ = nullptr;
+ that.replacer_ = nullptr;
+ that.bpm_latch_ = nullptr;
+ that.is_valid_ = false;
 }
 */
-WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept:
-    page_id_(that.page_id_),
-    frame_(std::move(that.frame_)),
-    replacer_(std::move(that.replacer_)),
-    bpm_latch_(std::move(that.bpm_latch_)),
-    is_valid_(that.is_valid_) {
+WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept
+    : page_id_(that.page_id_),
+      frame_(std::move(that.frame_)),
+      replacer_(std::move(that.replacer_)),
+      bpm_latch_(std::move(that.bpm_latch_)),
+      is_valid_(that.is_valid_) {
   that.page_id_ = INVALID_PAGE_ID;
   that.is_valid_ = false;
 }
@@ -361,7 +361,7 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
     return *this;
   }
   //释放当前对象的资源
-  if(is_valid_) {
+  if (is_valid_) {
     Drop();
   }
   this->page_id_ = that.page_id_;
@@ -372,7 +372,7 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   // 确保使 `that` 失效
   that.page_id_ = INVALID_PAGE_ID;
   that.is_valid_ = false;
-  return *this; 
+  return *this;
 }
 
 /**
@@ -441,13 +441,13 @@ auto WritePageGuard::IsDirty() const -> bool {
  * TODO(P1)：添加实现。
  */
 void WritePageGuard::Drop() {
-  if(page_id_ == INVALID_PAGE_ID) {
+  if (page_id_ == INVALID_PAGE_ID) {
     return;
   }
-  
+
   //更新pin计数
   std::scoped_lock latch(*bpm_latch_);
-  frame_->is_dirty_ = true; 
+  frame_->is_dirty_ = true;
   if (frame_->pin_count_.load() > 0) {
     frame_->pin_count_.fetch_sub(1);
   }
@@ -462,7 +462,6 @@ void WritePageGuard::Drop() {
   replacer_ = nullptr;
   bpm_latch_ = nullptr;
   is_valid_ = false;
-  
 }
 
 /** @brief The destructor for `WritePageGuard`. This destructor simply calls `Drop()`. */

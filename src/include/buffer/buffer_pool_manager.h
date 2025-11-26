@@ -129,11 +129,8 @@ class FrameHeader {
    * 一个可选的优化是记录 `FrameHeader` 当前存储的页面 ID（可选类型），
    * 这样可以在某些情况下避免在缓冲池管理器的其他结构中查找 (page ID, frame ID) 对。
    */
-   auto GetLatch() -> std::shared_mutex & {
-    return rwlatch_;
-}
-    //可以增加一个page_id,直接从 frame_header 里拿到 page_id,而不需要遍历
-
+  auto GetLatch() -> std::shared_mutex & { return rwlatch_; }
+  //可以增加一个page_id,直接从 frame_header 里拿到 page_id,而不需要遍历
 };
 
 /**
@@ -171,8 +168,8 @@ class BufferPoolManager {
   void FlushAllPages();
   auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
   auto PinPage(frame_id_t frame_id) -> void;
-  //auto UnpinPage(frame_id_t frame_id) -> void;
-  auto ReadPageFromDisk(page_id_t page_id, std::shared_ptr<FrameHeader> frame) -> void;
+  // auto UnpinPage(frame_id_t frame_id) -> void;
+  auto ReadPageFromDisk(page_id_t page_id, const std::shared_ptr<FrameHeader> &frame) -> void;
 
  private:
   /** @brief The number of frames in the buffer pool. */

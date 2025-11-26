@@ -177,7 +177,6 @@ class DiskManager {
   /** @brief returns the log file name */
   inline auto GetLogFileName() const -> std::filesystem::path { return log_name_; }
   /** @brief 返回日志文件名 */
-  
 
  protected:
   auto GetFileSize(const std::string &file_name) -> int;

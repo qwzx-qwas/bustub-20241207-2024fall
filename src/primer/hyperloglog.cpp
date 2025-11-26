@@ -12,7 +12,7 @@ HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits) : cardinality_(0) {
     effective_b = 0;
   } else if (n_bits > 16) {
     effective_b = 16;
-  } else {       
+  } else {
     effective_b = n_bits;
   }
 
