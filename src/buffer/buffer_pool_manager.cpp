@@ -268,6 +268,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * @return 如果页面存在但无法删除返回 `false`，如果页面不存在或删除成功返回 `true`。
  */
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  //std::unique_lock latch(*bpm_latch_);
   std::scoped_lock latch(*bpm_latch_);
   //检查页面是否在页表中
   auto page_table_iter = page_table_.find(page_id);
@@ -504,7 +505,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
 //找page_id对应的帧
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
   // std::scoped_lock latch(*bpm_latch_);
-  bpm_latch_->lock();
+  std::unique_lock latch(*bpm_latch_);
   auto page_table_iter = page_table_.find(page_id);
   //先检查页面是否在页表中
   if (page_table_iter != page_table_.end()) {
@@ -675,8 +676,16 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  */
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
   // std::scoped_lock latch(*bpm_latch_);
+  //这里将逻辑拆分开，避免长时间持有锁
+  // frame_id_t frame_id = INVALID_FRAME_ID;
+  // std::promise<bool> promise;
+  // std::future<bool> future = promise.get_future();
   //检查页面是否在页表中
+
+  // std::scoped_lock latch(*bpm_latch_);
   auto page_table_iter = page_table_.find(page_id);
+  std::promise<bool> promise;
+  std::future<bool> future = promise.get_future();
   if (page_table_iter == page_table_.end()) {
     //如果内存中找不到页面，返回false
     return false;
@@ -686,8 +695,6 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     //如果页面是脏的，则写回磁盘
 
     //构造写请求
-    std::promise<bool> promise;
-    std::future<bool> future = promise.get_future();
 
     DiskRequest req;
     req.is_write_ = true;
@@ -701,12 +708,28 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
 
     //将写请求添加到磁盘调度器
     disk_scheduler_->Schedule(std::move(req));
-    //等待写操作完成
-    future.get();
-
-    //将页面标记为非脏
-    frames_[frame_id]->is_dirty_ = false;
   }
+
+  //等待写操作完成
+  future.get();
+
+  //将页面标记为非脏
+
+  /*  std::scoped_lock latch(*bpm_latch_);
+  // 关键验证：检查页帧是否仍然映射到原始 page_id。
+    auto current_page_table_iter = page_table_.find(page_id);
+
+    if (current_page_table_iter == page_table_.end() ||
+        current_page_table_iter->second != frame_id) {
+
+    // 情况 1: 页面已被 DeletePage 移除（page_table_ 中无记录）
+    // 情况 2: 页面已被 NewPage/FetchPage 替换（frame_id 映射到新 page_id）
+    // 此时什么也不做，因为该帧已用于新页面或已被清除。
+    // 注意：由于 I/O 成功完成，我们不需要再尝试刷写它。
+        return true;
+    }*/
+  frames_[frame_id]->is_dirty_ = false;
+
   return true;
 }
 

@@ -41,10 +41,10 @@ namespace bustub {
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
     : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  frame_->rwlatch_.lock();
   frame_->pin_count_.fetch_add(1);
   replacer_->RecordAccess(frame_->frame_id_);
   replacer_->SetEvictable(frame_->frame_id_, false);
+  frame_->rwlatch_.lock_shared();
   is_valid_ = true;
 }
 
@@ -208,7 +208,7 @@ void ReadPageGuard::Drop() {
   if (page_id_ == INVALID_PAGE_ID) {
     return;
   }
-  frame_->rwlatch_.unlock();
+  frame_->rwlatch_.unlock_shared();
   //更新pin计数
   std::scoped_lock latch(*bpm_latch_);
   if (frame_->pin_count_.load() > 0) {
@@ -261,10 +261,10 @@ ReadPageGuard::~ReadPageGuard() { Drop(); }
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<LRUKReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch)
     : page_id_(page_id), frame_(std::move(frame)), replacer_(std::move(replacer)), bpm_latch_(std::move(bpm_latch)) {
-  frame_->rwlatch_.lock();
   frame_->pin_count_.fetch_add(1);
   replacer_->RecordAccess(frame_->frame_id_);
   replacer_->SetEvictable(frame_->frame_id_, false);
+  frame_->rwlatch_.lock();
   is_valid_ = true;
 }
 
@@ -441,7 +441,7 @@ auto WritePageGuard::IsDirty() const -> bool {
  * TODO(P1)：添加实现。
  */
 void WritePageGuard::Drop() {
-  if (page_id_ == INVALID_PAGE_ID) {
+  if (page_id_ == INVALID_PAGE_ID || frame_ == nullptr) {
     return;
   }
 
