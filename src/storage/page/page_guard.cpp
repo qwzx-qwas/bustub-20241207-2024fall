@@ -307,6 +307,9 @@ WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept
       is_valid_(that.is_valid_) {
   that.page_id_ = INVALID_PAGE_ID;
   that.is_valid_ = false;
+  that.frame_ = nullptr;
+  that.replacer_ = nullptr;
+  that.bpm_latch_ = nullptr;
 }
 
 /**
@@ -358,6 +361,9 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   // 确保使 `that` 失效
   that.page_id_ = INVALID_PAGE_ID;
   that.is_valid_ = false;
+  that.frame_ = nullptr;
+  that.replacer_ = nullptr;
+  that.bpm_latch_ = nullptr;
   return *this;
 }
 
@@ -391,6 +397,7 @@ auto WritePageGuard::GetData() const -> const char * {
  */
 auto WritePageGuard::GetDataMut() -> char * {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
+  frame_->is_dirty_ = true;
   return frame_->GetDataMut();
 }
 
@@ -442,7 +449,7 @@ void WritePageGuard::Drop() {
         replacer_->SetEvictable(frame_->frame_id_, true);
       }
     }
-    is_valid_ = false;
+    // is_valid_ = false;
   }
   //将当前对象置为无效
   page_id_ = INVALID_PAGE_ID;
