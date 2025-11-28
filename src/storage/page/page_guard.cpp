@@ -213,13 +213,16 @@ void ReadPageGuard::Drop() {
     std::scoped_lock latch(*bpm_latch_);
 
     // 执行 pin_count 递减和 Replacer 状态更新 (UnpinPageInternal 逻辑)
-    if (frame_->pin_count_.load() > 0) {
-      frame_->pin_count_.fetch_sub(1);
-      if (frame_->pin_count_.load() == 0) {
-        // Pin 计数归零时，通知 Replacer 该帧可驱逐
-        replacer_->SetEvictable(frame_->frame_id_, true);
-      }
+    size_t old_pin_count = frame_->pin_count_.fetch_sub(1);
+    if (old_pin_count == 0) {
+      frame_->pin_count_.fetch_add(1);  //恢复原值
+      return;
     }
+    if (old_pin_count == 1) {
+      //只标记为可驱逐，不进行驱逐操作
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
+    is_valid_ = false;
   }
 
   //将当前对象置为无效
@@ -441,15 +444,16 @@ void WritePageGuard::Drop() {
   //更新pin计数
   {
     std::scoped_lock latch(*bpm_latch_);
-    frame_->is_dirty_ = true;
-    if (frame_->pin_count_.load() > 0) {
-      frame_->pin_count_.fetch_sub(1);
-      if (frame_->pin_count_.load() == 0) {
-        //只标记为可驱逐，不进行驱逐操作
-        replacer_->SetEvictable(frame_->frame_id_, true);
-      }
+    size_t old_pin_count = frame_->pin_count_.fetch_sub(1);
+    if (old_pin_count == 0) {
+      frame_->pin_count_.fetch_add(1);  //恢复原值
+      return;
     }
-    // is_valid_ = false;
+    if (old_pin_count == 1) {
+      //只标记为可驱逐，不进行驱逐操作
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
+    is_valid_ = false;
   }
   //将当前对象置为无效
   page_id_ = INVALID_PAGE_ID;
