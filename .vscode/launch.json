@@ -5,7 +5,7 @@
             "name": "Debug Bustub Test",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/test/page_guard_test",
+            "program": "${workspaceFolder}/build/test/buffer_pool_manager_test",
             "args": ["--gtest_filter=*"], 
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

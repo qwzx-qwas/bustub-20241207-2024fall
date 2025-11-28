@@ -129,8 +129,6 @@ class FrameHeader {
    * 一个可选的优化是记录 `FrameHeader` 当前存储的页面 ID（可选类型），
    * 这样可以在某些情况下避免在缓冲池管理器的其他结构中查找 (page ID, frame ID) 对。
    */
-  auto GetLatch() -> std::shared_mutex & { return rwlatch_; }
-  //可以增加一个page_id,直接从 frame_header 里拿到 page_id,而不需要遍历
 };
 
 /**
@@ -168,8 +166,10 @@ class BufferPoolManager {
   void FlushAllPages();
   auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
   auto PinPage(frame_id_t frame_id) -> void;
-  // auto UnpinPage(frame_id_t frame_id) -> void;
-  auto ReadPageFromDisk(page_id_t page_id, const std::shared_ptr<FrameHeader> &frame) -> void;
+  auto PinPageInternal(frame_id_t frame_id) -> void;
+  auto UnpinPage(frame_id_t frame_id) -> void;
+  auto UnpinPageInternal(frame_id_t frame_id) -> void;
+  auto DoDiskIO(page_id_t page_id, const std::shared_ptr<FrameHeader> &frame, bool rw) -> void;
 
  private:
   /** @brief The number of frames in the buffer pool. */
@@ -239,5 +239,12 @@ class BufferPoolManager {
    * 我们建议实现一个辅助函数，用于返回一个空闲且不包含任何数据的帧的 ID。此外，你还可以实现一个辅助函数，
    * 返回已经包含某页面数据的 `FrameHeader` 的共享指针或该 `FrameHeader` 的索引，以便重用。
    */
+  //保护的共享资源：page_table_ (查找、插入、删除映射)，
+  //保护目的：防止多个线程同时修改page_table_导致数据不一致，即保证页表管理的原子性
+  // std::shared_ptr<std::mutex> page_table_latch_;
+
+  //保护的共享资源：free_frames_ (分配、回收帧ID)
+  //保护目的：防止多个线程同时修改free_frames_导致数据不一致，即保证帧分配/回收的原子性
+  // std::shared_ptr<std::mutex> free_list_latch_;
 };
 }  // namespace bustub
