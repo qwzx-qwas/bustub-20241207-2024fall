@@ -155,9 +155,6 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
 
 // PinPage
 auto BufferPoolManager::PinPage(frame_id_t frame_id) -> void {
-  //由于 replacer_ 的状态（能否驱逐）是 BPM 整体行政管理的一部分，并且必须与 page_table_ 的查找/更新操作保持同步
-  //（例如，你不能在驱逐一个页面的同时，page_table 还在查找它）。
-  // 因此，将 replacer_ 的访问与 page_table_latch_ 捆绑
   std::scoped_lock latch(*bpm_latch_);
   PinPageInternal(frame_id);
 }
@@ -295,15 +292,8 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   //页面未被固定，可以删除
   //如果页面是脏的，则先写回磁盘
   if (frames_[frame_id]->is_dirty_) {
-    latch.unlock();  //解锁页表锁，避免死锁
-    FlushPage(page_id);
-    latch.lock();  //重新加锁页表锁
-  }
-  //重新获取锁后，需要检查该page_id是否有效
-  page_table_iter = page_table_.find(page_id);
-  if (page_table_iter == page_table_.end() || page_table_iter->second != frame_id) {
-    //页面不存在或已被修改，返回true
-    return true;
+    DoDiskIO(page_id, frames_[frame_id], true);
+    frames_[frame_id]->is_dirty_ = false;  //清除脏标志
   }
   replacer_->Remove(frame_id);
   //清空当前帧数据
@@ -457,17 +447,9 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     }
     //如果该页面是脏的，则先写回磁盘
     if (frames_[evict_frame_id]->is_dirty_) {
-      latch.unlock();  //解锁页表锁，避免死锁
-      FlushPage(evict_page_id);
-      latch.lock();  //重新加锁页表锁
+      DoDiskIO(evict_page_id, frames_[evict_frame_id], true);
+      frames_[evict_frame_id]->is_dirty_ = false;  //清除脏标志
     }
-    //重新获取锁后，需要检查该page_id是否有效
-    page_table_iter = page_table_.find(evict_page_id);
-    if (page_table_iter == page_table_.end() || page_table_iter->second != evict_frame_id) {
-      //页面不存在或已被修改,继续选择下一个可驱逐帧
-      continue;
-    }
-
     frames_[evict_frame_id]->Reset();
     //从页表中移除被驱逐页面的映射
     page_table_.erase(evict_page_id);
@@ -577,16 +559,8 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
 
     //如果该页面是脏的，则先写回磁盘
     if (frames_[old_evict_frame_id]->is_dirty_) {
-      latch.unlock();  //解锁页表锁，避免死锁
-      FlushPage(evict_page_id);
-      latch.lock();  //重新加锁页表锁
-    }
-
-    //检查evict_page_id是否有效
-    page_table_iter = page_table_.find(evict_page_id);
-    if (page_table_iter == page_table_.end() || page_table_iter->second != evict_frame_id) {
-      //页面不存在或已被修改，返回std::nullopt
-      continue;
+      DoDiskIO(evict_page_id, frames_[old_evict_frame_id], true);
+      frames_[old_evict_frame_id]->is_dirty_ = false;  //清除脏标志
     }
     frames_[evict_frame_id]->Reset();
     //从页表中移除被驱逐页面的映射
@@ -723,22 +697,10 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     if (!frames_[frame_id]->is_dirty_) {
       return true;
     }
-    // PinPageInternal(frame_id);  // 确保页面被固定
-  }
 
-  DoDiskIO(page_id, frames_[frame_id], true);
-  is_success = true;  // I/O 成功
-
-  {
-    std::scoped_lock latch(*bpm_latch_);
-    // 关键验证：检查页帧是否仍然映射到原始 page_id。
-    auto current_page_table_iter = page_table_.find(page_id);
-
-    if (current_page_table_iter != page_table_.end() && current_page_table_iter->second == frame_id) {
-      //将页面标记为非脏
-      frames_[frame_id]->is_dirty_ = false;
-    }
-    // UnpinPageInternal(frame_id);
+    DoDiskIO(page_id, frames_[frame_id], true);
+    frames_[frame_id]->is_dirty_ = false;  //将页面标记为非脏
+    is_success = true;                     // I/O 成功
   }
 
   return is_success;
