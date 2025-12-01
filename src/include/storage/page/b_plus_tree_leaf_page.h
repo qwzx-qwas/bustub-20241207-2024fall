@@ -46,10 +46,34 @@ namespace bustub {
  * | NextPageId (4) |
  *  -----------------
  */
+/**
+ * 在叶子页中存储索引键和记录 ID（record id = 页面 ID 与槽 ID 的组合，详见 `include/common/rid.h`）。
+ * 仅支持唯一键。
+ *
+ * 叶子页格式（键按顺序存储）：
+ *  ---------
+ * | HEADER |
+ *  ---------
+ *  ---------------------------------
+ * | KEY(1) | KEY(2) | ... | KEY(n) |
+ *  ---------------------------------
+ *  ---------------------------------
+ * | RID(1) | RID(2) | ... | RID(n) |
+ *  ---------------------------------
+ *
+ *  头部格式（字节数，总计 16 字节）：
+ *  -----------------------------------------------
+ * | PageType (4) | CurrentSize (4) | MaxSize (4) |
+ *  -----------------------------------------------
+ *  -----------------
+ * | NextPageId (4) |
+ *  -----------------
+ */
 INDEX_TEMPLATE_ARGUMENTS
 class BPlusTreeLeafPage : public BPlusTreePage {
  public:
   // Delete all constructor / destructor to ensure memory safety
+  // 删除所有构造/析构函数以确保内存安全
   BPlusTreeLeafPage() = delete;
   BPlusTreeLeafPage(const BPlusTreeLeafPage &other) = delete;
 
@@ -58,9 +82,14 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * method to set default values
    * @param max_size Max size of the leaf node
    */
+  /**
+   * 在从缓冲池创建新的叶子页后，必须调用初始化方法以设置默认值。
+   * @param max_size 叶子节点的最大容量
+   */
   void Init(int max_size = LEAF_PAGE_SLOT_CNT);
 
   // Helper methods
+  // 辅助方法
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
@@ -70,6 +99,11 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * this leaf page formatted as "(key1,key2,key3,...)"
    *
    * @return The string representation of all keys in the current internal page
+   */
+  /**
+   * @brief 仅用于测试，返回表示此叶子页内所有键的字符串，格式为 "(key1,key2,key3,...)"。
+   *
+   * @return 当前叶子页中所有键的字符串表示。
    */
   auto ToString() const -> std::string {
     std::string kstr = "(";
@@ -92,10 +126,13 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
  private:
   page_id_t next_page_id_;
+  // 下一页 ID（用于叶子页链表中的下一个叶子页）。
   // Array members for page data.
+  // 用于存储页面数据的数组成员。
   KeyType key_array_[LEAF_PAGE_SLOT_CNT];
   ValueType rid_array_[LEAF_PAGE_SLOT_CNT];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
+  // （2024 秋）如有需要，可在下方添加更多字段和辅助函数
 };
 
 }  // namespace bustub

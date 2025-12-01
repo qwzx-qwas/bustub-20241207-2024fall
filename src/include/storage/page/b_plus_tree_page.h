@@ -25,6 +25,7 @@ namespace bustub {
 #define INDEX_TEMPLATE_ARGUMENTS template <typename KeyType, typename ValueType, typename KeyComparator>
 
 // define page type enum
+// 定义页面类型的枚举
 enum class IndexPageType { INVALID_INDEX_PAGE = 0, LEAF_PAGE, INTERNAL_PAGE };
 
 /**
@@ -38,9 +39,20 @@ enum class IndexPageType { INVALID_INDEX_PAGE = 0, LEAF_PAGE, INTERNAL_PAGE };
  * | PageType (4) | CurrentSize (4) | MaxSize (4) |  ...   |
  * ---------------------------------------------------------
  */
+/**
+ * 两种内部页面（internal）和叶子页面（leaf）都继承自此基类。
+ *
+ * 它实际上作为每个 B+ 树页面的头部，包含内部页和叶子页共享的信息。
+ *
+ * 头部格式（字节数，共 12 字节）：
+ * ---------------------------------------------------------
+ * | PageType (4) | CurrentSize (4) | MaxSize (4) |  ...   |
+ * ---------------------------------------------------------
+ */
 class BPlusTreePage {
  public:
   // Delete all constructor / destructor to ensure memory safety
+  // 删除所有构造函数/析构函数以确保内存安全
   BPlusTreePage() = delete;
   BPlusTreePage(const BPlusTreePage &other) = delete;
   ~BPlusTreePage() = delete;
@@ -58,11 +70,14 @@ class BPlusTreePage {
 
  private:
   // Member variables, attributes that both internal and leaf page share
-  IndexPageType page_type_ __attribute__((__unused__));
+  // 成员变量：内部页与叶子页共享的属性
+  IndexPageType page_type_;
   // Number of key & value pairs in a page
-  int size_ __attribute__((__unused__));
+  // 页面中键-值对的数量
+  int size_;
   // Max number of key & value pairs in a page
-  int max_size_ __attribute__((__unused__));
+  // 页面中键-值对的最大容量
+  int max_size_;
 };
 
 }  // namespace bustub
