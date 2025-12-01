@@ -34,7 +34,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
     //set next page id
     next_page_id_ = INVALID_PAGE_ID;
     //set max page size
-    SetMaxSize(max_size);
+    SetMaxSize(max_size);    
 }
 
 /**
