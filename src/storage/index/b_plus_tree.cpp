@@ -391,11 +391,150 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
  * delete entry from leaf page. Remember to deal with redistribute or merge if
  * necessary.
  */
+//用于Remove的findleaf逻辑
+//这次从find开始就层层设锁
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::FindLeafPageForWrite(const KeyType &key, std::vector<ValueType> *result, Context &ctx) -> page_id_t {
+  //从根节点开始查找
+  page_id_t current_page_id = GetRootPageId();
+
+  while (true) {
+  WritePageGuard current_guard = bpm_->WritePage(current_page_id);
+  ctx.write_set_.push_back(std::move(current_guard));
+  const BPlusTreePage *current_page = ctx.write_set_.back().As<BPlusTreePage>();
+  //如果根节点是叶子节点
+  if (current_page->IsLeafPage()) {
+    auto leaf_page = current_guard.As<BPlusTreeLeafPage>();
+    //在叶子节点中二分查找key
+    int index = BinarySearch(leaf_page, key, comparator_, false);
+    if (index != -1 &&index < leaf_page->GetSize() && comparator_(leaf_page->KeyAt(index), key) == 0) {
+      //找到了key
+      result->push_back(leaf_page->ValueAt(index));
+    }
+      return current_page_id;
+  }
+    auto internal_page = ctx.write_set_.back().As<BPlusTreeInternalPage>();
+    //在内部节点中二分查找key,需要略过第一个key,用true来说明这一点
+    int index = BinarySearch(internal_page, key, comparator_, true);
+    current_page_id = internal_page->ValueAt(index);
+  }
+}
+
+
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key) {
+  if (IsEmpty()) {
+    return; //如果B+树为空，直接返回
+  }  
   // Declaration of context instance.
   Context ctx;
-  (void)ctx;
+  //(void)ctx;
+  
+  WritePageGuard header_guard = bpm_->WritePage(header_page_id_);
+  //将header_paged的写保护存放到context中
+  ctx.header_page_ = std::move(header_guard); 
+  
+  std::vector<ValueType> temp_result;
+  page_id_t leaf_page_id = FindLeafPageForWrite(key, &temp_result, ctx);
+  
+  if (temp_result.empty()) {
+    //说明key不存在，直接返回
+    return;
+  }
+  auto &leaf_page_guard = ctx.write_set_.back();
+  auto leaf_page = leaf_page_guard.AsMut<BPlusTreeLeafPage>();
+
+  //在叶子节点中找到key的位置
+  int delete_index = BinarySearch(leaf_page, key, comparator_, false);
+  if (delete_index == -1 || delete_index >= leaf_page->GetSize() ||
+      comparator_(leaf_page->KeyAt(delete_index), key) != 0) {
+    //key不存在，直接返回
+    return;
+  }
+  for (int i = delete_index; i < leaf_page->GetSize() - 1; i++) {
+    leaf_page->SetKeyAt(i, leaf_page->KeyAt(i + 1));
+    leaf_page->rid_array_[i] = leaf_page->rid_array_[i + 1];
+  }
+  leaf_page->IncreaseSize(-1);
+
+  //现在要处理删除后可能引起的合并或重分配
+  int leaf_min_size = leaf_page->GetMinSize();
+  if (leaf_page->GetSize() < leaf_min_size) {
+    HandleLeafUnderFlow(leaf_page, ctx);
+  }
+}
+
+
+auto BPLUSTREE_TYPE::HandleLeafUnderFlow(BPlusTreeLeafPage *leaf_page, Context &ctx) -> void {
+   //根节点特殊处理
+  if (left_page->GetPageId() == ctx.root_page_id_) {
+    
+  }
+  BPlusTreeInternalPage *parent_page = ctx.write_set_.rbegin()[1].AsMut<BPlusTreeInternalPage>();
+   //优先考虑重分配
+  if(RedistributeLeaf(leaf_page, parent_page, ctx)){
+    //重分配成功，释放锁
+    ctx.write_set_.pop_back();
+    return;
+  }
+
+   //合并,返回的值表示父节点是否也欠满
+   //MergeLeaf还必须负责删除从父节点指向被合并叶子节点的page_id
+  bool parent_underflow = MergeLeaf(leaf_page, parent_page, ctx);
+
+
+   //释放锁
+   ctx.write_set_.pop_back();
+
+  //把任务丢给上层去做
+  if (parent_underflow) {
+    HandleInternalUnderFlow(parent_page, ctx);
+  }
+}
+
+
+auto BPLUSTREE_TYPE::HandleInternalUnderFlow(BPlusTreePage *page, Context &ctx) -> void {
+  //根节点特殊处理
+   if (page->GetPageId() == ctx.root_page_id_) {
+    
+    }
+  //重分配
+  BPlusTreeInternalPage *parent_page = ctx.write_set_.rbegin()[1].AsMut<BPlusTreeInternalPage>();
+   if(RedistributeInternal(page, parent_page, ctx)){
+    //重分配成功，释放锁
+    ctx.write_set_.pop_back();
+    return;
+  }
+
+  //合并
+  bool parent_underflow = MergeInternal(page, parent_page, ctx);
+
+   //释放锁
+   ctx.write_set_.pop_back();
+
+
+  //向上传递
+  if (parent_underflow) {
+    HandleInternalUnderFlow(parent_page, ctx);
+  }
+  
+}
+
+auto BPLUSTREE_TYPE::RedistributeLeaf(BPlusTreeLeafPage *leaf_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
+  TODO();
+}
+
+auto BPLUSTREE_TYPE::RedistributeInternal(BPlusTreeInternalPage *internal_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
+  TODO();
+}
+
+
+auto BPLUSTREE_TYPE::MergeLeaf(BPlusTreeLeafPage *leaf_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
+  TODO();
+}
+  
+auto BPLUSTREE_TYPE::MergeInternal(BPlusTreeInternalPage *internal_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
+  TODO();
 }
 
 /*****************************************************************************

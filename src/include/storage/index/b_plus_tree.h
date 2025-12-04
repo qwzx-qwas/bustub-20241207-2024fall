@@ -110,6 +110,20 @@ class BPlusTree {
   
   //创建新的根节点
   auto CreateNewRoot(BPlusTreePage *left_child, BPlusTreePage *right_child, Context &ctx) -> void;
+
+  auto FindLeafPageForWrite(const KeyType &key, std::vector<ValueType> *result, Context &ctx) -> page_id_t
+
+  auto HandleLeafUnderFlow(LeafPage *leaf_page, Context &ctx) -> void;
+
+  auto HandleInternalUnderFlow(InternalPage *internal_page, Context &ctx) -> void;
+
+  auto RedistributeLeaf(LeafPage *leaf_page, InternalPage *parent_page, Context &ctx) -> bool;
+
+  auto RedistributeInternal(InternalPage *internal_page, InternalPage *parent_page, Context &ctx) -> bool;  
+
+  auto MergeLeaf(LeafPage *leaf_page, InternalPage *parent_page, Context &ctx) -> bool;
+
+  auto MergeInternal(InternalPage *internal_page, InternalPage *parent_page, Context &ctx) -> bool;
   
   // Returns true if this B+ tree has no keys and values.
   // 如果此 B+ 树没有键和值则返回 true。
