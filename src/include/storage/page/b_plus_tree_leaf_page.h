@@ -30,7 +30,7 @@ namespace bustub {
  * Leaf page format (keys are stored in order):
  *  ---------
  * | HEADER |
- *  ---------
+ *  --------- 
  *  ---------------------------------
  * | KEY(1) | KEY(2) | ... | KEY(n) |
  *  ---------------------------------

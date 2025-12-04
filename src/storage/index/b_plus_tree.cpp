@@ -34,6 +34,33 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
 /*****************************************************************************
  * SEARCH
  *****************************************************************************/
+auto BPLUSTREE_TYPE::FindLeafPage(page_id_t page_id, const KeyType &key, std::vector<ValueType> *result) -> page_id_t {
+  //从根节点开始查找
+  page_id_t current_page_id = page_id;
+
+  while (true) {
+  ReadPageGuard current_guard = bpm_->ReadPage(current_page_id);
+  const BPlusTreePage *current_page = current_guard.As<BPlusTreePage>();
+  //如果根节点是叶子节点
+  if (current_page->IsLeafPage()) {
+    auto leaf_page = current_guard.As<BPlusTreeLeafPage>();
+    //在叶子节点中二分查找key
+    int index = BinarySearch(leaf_page, key, comparator_, false);
+    if (index != -1 &&index < leaf_page->GetSize() && comparator_(leaf_page->KeyAt(index), key) == 0) {
+      //找到了key
+      result->push_back(leaf_page->ValueAt(index));
+    }
+      return current_page_id;
+  }
+    auto internal_page = current_guard.As<BPlusTreeInternalPage>();
+    //在内部节点中二分查找key,需要略过第一个key,用true来说明这一点
+    int index = BinarySearch(internal_page, key, comparator_, true);
+    current_page_id = internal_page->ValueAt(index);
+    
+  }
+ 
+}
+//二分查找返回的是小于等于key的最大索引
  INDEX_TEMPLATE_ARGUMENTS
  auto BinarySearch(const BPlusTreePage *page, const KeyType &key, const KeyComparator &comparator, bool skip_first_key) ->int {
   int left = skip_first_key ? 1 : 0;
@@ -74,10 +101,18 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
   //从根节点开始查找
   page_id_t current_page_id = GetRootPageId();
 
-  //如果根节点是叶子节点
+  page_id_t leaf_page_id = FindLeafPage(current_page_id, key, &result);
+
+  if (!result->empty()) {
+    return true;
+  }
+  return false;
+
+  /*
   while (true) {
   ReadPageGuard current_guard = bpm_->ReadPage(current_page_id);
   const BPlusTreePage *current_page = current_guard.As<BPlusTreePage>();
+  //如果根节点是叶子节点
   if (current_page->IsLeafPage()) {
     auto leaf_page = current_guard.As<BPlusTreeLeafPage>();
     //在叶子节点中二分查找key
@@ -95,6 +130,7 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
     current_page_id = internal_page->ValueAt(index);
     }
   }
+    */
 }
 /*****************************************************************************
  * INSERTION
@@ -310,7 +346,38 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     return InsertIntoNewTree(key, value, ctx);
   }
   //如果B+树不为空
-  TODO();
+  //从根节点开始查找
+  page_id_t current_page_id = GetRootPageId();
+  std::vector<ValueType> temp_result;
+  page_id_t leaf_page_id = FindLeafPage(current_page_id, key, &temp_result);
+
+  if (!temp_result.empty()) {
+    //说明key已经存在，返回false
+    return false;
+  }
+
+  auto leaf_guard = bpm_->WritePage(leaf_page_id);
+  ctx.write_set_.push_back(std::move(leaf_guard));
+  auto &leaf_page_guard = ctx.write_set_.back();
+  auto leaf_page = leaf_page_guard.AsMut<BPlusTreeLeafPage>();
+
+  //在叶子节点中找到插入key的位置
+  int insert_index = BinarySearch(leaf_page, key, comparator_, false);
+  insert_index++; //因为BinarySearch返回的是小于等于key的最大索引，所以要加1
+  //将叶子节点中insert_index及之后的元素后移一位
+  for (int i = leaf_page->GetSize(); i > insert_index; i--) {
+    leaf_page->SetKeyAt(i, leaf_page->KeyAt(i - 1));
+    leaf_page->rid_array_[i] = leaf_page->rid_array_[i - 1];
+  } 
+  leaf_page->SetKeyAt(insert_index, key);
+  leaf_page->rid_array_[insert_index] = value;
+  leaf_page->IncreaseSize(1);
+
+  //检查叶子节点是否溢出需要分裂
+  if (leaf_page->GetSize() > leaf_page->GetMaxSize()) {
+    HandleLeafSplit(leaf_page, ctx);
+  }
+  return true;
 
 }
 

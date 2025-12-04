@@ -89,6 +89,9 @@ class BPlusTree {
                      const KeyComparator &comparator, int leaf_max_size = LEAF_PAGE_SLOT_CNT,
                      int internal_max_size = INTERNAL_PAGE_SLOT_CNT);
 
+  //辅助方法，将Insert和GetValue的相似逻辑合并
+  auto FindLeafPage(page_id_t page_id, const KeyType &key, std::vector<ValueType> *result) -> page_id_t
+
   //辅助方法，进行二分查找
   auto BinarySearch(const BPlusTreePage *page, const KeyType &key, const KeyComparator &comparator,
                         bool skip_first_key) -> int;
@@ -104,7 +107,9 @@ class BPlusTree {
 
   //执行内部节点分裂
   auto HandleInternalSplit(InternalPage *internal_page, Context &ctx) -> void;
-
+  
+  //创建新的根节点
+  auto CreateNewRoot(BPlusTreePage *left_child, BPlusTreePage *right_child, Context &ctx) -> void;
   
   // Returns true if this B+ tree has no keys and values.
   // 如果此 B+ 树没有键和值则返回 true。
