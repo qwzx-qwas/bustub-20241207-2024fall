@@ -529,7 +529,7 @@ auto BPLUSTREE_TYPE::HandleInternalUnderFlow(BPlusTreePage *page, Context &ctx) 
   bool parent_underflow = MergeInternal(page, parent_page, ctx);
 
    //释放锁
-   ctx.write_set_.pop_back();
+  ctx.write_set_.pop_back();
 
 
   //向上传递
@@ -706,62 +706,6 @@ auto BPLUSTREE_TYPE::RedistributeInternal(BPlusTreeInternalPage *internal_page, 
   return false;
 }
 
-/*
-auto BPLUSTREE_TYPE::MergeLeaf(BPlusTreeLeafPage *leaf_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
-  //不需要再考虑根节点，因为重分配逻辑已经处理过了
-  //也不需要检查当前叶子是否欠满，因为重分配逻辑也已经处理过了
-  //默认往左合并
-
-  //先看看有没有左兄弟节点
-  auto current_index = parent_page->ValueIndex(leaf_page->GetPageId());
-  BPlusTreeLeafPage *sibling_page = nullptr;
-  WritePageGuard sibling_guard;
-  bool is_left_sibling = false;
-  if (current_index > 0) {
-    //有左兄弟节点
-    page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
-    sibling_guard = bpm_->WritePage(left_sibling_page_id);
-    sibling_page = sibling_guard.AsMut<BPlusTreeLeafPage>();
-    is_left_sibling = true;
-  } else {
-    //没有左兄弟节点，只能用右兄弟节点
-    page_id_t right_sibling_page_id = leaf_page->GetNextPageId();
-    sibling_guard = bpm_->WritePage(right_sibling_page_id);
-    sibling_page = sibling_guard.AsMut<BPlusTreeLeafPage>();
-    is_left_sibling = false;
-  }
-  auto sibling_size = sibling_page->GetSize();
-  //开始合并
-  if (is_left_sibling) {
-    //先检查左节点的size是否小于minsize
-    if (sibling_size < sibling_page->GetMinSize()) {
-      return false; //不能合并
-    }
-    //将当前节点的数据移动到左兄弟节点的后面
-    for (int i = 0; i < leaf_page->GetSize(); i++) {
-      sibling_page->key_array_[sibling_size + i] = leaf_page->key_array_[i];
-      sibling_page->rid_array_[sibling_size + i] = leaf_page->rid_array_[i];
-    }
-    //更新左兄弟节点的size
-    sibling_page->SetSize(sibling_size + leaf_page->GetSize());
-    //更新左兄弟节点的next_page_id
-    sibling_page->SetNextPageId(leaf_page->GetNextPageId());
-    //删除当前节点
-    bpm_->DeletePage(leaf_page->GetPageId());
-    //更新父节点，删除指向当前节点的page_id
-    for (int i = current_index; i < parent_page->GetSize() - 1; i++) {
-      parent_page->SetKeyAt(i, parent_page->KeyAt(i + 1));
-      parent_page->page_id_array_[i + 1] = parent_page->page_id_array_[i + 2];
-    }
-    parent_page->IncreaseSize(-1);
-  } else {
-    //先检查右节点的size是否小于minsize
-    if (sibling_size < sibling_page->GetMinSize()) {
-      return false; //不能合并
-    }
-    
-
-} */
 auto BPLUSTREE_TYPE::MergeLeaf(BPlusTreeLeafPage *leaf_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
   //不需要再考虑根节点，因为重分配逻辑已经处理过了
   //也不需要检查当前叶子是否欠满，因为重分配逻辑也已经处理过了
@@ -771,7 +715,6 @@ auto BPLUSTREE_TYPE::MergeLeaf(BPlusTreeLeafPage *leaf_page, BPlusTreeInternalPa
   auto current_index = parent_page->ValueIndex(leaf_page->GetPageId());
   BPlusTreeLeafPage *sibling_page = nullptr;
   WritePageGuard sibling_guard;
-  bool is_left_sibling = false;
   auto sibling_size = 0;
   if (current_index > 0) {
     //有左兄弟节点
@@ -800,11 +743,12 @@ auto BPLUSTREE_TYPE::MergeLeaf(BPlusTreeLeafPage *leaf_page, BPlusTreeInternalPa
 
 
 auto BPLUSTREE_TYPE::MergeLeafHelper(BPlusTreeLeafPage *left_page, BPlusTreeLeafPage *right_page, BPlusTreeInternalPage *parent_page, int index_in_parent) -> void {
-  {
+  
   //将右节点的数据移动到左兄弟节点的后面
   for (int i = 0; i < right_page->GetSize(); i++) {
       left_page->key_array_[left_page->GetSize() + i] = right_page->key_array_[i];
       left_page->rid_array_[left_page->GetSize() + i] = right_page->rid_array_[i];
+      left_page->IncreaseSize(1);
     }
     //更新左兄弟节点的size
     left_page->SetSize(left_page->GetSize() + right_page->GetSize());
@@ -813,12 +757,12 @@ auto BPLUSTREE_TYPE::MergeLeafHelper(BPlusTreeLeafPage *left_page, BPlusTreeLeaf
     //删除当前节点
     bpm_->DeletePage(right_page->GetPageId());
     //更新父节点，删除指向当前节点的page_id
-    for (int i = index_in_parent; i < parent_page->GetSize() - 1; i++) {
-      parent_page->SetKeyAt(i, parent_page->KeyAt(i + 1));
-      parent_page->page_id_array_[i + 1] = parent_page->page_id_array_[i + 2];
+    for (int i = index_in_parent + 1; i < parent_page->GetSize(); i++) {
+      parent_page->SetKeyAt(i - 1, parent_page->KeyAt(i));
+      parent_page->page_id_array_[i - 1] = parent_page->page_id_array_[i];
     }
     parent_page->IncreaseSize(-1);
-  }
+  
 }
 
 
@@ -826,6 +770,60 @@ auto BPLUSTREE_TYPE::MergeLeafHelper(BPlusTreeLeafPage *left_page, BPlusTreeLeaf
 auto BPLUSTREE_TYPE::MergeInternal(BPlusTreeInternalPage *internal_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
   //不需要再考虑根节点，因为重分配逻辑已经处理过了
   //也不需要检查当前内部节点是否欠满，因为重分配逻辑也已经处理过了
+  //默认往左合并
+
+  auto current_index = parent_page->ValueIndex(internal_page->GetPageId());
+  BPlusTreeInternalPage *sibling_page = nullptr;
+  WritePageGuard sibling_guard;
+  auto sibling_size = 0;
+  if (current_index > 1) {
+    //有左兄弟节点
+    page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
+    sibling_guard = bpm_->WritePage(left_sibling_page_id);
+    sibling_page = sibling_guard.AsMut<BPlusTreeInternalPage>();
+    sibling_size = sibling_page->GetSize();
+    if (sibling_size < sibling_page->GetMinSize()) {
+      return false; //不能合并
+    }
+    MergeInternalHelper(sibling_page, internal_page, parent_page, current_index);
+    return true;
+  } 
+    //没有左兄弟节点，只能用右兄弟节点
+    page_id_t right_sibling_page_id = internal_page->GetNextPageId();
+    sibling_guard = bpm_->WritePage(right_sibling_page_id);
+    sibling_page = sibling_guard.AsMut<BPlusTreeInternalPage>();
+    sibling_size = sibling_page->GetSize();
+    if (sibling_size < sibling_page->GetMinSize()) {
+      return false; //不能合并
+    }
+    MergeInternalHelper(internal_page, sibling_page, parent_page, current_index);
+    return true;
+}
+
+auto BPLUSTREE_TYPE::MergeInternalHelper(BPlusTreeInternalPage *left_page, BPlusTreeInternalPage *right_page, BPlusTreeInternalPage *parent_page, int index_in_parent) -> void {
+  
+    //将parent_page中的key插入到left_page后面
+    KeyType parent_key = parent_page->KeyAt(index_in_parent);
+    left_page->SetKeyAt(left_page->GetSize() + 1, parent_key);
+    left_page->IncreaseSize(1);
+    //将右节点的数据移动到左兄弟节点的后面
+    for (int i = 1; i <= right_page->GetSize(); i++) {
+      left_page->SetKeyAt(left_page->GetSize() + 1, right_page->KeyAt(i));
+      left_page->page_id_array_[left_page->GetSize() + 1] = right_page->page_id_array_[i - 1];
+      left_page->IncreaseSize(1);
+    }
+    //移动最后一个page_id
+    left_page->page_id_array_[left_page->GetSize()] = right_page->page_id_array_[right_page->GetSize()];
+
+    //删除当前节点
+    bpm_->DeletePage(right_page->GetPageId());
+    //更新父节点，删除指向当前节点的page_id
+    for (int i = index_in_parent + 1; i < parent_page->GetSize(); i++) {
+      parent_page->SetKeyAt(i - 1, parent_page->KeyAt(i));
+      parent_page->page_id_array_[i - 1] = parent_page->page_id_array_[i];
+    }
+    parent_page->IncreaseSize(-1);
+
 }
 
 /*****************************************************************************

@@ -123,6 +123,9 @@ class BPlusTree {
 
   auto MergeLeaf(LeafPage *leaf_page, InternalPage *parent_page, Context &ctx) -> bool;
 
+  auto BPLUSTREE_TYPE::MergeLeafHelper(BPlusTreeLeafPage *left_page, BPlusTreeLeafPage *right_page,
+                BPlusTreeInternalPage *parent_page, int index_in_parent) -> void;
+
   auto MergeInternal(InternalPage *internal_page, InternalPage *parent_page, Context &ctx) -> bool;
   
   // Returns true if this B+ tree has no keys and values.
