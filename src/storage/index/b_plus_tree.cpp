@@ -468,7 +468,14 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
 auto BPLUSTREE_TYPE::HandleLeafUnderFlow(BPlusTreeLeafPage *leaf_page, Context &ctx) -> void {
    //根节点特殊处理
   if (left_page->GetPageId() == ctx.root_page_id_) {
-    
+    //如果仍有key就不管了
+    //没有就把树变空
+    if (leaf_page->GetSize() == 0) {
+      auto header_page = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
+      header_page->root_page_id_ = INVALID_PAGE_ID;
+      bpm_->DeletePage(leaf_page->GetPageId());
+    }
+    return;
   }
   BPlusTreeInternalPage *parent_page = ctx.write_set_.rbegin()[1].AsMut<BPlusTreeInternalPage>();
    //优先考虑重分配
@@ -496,7 +503,19 @@ auto BPLUSTREE_TYPE::HandleLeafUnderFlow(BPlusTreeLeafPage *leaf_page, Context &
 auto BPLUSTREE_TYPE::HandleInternalUnderFlow(BPlusTreePage *page, Context &ctx) -> void {
   //根节点特殊处理
    if (page->GetPageId() == ctx.root_page_id_) {
-    
+      //如果根还有大于俩子节点就不管了
+      if (page->GetSize() > 1) {
+        return;
+      }
+      //否则把树高度降低一层,就是把根节点的唯一子节点提升为新的根节点
+      page_id_t new_root_page_id = page->ValueAt(0);
+      //更新header_page中的root_page_id
+      auto header_page = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
+      header_page->root_page_id_ = new_root_page_id;
+      //释放旧根节点
+      ctx.write_set_.pop_back();
+      bpm_->DeletePage(page->GetPageId());
+      return;
     }
   //重分配
   BPlusTreeInternalPage *parent_page = ctx.write_set_.rbegin()[1].AsMut<BPlusTreeInternalPage>();
@@ -520,12 +539,155 @@ auto BPLUSTREE_TYPE::HandleInternalUnderFlow(BPlusTreePage *page, Context &ctx) 
   
 }
 
+//重分配叶子节点
 auto BPLUSTREE_TYPE::RedistributeLeaf(BPlusTreeLeafPage *leaf_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
-  TODO();
+  //看当前叶子是否没达到minsize
+  if (leaf_page->GetSize() >= leaf_page->GetMinSize()) {
+    return true; //不需要重分配
+  }
+  auto current_index = parent_page->ValueIndex(leaf_page->GetPageId());
+  //尝试从左兄弟节点借
+  if (current_index > 0) {
+    //获取左兄弟节点的page_id
+    //这里不将writeguard放到ctx中，因为借完就自动释放锁（RAII）
+    page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
+    WritePageGuard left_sibling_guard = bpm_->WritePage(left_sibling_page_id);
+    auto left_sibling_page = left_sibling_guard.AsMut<BPlusTreeLeafPage>();
+    //检查左兄弟节点是否可以借
+    if (left_sibling_page->GetSize() > left_sibling_page->GetMinSize()) {
+      //可以借
+      //将左兄弟节点的最后一个元素移动到当前叶子节点的首部
+      KeyType borrowed_key = left_sibling_page->KeyAt(left_sibling_page->GetSize() - 1);
+      ValueType borrowed_value = left_sibling_page->ValueAt(left_sibling_page->GetSize() - 1);
+      //将借来的元素放到当前叶子节点的首部
+      for (int i = leaf_page->GetSize(); i > 0; i--) {
+        leaf_page->SetKeyAt(i, leaf_page->KeyAt(i - 1));
+        leaf_page->rid_array_[i] = leaf_page->rid_array_[i - 1];
+      }
+      leaf_page->key_array_[0] = borrowed_key;
+      leaf_page->rid_array_[0] = borrowed_value;
+      leaf_page->IncreaseSize(1);
+      left_sibling_page->IncreaseSize(-1);
+      //更新父亲节点的key
+      parent_page->SetKeyAt(current_index, leaf_page->KeyAt(0));
+
+      return true; //借成功
+    }
+  }
+    //现在尝试从右兄弟节点借
+  page_id_t sibling_page_id = leaf_page->GetNextPageId();
+  if (sibling_page_id == INVALID_PAGE_ID ) {
+    return false; //没有兄弟节点，同上面不需要重分配一样处理
+  }
+  
+  //能借就借，借完更新父节点
+  WritePageGuard sibling_guard = bpm_->WritePage(sibling_page_id);
+  auto sibling_page = sibling_guard.AsMut<BPlusTreeLeafPage>();
+  //从兄弟节点借一个元素到当前叶子节点
+  //注意这里的借是指将兄弟节点的最后一个元素移动到当前叶子节点的末尾
+  //并且更新兄弟节点的size
+  if (sibling_page->GetSize() > sibling_page->GetMinSize()) {
+    //兄弟节点可以借
+    KeyType borrowed_key = sibling_page->KeyAt(0);
+    ValueType borrowed_value = sibling_page->ValueAt(0);
+    
+    //将借来的元素放到当前叶子节点的末尾
+    leaf_page->SetKeyAt(leaf_page->GetSize(), borrowed_key);
+    leaf_page->rid_array_[leaf_page->GetSize()] = borrowed_value;
+    leaf_page->IncreaseSize(1);
+
+    //更新兄弟节点的size
+    sibling_page->IncreaseSize(-1);
+    //将兄弟节点的元素前移一位
+    for (int i = 0; i < sibling_page->GetSize(); i++) {
+      sibling_page->KeyAt(i) = sibling_page->KeyAt(i + 1);
+      sibling_page->rid_array_[i] = sibling_page->rid_array_[i + 1];
+    }
+
+    //更新父节点的key
+    int parent_index = current_index + 1;
+    parent_page->SetKeyAt(parent_index, sibling_page->KeyAt(0));
+
+    return true;
+     //重分配成功
+  }
+  return false;
 }
 
 auto BPLUSTREE_TYPE::RedistributeInternal(BPlusTreeInternalPage *internal_page, BPlusTreeInternalPage *parent_page, Context &ctx) -> bool {
-  TODO();
+  //看当前内部节点是否没达到minsize
+  if (internal_page->GetSize() >= internal_page->GetMinSize()) {
+    return true; //不需要重分配
+  }
+  auto current_index = parent_page->ValueIndex(internal_page->GetPageId());
+  //尝试从左兄弟节点借
+  if (current_index > 0) {
+    //获取左兄弟节点的page_id
+    //这里不将writeguard放到ctx中，因为借完就自动释放锁（RAII）
+    page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
+    WritePageGuard left_sibling_guard = bpm_->WritePage(left_sibling_page_id);
+    auto left_sibling_page = left_sibling_guard.AsMut<BPlusTreeInternalPage>();
+    //检查左兄弟节点是否可以借
+    if (left_sibling_page->GetSize() > left_sibling_page->GetMinSize()) {
+      //可以借
+      //将左兄弟节点的最后一个元素移动到当前内部节点的首部
+      KeyType borrowed_key = left_sibling_page->KeyAt(left_sibling_page->GetSize() - 1);
+      page_id_t borrowed_value = left_sibling_page->ValueAt(left_sibling_page->GetSize());
+      //将借来的元素放到当前内部节点的首部
+      //注意第一个key无效
+      for (int i = internal_page->GetSize(); i > 0; i--) {
+        internal_page->key_array_[i + 1] = internal_page->key_array_[i];
+        internal_page->page_id_array_[i + 1] = internal_page->page_id_array_[i];
+      }
+      //处理第一个page
+      internal_page->page_id_array_[1] = internal_page->page_id_array_[0];
+      //更新父亲节点的key
+      KeyType parent_key = parent_page->KeyAt(current_index);
+      internal_page->SetKeyAt(1, parent_key);
+      internal_page->page_id_array_[0] = borrowed_value;
+      internal_page->IncreaseSize(1);
+      left_sibling_page->IncreaseSize(-1);
+      parent_page->SetKeyAt(current_index, borrowed_key);
+
+      return true; //借成功
+    }
+  }
+    //现在尝试从右兄弟节点借
+  if (current_index + 1 >= parent_page->GetSize()) {
+    return false; //没有兄弟节点，同上面不需要重分配一样处理
+  }
+
+  page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
+  WritePageGuard right_sibling_guard = bpm_->WritePage(right_sibling_page_id);
+  auto right_sibling_page = right_sibling_guard.AsMut<BPlusTreeInternalPage>();
+  //能借就借，借完更新父节点
+  if (right_sibling_page->GetSize() > right_sibling_page->GetMinSize()) {
+    //兄弟节点可以借
+    KeyType borrowed_key = right_sibling_page->KeyAt(1);
+    page_id_t borrowed_value = right_sibling_page->ValueAt(0);
+    
+    //将借来的元素放到当前内部节点的末尾
+    internal_page->SetKeyAt(internal_page->GetSize() + 1, parent_page->KeyAt(current_index + 1));
+    internal_page->page_id_array_[internal_page->GetSize() + 1] = borrowed_value;
+    internal_page->IncreaseSize(1);
+
+    //更新兄弟节点的size
+    right_sibling_page->IncreaseSize(-1);
+    //将兄弟节点的元素前移一位
+    for (int i = 1; i <= right_sibling_page->GetSize(); i++) {
+      right_sibling_page->SetKeyAt(i, right_sibling_page->KeyAt(i + 1));
+      right_sibling_page->page_id_array_[i - 1] = right_sibling_page->page_id_array_[i];
+    }
+    //最后一个page_id单独处理
+    right_sibling_page->page_id_array_[right_sibling_page->GetSize()] = right_sibling_page->page_id_array_[right_sibling_page->GetSize() + 1];
+
+    //更新父节点的key
+    parent_page->SetKeyAt(current_index + 1, borrowed_key);
+
+    return true;
+     //重分配成功
+  }
+  return false;
 }
 
 
