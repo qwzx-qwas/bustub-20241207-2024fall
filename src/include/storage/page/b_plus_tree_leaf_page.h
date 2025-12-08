@@ -30,8 +30,8 @@ namespace bustub {
  * Leaf page format (keys are stored in order):
  *  ---------
  * | HEADER |
- *  --------- 
- *  ---------------------------------
+ *  ---------
+ *  --------------------------------
  * | KEY(1) | KEY(2) | ... | KEY(n) |
  *  ---------------------------------
  *  ---------------------------------
@@ -94,12 +94,16 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
   auto ValueAt(int index) const -> ValueType;
+  void SetKeyAt(int index, const KeyType &key);
+  void SetValueAt(int index, const ValueType &value);
   auto ValueIndex(const ValueType &value) const -> int;
   /**
    * @brief For test only return a string representing all keys in
-   * this leaf page formatted as "(key1,key2,key3,...)"
+   * this leaf page
+   auto ValueAt(int index) const -> ValueType;formatted as "(key1,key2,key3,...)"
    *
-   * @return The string representation of all keys in the current internal page
+   * @return The string representation of all keys in the c
+   auto ValueAt(int index) const -> ValueType;rrent internal page
    */
   /**
    * @brief 仅用于测试，返回表示此叶子页内所有键的字符串，格式为 "(key1,key2,key3,...)"。
@@ -135,5 +139,53 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
   // （2024 秋）如有需要，可在下方添加更多字段和辅助函数
 };
+
+/**
+ * Init method after creating a new leaf page
+ * Including set page type, set current size to zero, set next page id and set max size
+ */
+
+/**
+ * Helper methods to set/get next page id
+ */
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t { return next_page_id_; }
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) { next_page_id_ = next_page_id; }
+
+/*
+ * Helper method to find and return the key associated with input "index" (a.k.a
+ * array offset)
+ */
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
+  return key_array_[index];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
+  key_array_[index] = key;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType {
+  return rid_array_[index];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetValueAt(int index, const ValueType &value) {
+  rid_array_[index] = value;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
+  for (int i = 0; i < GetSize(); ++i) {
+    if (rid_array_[i] == value) {
+      return i;
+    }
+  }
+  return -1;
+}
 
 }  // namespace bustub

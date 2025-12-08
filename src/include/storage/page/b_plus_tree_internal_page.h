@@ -100,6 +100,12 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   void SetKeyAt(int index, const KeyType &key);
 
   /**
+   * @param index The index of the value to set.
+   * @param value The new value (page_id)
+   */
+  void SetValueAt(int index, const ValueType &value);
+
+  /**
    * @param value The value to search for
    * @return The index that corresponds to the specified value
    */
@@ -161,5 +167,49 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
   // （2024 秋）如有需要，可在下方添加更多字段和辅助函数
 };
+
+
+/*
+ * Helper method to get/set the key associated with input "index" (a.k.a
+ * array offset)
+ */
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
+  return key_array_[index];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
+  key_array_[index] = key;
+}
+
+/*
+ * Helper method to get the value associated with input "index" (a.k.a array
+ * offset)
+ */
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
+  return page_id_array_[index];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetValueAt(int index, const ValueType &value) {
+  page_id_array_[index] = value;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
+  for (int i = 0; i < GetSize(); ++i) {
+    if (page_id_array_[i] == value) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::CheckIndex(int index) const {
+    return index >= 1 && index < GetSize();
+}
 
 }  // namespace bustub

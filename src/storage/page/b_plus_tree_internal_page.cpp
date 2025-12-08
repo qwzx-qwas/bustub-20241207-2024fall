@@ -32,14 +32,17 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
     //set max page size
     SetMaxSize(max_size);
 }
+/*
 INDEX_TEMPLATE_ARGUMENTS
 bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::CheckIndex(int index) const {
     return index >= 1 && index < GetSize();
 }
+*/
 /*
  * Helper method to get/set the key associated with input "index" (a.k.a
  * array offset)
  */
+ /*
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
     //check index range（0, size_)
@@ -53,27 +56,23 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
     key_array_[index] = key;
 }
 
-/*
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetValueAt(int index, const ValueType &value) {
+    BUSTUB_ASSERT(index >= 0 && index <= GetSize(), "Index out of bounds");
+    page_id_array_[index] = value;
+}
+
+
  * Helper method to get the value associated with input "index" (a.k.a array
  * offset)
  */
+ /*
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
-    BUSTUB_ASSERT(CheckIndex(index), "Index out of bounds");
+    BUSTUB_ASSERT(index >= 0 && index <= GetSize(), "Index out of bounds");
     return page_id_array_[index];
 }
-
-INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
-    int size = GetSize();
-    for (int i = 1; i < size; i++) {
-        if (page_id_array_[i] == value) {
-            return i;
-        }
-    }
-    return -1;
-}
-
+*/
 // valuetype for internalNode should be page id_t
 template class BPlusTreeInternalPage<GenericKey<4>, page_id_t, GenericComparator<4>>;
 template class BPlusTreeInternalPage<GenericKey<8>, page_id_t, GenericComparator<8>>;
