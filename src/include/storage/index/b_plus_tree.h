@@ -103,15 +103,15 @@ class BPlusTree {
   auto HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx) -> void;
 
   //将新节点插入到父节点中
-  auto InsertIntoParent(WritePageGuard &left_guard, const KeyType &key, WritePageGuard &right_guard, Context &ctx) -> void;
+  auto InsertIntoParent(WritePageGuard &leaf_guard, const KeyType &key, WritePageGuard &right_guard, Context &ctx) -> void;
 
   //执行内部节点分裂
   auto HandleInternalSplit(WritePageGuard &internal_guard, Context &ctx) -> void;
   
   //创建新的根节点
-  auto CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &right_guard, Context &ctx) -> void;
+  auto CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &right_guard, const KeyType &key, Context &ctx) -> void;
 
-  auto FindLeafPageForWrite(const KeyType &key, std::vector<ValueType> *result, Context &ctx) -> page_id_t;
+  auto FindLeafPageForWrite(const KeyType &key, std::vector<ValueType> *result, Context &ctx, bool is_insert = true) -> page_id_t;
 
   auto HandleLeafUnderFlow(WritePageGuard &leaf_guard, Context &ctx) -> void;
 
