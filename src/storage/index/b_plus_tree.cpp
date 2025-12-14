@@ -540,7 +540,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   }
   auto &leaf_page_guard = ctx.write_set_.back();
   auto leaf_page = leaf_page_guard.AsMut<LeafPage>();
-
+  
   //在叶子节点中找到key的位置
   int delete_index = BinarySearch(leaf_page, key, comparator_, false);
   if (delete_index == -1 || delete_index >= leaf_page->GetSize() ||
@@ -548,7 +548,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
     //key不存在，直接返回
     return;
   }
-  for (int i = delete_index; i < leaf_page->GetSize() - 1; i++) {
+  for (int i = delete_index; i < leaf_page->GetSize(); i++) {
     leaf_page->SetKeyAt(i, leaf_page->KeyAt(i + 1));
     leaf_page->SetValueAt(i, leaf_page->ValueAt(i + 1));
   }
@@ -600,6 +600,15 @@ auto BPLUSTREE_TYPE::HandleLeafUnderFlow(WritePageGuard &leaf_guard, Context &ct
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::HandleInternalUnderFlow(WritePageGuard &internal_guard, Context &ctx) -> void {
   auto page = internal_guard.AsMut<BPlusTreePage>();
+  
+  // ai建议：在尝试获取父节点之前，先检查当前节点是否真的 Underflow
+  // 如果当前节点是 Safe Node (Size >= MinSize)，则不需要进一步处理
+  // 这防止了当 write_set_ 被截断时（Safe Node 为第一个元素）访问不存在的父节点导致的 Crash
+  if (page->GetSize() >= page->GetMinSize()) {
+    return;
+  }
+  // ai建议结束
+
   //根节点特殊处理
    if (internal_guard.GetPageId() == ctx.root_page_id_) {
       //如果根还有大于俩子节点就不管了
@@ -613,8 +622,9 @@ auto BPLUSTREE_TYPE::HandleInternalUnderFlow(WritePageGuard &internal_guard, Con
       auto header_page = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
       header_page->root_page_id_ = new_root_page_id;
       //释放旧根节点
-      ctx.write_set_.pop_back();
-      bpm_->DeletePage(internal_guard.GetPageId());
+      page_id_t old_root_page_id = internal_guard.GetPageId();
+      ctx.write_set_.pop_back(); // 这会释放 internal_guard (即旧根节点的锁)
+      bpm_->DeletePage(old_root_page_id);
       return;
     }
   //重分配，注意如果size够就不需要重分配也不需要合并
@@ -859,6 +869,7 @@ auto BPLUSTREE_TYPE::MergeLeafHelper(WritePageGuard &left_guard, WritePageGuard 
   auto right_page = right_guard.AsMut<LeafPage>();
   auto parent_page = parent_guard.AsMut<InternalPage>();
   
+  /* 原代码
   //将右节点的数据移动到左兄弟节点的后面
   for (int i = 0; i < right_page->GetSize(); i++) {
       left_page->SetKeyAt(left_page->GetSize() + i, right_page->KeyAt(i));
@@ -877,7 +888,38 @@ auto BPLUSTREE_TYPE::MergeLeafHelper(WritePageGuard &left_guard, WritePageGuard 
       parent_page->SetValueAt(i - 1, parent_page->ValueAt(i));
     }
     parent_page->ChangeSizeBy(-1);
+  */
+
+  // ai建议
+  int current_size = left_page->GetSize();
+  int right_size = right_page->GetSize();
+
+  //将右节点的数据移动到左兄弟节点的后面
+  for (int i = 0; i < right_size; i++) {
+      left_page->SetKeyAt(current_size + i, right_page->KeyAt(i));
+      left_page->SetValueAt(current_size + i, right_page->ValueAt(i));
+  }
+  //更新左兄弟节点的size
+  left_page->ChangeSizeBy(right_size);
+
+  //更新左兄弟节点的next_page_id
+  left_page->SetNextPageId(right_page->GetNextPageId());
   
+  //删除当前节点
+  //注意：必须先释放锁(Pin)，否则DeletePage会失败
+  page_id_t right_page_id = right_guard.GetPageId();
+  right_guard.Drop();
+  bpm_->DeletePage(right_page_id);
+
+  //更新父节点，删除指向右节点(index_in_parent + 1)的page_id和对应的key
+  //我们需要移除的是 Key[index_in_parent + 1] 和 Value[index_in_parent + 1]
+  //所以从 index_in_parent + 2 开始向前搬运
+  for (int i = index_in_parent + 2; i < parent_page->GetSize(); i++) {
+    parent_page->SetKeyAt(i - 1, parent_page->KeyAt(i));
+    parent_page->SetValueAt(i - 1, parent_page->ValueAt(i));
+  }
+  parent_page->ChangeSizeBy(-1);
+  // ai建议结束
 }
 
 
@@ -924,6 +966,7 @@ auto BPLUSTREE_TYPE::MergeInternalHelper(WritePageGuard &left_guard, WritePageGu
   auto right_page = right_guard.AsMut<InternalPage>();
   auto parent_page = parent_guard.AsMut<InternalPage>();
   
+  /* 原代码
     //将parent_page中的key插入到left_page后面
     KeyType parent_key = parent_page->KeyAt(index_in_parent);
     left_page->SetKeyAt(left_page->GetSize() + 1, parent_key);
@@ -944,7 +987,60 @@ auto BPLUSTREE_TYPE::MergeInternalHelper(WritePageGuard &left_guard, WritePageGu
       parent_page->SetValueAt(i - 1, parent_page->ValueAt(i));
     }
     parent_page->ChangeSizeBy(-1);
+  */
 
+  // ai建议
+  int current_size = left_page->GetSize();
+  int right_size = right_page->GetSize();
+
+  // 1. 将父节点的分隔 Key 拉下来，放到左节点的末尾
+  // 注意：Internal Page 的 Key 从 1 开始，Value 从 0 开始
+  // 新的 Key 放在 current_size + 1 的位置 (因为 Key 0 无效)
+  // 对应的 Value 是右节点的 Value(0)
+  KeyType parent_key = parent_page->KeyAt(index_in_parent);
+  left_page->SetKeyAt(current_size + 1, parent_key);
+  left_page->SetValueAt(current_size + 1, right_page->ValueAt(0));
+  
+  // 2. 将右节点的数据移动到左兄弟节点的后面
+  // 右节点的 Key 从 1 开始，搬运到左节点 current_size + 1 + i 的位置
+  // 右节点的 Value 从 1 开始，搬运到左节点 current_size + 1 + i 的位置
+  for (int i = 1; i <= right_size; i++) {
+      left_page->SetKeyAt(current_size + 1 + i, right_page->KeyAt(i));
+      left_page->SetValueAt(current_size + 1 + i, right_page->ValueAt(i));
+  }
+  
+  // 更新左节点的 Size
+  // 原 Size + 1 (父节点下来的 Key) + 右节点 Size
+  left_page->ChangeSizeBy(right_size + 1);
+
+  // 删除当前节点
+  // 注意：必须先释放锁(Pin)，否则DeletePage会失败
+  page_id_t right_page_id = right_guard.GetPageId();
+  right_guard.Drop();
+  bpm_->DeletePage(right_page_id);
+
+  // 更新父节点，删除指向右节点(index_in_parent + 1)的page_id和对应的key
+  // 我们需要移除的是 Key[index_in_parent] (已经拉下去了) 和 Value[index_in_parent + 1] (指向右节点的指针)
+  // 注意：这里 index_in_parent 是指向左节点的 Value 的索引，对应的 Key 是 Key[index_in_parent]
+  // 实际上在 Internal Node 中，Key[i] 分隔了 Value[i-1] 和 Value[i]
+  // 所以我们要删除 Key[index_in_parent] 和 Value[index_in_parent] (或者 Value[index_in_parent+1]?)
+  // 让我们仔细看：
+  // Parent: [V0, K1, V1, K2, V2]
+  // 假设 index_in_parent = 1 (指向 V1, 左节点)
+  // 右节点是 V2 (index 2)
+  // 分隔 Key 是 K2 (index 2) ? 不，通常是 K[index+1] 分隔 V[index] 和 V[index+1]
+  // 这里的 index_in_parent 是通过 ValueIndex 查出来的，即 V[index] == left_page_id
+  // 那么右节点是 V[index+1]
+  // 分隔它们的 Key 是 K[index+1]
+  
+  // 所以我们要删除 K[index_in_parent + 1] 和 V[index_in_parent + 1]
+  // 循环从 index_in_parent + 2 开始前移
+  for (int i = index_in_parent + 2; i < parent_page->GetSize(); i++) {
+    parent_page->SetKeyAt(i - 1, parent_page->KeyAt(i));
+    parent_page->SetValueAt(i - 1, parent_page->ValueAt(i));
+  }
+  parent_page->ChangeSizeBy(-1);
+  // ai建议结束
 }
 
 /*****************************************************************************
