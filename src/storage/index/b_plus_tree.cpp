@@ -274,8 +274,12 @@ auto BPLUSTREE_TYPE::HandleInternalSplit(WritePageGuard &internal_guard, Context
   auto new_internal_page = new_internal_page_guard.AsMut<InternalPage>();
   new_internal_page->Init(internal_max_size_);
   //将原内部节点的一半数据移动到新内部节点
-  int old_keys = internal_page->GetSize() - 1; //不包括第一个无效key
-  int mid = old_keys / 2; //中间位置
+  //int old_keys = internal_page->GetSize() - 1; //不包括第一个无效key
+  //int mid = old_keys / 2; //中间位置
+  
+  // ai修正：使用 GetSize() / 2 来保证分裂平衡，避免产生 Size=1 的节点
+  int mid = internal_page->GetSize() / 2;
+  int old_keys = internal_page->GetSize() - 1;
   
   /*原代码
 
@@ -695,10 +699,8 @@ auto BPLUSTREE_TYPE::RedistributeLeaf(WritePageGuard &leaf_guard, WritePageGuard
     }
   }
     //现在尝试从右兄弟节点借
-  page_id_t sibling_page_id = leaf_page->GetNextPageId();
-  if (sibling_page_id == INVALID_PAGE_ID ) {
-    return false; //没有兄弟节点，同上面不需要重分配一样处理
-  }
+
+  page_id_t sibling_page_id = parent_page->ValueAt(current_index + 1);
   
   //能借就借，借完更新父节点
   WritePageGuard sibling_guard = bpm_->WritePage(sibling_page_id);
@@ -761,7 +763,8 @@ auto BPLUSTREE_TYPE::RedistributeInternal(WritePageGuard &internal_guard, WriteP
       //可以借
       //将左兄弟节点的最后一个元素移动到当前内部节点的首部
       KeyType borrowed_key = left_sibling_page->KeyAt(left_sibling_page->GetSize() - 1);
-      page_id_t borrowed_value = left_sibling_page->ValueAt(left_sibling_page->GetSize());
+      KeyType parent_key = parent_page->KeyAt(current_index);
+      page_id_t borrowed_value = left_sibling_page->ValueAt(left_sibling_page->GetSize() - 1);
 
       //将借来的元素放到当前内部节点的首部
       //注意第一个key无效
@@ -774,7 +777,6 @@ auto BPLUSTREE_TYPE::RedistributeInternal(WritePageGuard &internal_guard, WriteP
       internal_page->SetValueAt(1, internal_page->ValueAt(0));
 
       //更新父亲节点的key
-      KeyType parent_key = parent_page->KeyAt(current_index);
       internal_page->SetKeyAt(1, parent_key);
       internal_page->SetValueAt(0, borrowed_value);
       internal_page->ChangeSizeBy(1);
@@ -785,9 +787,6 @@ auto BPLUSTREE_TYPE::RedistributeInternal(WritePageGuard &internal_guard, WriteP
     }
   }
     //现在尝试从右兄弟节点借
-  if (current_index + 1 >= parent_page->GetSize()) {
-    return false; 
-  }
 
   page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
   WritePageGuard right_sibling_guard = bpm_->WritePage(right_sibling_page_id);
@@ -800,6 +799,7 @@ auto BPLUSTREE_TYPE::RedistributeInternal(WritePageGuard &internal_guard, WriteP
     page_id_t borrowed_value = right_sibling_page->ValueAt(0);
     
     //将借来的元素放到当前内部节点的末尾
+
     internal_page->SetKeyAt(internal_page->GetSize() + 1, parent_page->KeyAt(current_index + 1));
     internal_page->SetValueAt(internal_page->GetSize() + 1, borrowed_value);
     internal_page->ChangeSizeBy(1);
@@ -826,7 +826,7 @@ auto BPLUSTREE_TYPE::RedistributeInternal(WritePageGuard &internal_guard, WriteP
 
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::MergeLeaf(WritePageGuard &leaf_guard, WritePageGuard &parent_guard, Context &ctx) -> bool {
-  auto leaf_page = leaf_guard.AsMut<LeafPage>();
+  //auto leaf_page = leaf_guard.AsMut<LeafPage>();
   auto parent_page = parent_guard.AsMut<InternalPage>();
 
   //不需要再考虑根节点，因为重分配逻辑已经处理过了
@@ -846,12 +846,15 @@ auto BPLUSTREE_TYPE::MergeLeaf(WritePageGuard &leaf_guard, WritePageGuard &paren
     sibling_size = sibling_page->GetSize();
     if (sibling_size < sibling_page->GetMinSize()) {
       return false; //不能合并
-    }
+     }
     MergeLeafHelper(sibling_guard, leaf_guard, parent_guard, current_index);
     return true;
   } 
-    //没有左兄弟节点，只能用右兄弟节点
-    page_id_t right_sibling_page_id = leaf_page->GetNextPageId();
+    //没有左兄弟节点，只能用右兄弟节点（记住不能是堂兄弟，必须是同一个父节点的）
+    if ( current_index + 1 > parent_page->GetSize()) {
+      return false; //没有右兄弟节点，不能合并
+    }
+    page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
     sibling_guard = bpm_->WritePage(right_sibling_page_id);
     sibling_page = sibling_guard.AsMut<LeafPage>();
     sibling_size = sibling_page->GetSize();
@@ -936,7 +939,8 @@ auto BPLUSTREE_TYPE::MergeInternal(WritePageGuard &internal_guard, WritePageGuar
   InternalPage *sibling_page = nullptr;
   WritePageGuard sibling_guard;
   auto sibling_size = 0;
-  if (current_index > 1) {
+  //if(current_index > 1)
+  if (current_index > 0) {
     //有左兄弟节点
     page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
     sibling_guard = bpm_->WritePage(left_sibling_page_id);
@@ -949,13 +953,16 @@ auto BPLUSTREE_TYPE::MergeInternal(WritePageGuard &internal_guard, WritePageGuar
     return true;
   } 
     //没有左兄弟节点，只能用右兄弟节点
+    if (current_index + 1 > parent_page->GetSize()) {
+      return false; //没有右兄弟节点，不能合并
+    }
     page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
     sibling_guard = bpm_->WritePage(right_sibling_page_id);
     sibling_page = sibling_guard.AsMut<InternalPage>();
     sibling_size = sibling_page->GetSize();
-    if (sibling_size < sibling_page->GetMinSize()) {
+     if (sibling_size < sibling_page->GetMinSize()) {
       return false; //不能合并
-    }
+     }
     MergeInternalHelper(internal_guard, sibling_guard, parent_guard, current_index);
     return true;
 }
@@ -997,7 +1004,8 @@ auto BPLUSTREE_TYPE::MergeInternalHelper(WritePageGuard &left_guard, WritePageGu
   // 注意：Internal Page 的 Key 从 1 开始，Value 从 0 开始
   // 新的 Key 放在 current_size + 1 的位置 (因为 Key 0 无效)
   // 对应的 Value 是右节点的 Value(0)
-  KeyType parent_key = parent_page->KeyAt(index_in_parent);
+  //KeyType parent_key = parent_page->KeyAt(index_in_parent);
+  KeyType parent_key = parent_page->KeyAt(index_in_parent + 1);
   left_page->SetKeyAt(current_size + 1, parent_key);
   left_page->SetValueAt(current_size + 1, right_page->ValueAt(0));
   

@@ -56,11 +56,15 @@ TEST(BPlusTreeTests, DeleteTestNoIterator) {
     int64_t value = key & 0xFFFFFFFF;
     EXPECT_EQ(rids[0].GetSlotNum(), value);
   }
-
+  //打日志
+  std::cout << "B+ Tree before deletions: " << std::endl;
+  std::cout << tree.DrawBPlusTree() << std::endl;
   std::vector<int64_t> remove_keys = {1, 5, 3, 4};
   for (auto key : remove_keys) {
     index_key.SetFromInteger(key);
     tree.Remove(index_key);
+    std::cout << "B+ Tree after removing key " << key << ":" << std::endl;
+    std::cout << tree.DrawBPlusTree() << std::endl;
   }
 
   int64_t size = 0;
