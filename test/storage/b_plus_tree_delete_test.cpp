@@ -44,8 +44,6 @@ TEST(BPlusTreeTests, DeleteTestNoIterator) {
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid);
-    std::cout << "B+ Tree after inserting key " << key << ":" << std::endl;
-    std::cout << tree.DrawBPlusTree() << std::endl;
   }
 
   std::vector<RID> rids;
@@ -138,14 +136,10 @@ TEST(BPlusTreeTests, SequentialEdgeMixTest) {  // NOLINT
     res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>>(tree, inserted, deleted);
     ASSERT_TRUE(res);
     
-    std::cout << "B+ Tree before deletions: " << std::endl;
-    std::cout << tree.DrawBPlusTree() << std::endl;
     keys = {4, 14, 6, 2, 15, -2, -1, 3, 5, 25, 20};
     for (auto key : keys) {
       index_key.SetFromInteger(key);
       tree.Remove(index_key);
-      std::cout << "B+ Tree after removing key " << key << ":" << std::endl;
-      std::cout << tree.DrawBPlusTree() << std::endl;
       deleted.push_back(key);
       inserted.erase(std::find(inserted.begin(), inserted.end(), key));
       res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>>(tree, inserted, deleted);
