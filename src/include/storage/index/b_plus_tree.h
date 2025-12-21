@@ -100,13 +100,13 @@ class BPlusTree {
   auto InsertIntoNewTree(const KeyType &key, const ValueType &value, Context &ctx) -> bool;
   
   //执行叶子节点分裂
-  auto HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx) -> void;
+  auto HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx, const KeyType &new_key, const ValueType &new_value) -> void;
 
   //将新节点插入到父节点中
   auto InsertIntoParent(WritePageGuard &leaf_guard, const KeyType &key, WritePageGuard &right_guard, Context &ctx) -> void;
 
   //执行内部节点分裂
-  auto HandleInternalSplit(WritePageGuard &internal_guard, Context &ctx) -> void;
+  auto HandleInternalSplit(WritePageGuard &internal_guard, Context &ctx, const KeyType &new_key, const page_id_t &new_value) -> void;
   
   //创建新的根节点
   auto CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &right_guard, const KeyType &key, Context &ctx) -> void;
