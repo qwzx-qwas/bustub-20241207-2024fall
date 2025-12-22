@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         BusTub
 //
@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2015-2024, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #include "buffer/buffer_pool_manager.h"
 
@@ -174,11 +174,11 @@ auto BufferPoolManager::UnpinPage(frame_id_t frame_id) -> void {
 auto BufferPoolManager::UnpinPageInternal(frame_id_t frame_id) -> void {
   size_t old_pin_count = frames_[frame_id]->pin_count_.fetch_sub(1);
   if (old_pin_count == 0) {
-    frames_[frame_id]->pin_count_.fetch_add(1);  //恢复原值
+    frames_[frame_id]->pin_count_.fetch_add(1);  // 恢复原值
     return;
   }
   if (old_pin_count == 1) {
-    //只标记为可驱逐，不进行驱逐操作
+    // 只标记为可驱逐，不进行驱逐操作
     replacer_->SetEvictable(frame_id, true);
   }
 }
@@ -189,7 +189,7 @@ auto BufferPoolManager::UnpinPageInternal(frame_id_t frame_id) -> void {
  * ### Implementation
  *
  * You will maintain a thread-safe, monotonically increasing counter in the form of a `std::atomic<page_id_t>`.
- * See the documentation on [atomics](https://en.cppreference.com/w/cpp/atomic/atomic) for more information.
+ * See the documentation on [atomics](https:// en.cppreference.com/w/cpp/atomic/atomic) for more information.
  *
  * Also, make sure to read the documentation for `DeletePage`! You can assume that you will never run out of disk
  * space (via `DiskScheduler::IncreaseDiskSpace`), so this function _cannot_ fail.
@@ -219,10 +219,10 @@ auto BufferPoolManager::UnpinPageInternal(frame_id_t frame_id) -> void {
  * @return 新分配页面的页面 ID。
  */
 auto BufferPoolManager::NewPage() -> page_id_t {
-  //创建一个新的page id
+  // 创建一个新的page id
   page_id_t new_page_id = next_page_id_.fetch_add(1);
 
-  //通知disk scheduler增加磁盘空间
+  // 通知disk scheduler增加磁盘空间
   disk_scheduler_->IncreaseDiskSpace(new_page_id + 1);
 
   return new_page_id;
@@ -277,30 +277,30 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  */
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   std::unique_lock latch(*bpm_latch_);
-  //检查页面是否在页表中
+  // 检查页面是否在页表中
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter == page_table_.end()) {
-    //页面不存在，返回true
+    // 页面不存在，返回true
     return true;
   }
   frame_id_t frame_id = page_table_iter->second;
-  //检查页面是否被固定
+  // 检查页面是否被固定
   if (frames_[frame_id]->pin_count_.load() > 0) {
-    //页面被固定，无法删除，返回false
+    // 页面被固定，无法删除，返回false
     return false;
   }
-  //页面未被固定，可以删除
-  //如果页面是脏的，则先写回磁盘
+  // 页面未被固定，可以删除
+  // 如果页面是脏的，则先写回磁盘
   if (frames_[frame_id]->is_dirty_) {
     DoDiskIO(page_id, frames_[frame_id], true);
-    frames_[frame_id]->is_dirty_ = false;  //清除脏标志
+    frames_[frame_id]->is_dirty_ = false;  // 清除脏标志
   }
   replacer_->Remove(frame_id);
-  //清空当前帧数据
+  // 清空当前帧数据
   frames_[frame_id]->Reset();
-  //从页表中移除页面
+  // 从页表中移除页面
   page_table_.erase(page_table_iter);
-  //将帧加入空闲帧列表
+  // 将帧加入空闲帧列表
   free_frames_.push_back(frame_id);
   return true;
 }
@@ -376,23 +376,23 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
  * 否则返回保证独占可变访问的 `WritePageGuard`。
  */
 
-//二者的辅助方法
+// 二者的辅助方法
 
-//从磁盘读取页面到帧
+// 从磁盘读取页面到帧
 auto BufferPoolManager::DoDiskIO(page_id_t page_id, const std::shared_ptr<FrameHeader> &frame, bool rw) -> void {
-  //创建promise和future用于异步操作
+  // 创建promise和future用于异步操作
   std::promise<bool> promise;
   auto future = promise.get_future();
 
-  //创建磁盘请求
+  // 创建磁盘请求
   DiskRequest req;
   req.is_write_ = rw;
   req.page_id_ = page_id;
   req.data_ = const_cast<char *>(frame->GetData());
   req.callback_ = std::move(promise);
-  //将请求添加到磁盘调度器
+  // 将请求添加到磁盘调度器
   disk_scheduler_->Schedule(std::move(req));
-  //等待异步操作完成
+  // 等待异步操作完成
   future.get();
 }
 
@@ -400,44 +400,44 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
   std::unique_lock latch(*bpm_latch_);
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter != page_table_.end()) {
-    //让pin_count+1
+    // 让pin_count+1
     PinPageInternal(page_table_iter->second);
-    //返回WritePageGuard
+    // 返回WritePageGuard
     latch.unlock();
     return WritePageGuard(page_id, frames_[page_table_iter->second], replacer_, bpm_latch_);
   }
   if (!free_frames_.empty()) {
-    //内存充足但页面不在内存中
-    //从空闲帧列表中取出一个空闲帧
+    // 内存充足但页面不在内存中
+    // 从空闲帧列表中取出一个空闲帧
     frame_id_t frame_id = free_frames_.front();
-    //将该帧从空闲列表中移除
+    // 将该帧从空闲列表中移除
     free_frames_.pop_front();
-    //更新页表,即将page_id映射到frame_id
+    // 更新页表,即将page_id映射到frame_id
     page_table_[page_id] = frame_id;
 
     std::shared_ptr<FrameHeader> frame = frames_[frame_id];
-    //从磁盘读取页面数据到该帧
+    // 从磁盘读取页面数据到该帧
     DoDiskIO(page_id, frame, false);
-    //对pin_count进行+1操作
+    // 对pin_count进行+1操作
     PinPageInternal(frame_id);
-    //返回WritePageGuard
+    // 返回WritePageGuard
     latch.unlock();
     return WritePageGuard(page_id, frame, replacer_, bpm_latch_);
   }
 
   while (true) {
-    //内存不足需要驱逐页面
-    //尝试从替换器中选择一个可驱逐的帧
+    // 内存不足需要驱逐页面
+    // 尝试从替换器中选择一个可驱逐的帧
     auto evict_frame_id_opt = replacer_->Evict();
-    //检查是否成功选择了一个帧
+    // 检查是否成功选择了一个帧
     if (!evict_frame_id_opt.has_value()) {
-      //没有可驱逐的帧，返回std::nullopt
+      // 没有可驱逐的帧，返回std::nullopt
       return std::nullopt;
     }
-    //获取要驱逐的帧ID
+    // 获取要驱逐的帧ID
     frame_id_t evict_frame_id = evict_frame_id_opt.value();
 
-    //获取该帧对应的页面ID
+    // 获取该帧对应的页面ID
     page_id_t evict_page_id = 0;
     for (const auto &entry : page_table_) {
       if (entry.second == evict_frame_id) {
@@ -445,19 +445,19 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
         break;
       }
     }
-    //如果该页面是脏的，则先写回磁盘
+    // 如果该页面是脏的，则先写回磁盘
     if (frames_[evict_frame_id]->is_dirty_) {
       DoDiskIO(evict_page_id, frames_[evict_frame_id], true);
-      frames_[evict_frame_id]->is_dirty_ = false;  //清除脏标志
+      frames_[evict_frame_id]->is_dirty_ = false;  // 清除脏标志
     }
     frames_[evict_frame_id]->Reset();
-    //从页表中移除被驱逐页面的映射
+    // 从页表中移除被驱逐页面的映射
     page_table_.erase(evict_page_id);
-    //更新页表,即将新的page_id映射到被驱逐的frame_id
+    // 更新页表,即将新的page_id映射到被驱逐的frame_id
     page_table_[page_id] = evict_frame_id;
-    //从磁盘读取新页面数据到该帧
+    // 从磁盘读取新页面数据到该帧
     DoDiskIO(page_id, frames_[evict_frame_id], false);
-    //对pin_count进行+1操作，
+    // 对pin_count进行+1操作，
     std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
     PinPageInternal(evict_frame_id);
     latch.unlock();
@@ -510,44 +510,44 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  * @return std::optional<ReadPageGuard> 如果没有可用空闲帧（内存耗尽）返回 `std::nullopt`，否则返回保证共享只读访问的
  * `ReadPageGuard`。
  */
-//找page_id对应的帧
+// 找page_id对应的帧
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
   std::unique_lock latch(*bpm_latch_);
   auto page_table_iter = page_table_.find(page_id);
-  //先检查页面是否在页表中
+  // 先检查页面是否在页表中
   if (page_table_iter != page_table_.end()) {
     PinPageInternal(page_table_iter->second);
     latch.unlock();
     return ReadPageGuard(page_id, frames_[page_table_iter->second], replacer_, bpm_latch_);
   }
-  //页面不在内存中
+  // 页面不在内存中
   if (!free_frames_.empty()) {
-    //内存充足但页面不在内存中
-    //从空闲帧列表中取出一个空闲帧
+    // 内存充足但页面不在内存中
+    // 从空闲帧列表中取出一个空闲帧
     frame_id_t frame_id = free_frames_.front();
-    //将该帧从空闲列表中移除
+    // 将该帧从空闲列表中移除
     free_frames_.pop_front();
-    //更新页表,即将page_id映射到frame_id
+    // 更新页表,即将page_id映射到frame_id
     page_table_[page_id] = frame_id;
     std::shared_ptr<FrameHeader> frame = frames_[frame_id];
-    //从磁盘读取页面数据到该帧
+    // 从磁盘读取页面数据到该帧
     DoDiskIO(page_id, frame, false);
     PinPageInternal(frame_id);
     latch.unlock();
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_);
   }
   while (true) {
-    //内存不足需要驱逐页面
-    //尝试从替换器中选择一个可驱逐的帧
+    // 内存不足需要驱逐页面
+    // 尝试从替换器中选择一个可驱逐的帧
     auto evict_frame_id_opt = replacer_->Evict();
-    //检查是否成功选择了一个帧
+    // 检查是否成功选择了一个帧
     if (!evict_frame_id_opt.has_value()) {
-      //没有可驱逐的帧，返回std::nullopt
+      // 没有可驱逐的帧，返回std::nullopt
       return std::nullopt;
     }
-    //获取要驱逐的帧ID
+    // 获取要驱逐的帧ID
     frame_id_t evict_frame_id = evict_frame_id_opt.value();
-    //获取该帧对应的页面ID
+    // 获取该帧对应的页面ID
     page_id_t evict_page_id = -1;
     for (const auto &entry : page_table_) {
       if (entry.second == evict_frame_id) {
@@ -557,17 +557,17 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     }
     frame_id_t old_evict_frame_id = evict_frame_id;
 
-    //如果该页面是脏的，则先写回磁盘
+    // 如果该页面是脏的，则先写回磁盘
     if (frames_[old_evict_frame_id]->is_dirty_) {
       DoDiskIO(evict_page_id, frames_[old_evict_frame_id], true);
-      frames_[old_evict_frame_id]->is_dirty_ = false;  //清除脏标志
+      frames_[old_evict_frame_id]->is_dirty_ = false;  // 清除脏标志
     }
     frames_[evict_frame_id]->Reset();
-    //从页表中移除被驱逐页面的映射
+    // 从页表中移除被驱逐页面的映射
     page_table_.erase(evict_page_id);
-    //更新页表,即将新的page_id映射到被驱逐的frame_id
+    // 更新页表,即将新的page_id映射到被驱逐的frame_id
     page_table_[page_id] = evict_frame_id;
-    //从磁盘读取新页面数据到该帧
+    // 从磁盘读取新页面数据到该帧
     std::shared_ptr<FrameHeader> frame = frames_[evict_frame_id];
     DoDiskIO(page_id, frame, false);
     PinPageInternal(evict_frame_id);
@@ -690,7 +690,7 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
 
     auto page_table_iter = page_table_.find(page_id);
     if (page_table_iter == page_table_.end()) {
-      //如果内存中找不到页面，返回false
+      // 如果内存中找不到页面，返回false
       return false;
     }
     frame_id = page_table_iter->second;
@@ -699,7 +699,7 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     }
 
     DoDiskIO(page_id, frames_[frame_id], true);
-    frames_[frame_id]->is_dirty_ = false;  //将页面标记为非脏
+    frames_[frame_id]->is_dirty_ = false;  // 将页面标记为非脏
     is_success = true;                     // I/O 成功
   }
 
@@ -748,7 +748,7 @@ void BufferPoolManager::FlushAllPages() {
  * need to take the buffer pool latch, however.
  *
  * Again, if you are unfamiliar with atomic types, see the official C++ docs
- * [here](https://en.cppreference.com/w/cpp/atomic/atomic).
+ * [here](https:// en.cppreference.com/w/cpp/atomic/atomic).
  *
  * TODO(P1): Add implementation
  *
@@ -778,9 +778,9 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   frame_id_t frame_id{-1};
 
   // scoped_lcok接收一个mutex对象的引用，并在其作用域结束时自动释放锁，从而确保线程安全。
-  //注意这里使用了bpm_latch_，它是一个shared_ptr对象，指向一个mutex对象，因此解引用后获得mutex对象的地址传递给scoped_lock。
+  // 注意这里使用了bpm_latch_，它是一个shared_ptr对象，指向一个mutex对象，因此解引用后获得mutex对象的地址传递给scoped_lock。
 
-  //后续考虑是否加入局部锁
+  // 后续考虑是否加入局部锁
 
   std::scoped_lock latch(*bpm_latch_);
   auto page_table_iter = page_table_.find(page_id);

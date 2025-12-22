@@ -18,7 +18,7 @@
 
 /** @brief Total bucket size. */
 #define TOTAL_BUCKET_SIZE (DENSE_BUCKET_SIZE + OVERFLOW_BUCKET_SIZE)
-//定义bitset的容量
+// 定义bitset的容量
 #define BITSET_CAPACITY 64
 
 namespace bustub {
@@ -75,10 +75,10 @@ class HyperLogLogPresto {
     return 0;
   }
 
-  //声明ComputeBinary函数，用尾置返回类型
+  // 声明ComputeBinary函数，用尾置返回类型
   auto ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY>;
 
-  //注意这里密集桶和溢出桶存的都是二进制数
+  // 注意这里密集桶和溢出桶存的都是二进制数
   /** @brief Structure holding dense buckets (or also known as registers). */
   std::vector<std::bitset<DENSE_BUCKET_SIZE>> dense_bucket_;
 
@@ -89,9 +89,9 @@ class HyperLogLogPresto {
   uint64_t cardinality_;
 
   // TODO(student) - can add more data structures as required
-  //前导位数，不能为0
+  // 前导位数，不能为0
   int16_t b_;
-  //桶的数量
+  // 桶的数量
   uint16_t m_;
   std::mutex mtx_;
 };

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         BusTub
 //
@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2024-2024, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #include "storage/page/page_guard.h"
 
@@ -75,7 +75,7 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
  *
  * @param that 另一个页面保护器。
  */
-//移动构造函数
+// 移动构造函数
 ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
   this->page_id_ = that.page_id_;
   this->frame_ = std::move(that.frame_);
@@ -123,13 +123,13 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
  * @param that 另一个页面保护器。
  * @return ReadPageGuard& 新的有效 `ReadPageGuard` 引用。
  */
-//移动赋值运算符
+// 移动赋值运算符
 auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
-  //防止自赋值
+  // 防止自赋值
   if (this == &that) {
     return *this;
   }
-  //释放当前对象的资源
+  // 释放当前对象的资源
   if (is_valid_) {
     Drop();
   }
@@ -138,7 +138,7 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
   this->replacer_ = std::move(that.replacer_);
   this->bpm_latch_ = std::move(that.bpm_latch_);
   this->is_valid_ = that.is_valid_;
-  //清空that的资源
+  // 清空that的资源
   that.page_id_ = INVALID_PAGE_ID;
   that.frame_ = nullptr;
   that.replacer_ = nullptr;
@@ -207,7 +207,7 @@ void ReadPageGuard::Drop() {
   }
 
   frame_->rwlatch_.unlock_shared();
-  //更新pin计数
+  // 更新pin计数
   {
     // 关键：使用构造函数传入的锁指针
     std::scoped_lock latch(*bpm_latch_);
@@ -215,17 +215,17 @@ void ReadPageGuard::Drop() {
     // 执行 pin_count 递减和 Replacer 状态更新 (UnpinPageInternal 逻辑)
     size_t old_pin_count = frame_->pin_count_.fetch_sub(1);
     if (old_pin_count == 0) {
-      frame_->pin_count_.fetch_add(1);  //恢复原值
+      frame_->pin_count_.fetch_add(1);  // 恢复原值
       return;
     }
     if (old_pin_count == 1) {
-      //只标记为可驱逐，不进行驱逐操作
+      // 只标记为可驱逐，不进行驱逐操作
       replacer_->SetEvictable(frame_->frame_id_, true);
     }
     is_valid_ = false;
   }
 
-  //将当前对象置为无效
+  // 将当前对象置为无效
   page_id_ = INVALID_PAGE_ID;
   frame_ = nullptr;
   replacer_ = nullptr;
@@ -352,7 +352,7 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   if (this == &that) {
     return *this;
   }
-  //释放当前对象的资源
+  // 释放当前对象的资源
   if (is_valid_) {
     Drop();
   }
@@ -441,21 +441,21 @@ void WritePageGuard::Drop() {
     return;
   }
   frame_->rwlatch_.unlock();
-  //更新pin计数
+  // 更新pin计数
   {
     std::scoped_lock latch(*bpm_latch_);
     size_t old_pin_count = frame_->pin_count_.fetch_sub(1);
     if (old_pin_count == 0) {
-      frame_->pin_count_.fetch_add(1);  //恢复原值
+      frame_->pin_count_.fetch_add(1);  // 恢复原值
       return;
     }
     if (old_pin_count == 1) {
-      //只标记为可驱逐，不进行驱逐操作
+      // 只标记为可驱逐，不进行驱逐操作
       replacer_->SetEvictable(frame_->frame_id_, true);
     }
     is_valid_ = false;
   }
-  //将当前对象置为无效
+  // 将当前对象置为无效
   page_id_ = INVALID_PAGE_ID;
   frame_ = nullptr;
   replacer_ = nullptr;

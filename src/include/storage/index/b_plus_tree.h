@@ -77,8 +77,8 @@ class Context {
 
 #define BPLUSTREE_TYPE BPlusTree<KeyType, ValueType, KeyComparator>
 
-  // Main class providing the API for the Interactive B+ Tree.
-  // 提供交互式 B+ 树 API 的主类。
+// Main class providing the API for the Interactive B+ Tree.
+// 提供交互式 B+ 树 API 的主类。
 INDEX_TEMPLATE_ARGUMENTS
 class BPlusTree {
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
@@ -89,29 +89,31 @@ class BPlusTree {
                      const KeyComparator &comparator, int leaf_max_size = LEAF_PAGE_SLOT_CNT,
                      int internal_max_size = INTERNAL_PAGE_SLOT_CNT);
 
-  //辅助方法，将Insert和GetValue的相似逻辑合并
+  // 辅助方法，将Insert和GetValue的相似逻辑合并
   auto FindLeafPage(page_id_t page_id, const KeyType &key, std::vector<ValueType> *result) -> page_id_t;
 
-  //辅助方法，进行二分查找
-  auto BinarySearch(const BPlusTreePage *page, const KeyType &key, const KeyComparator &comparator,
-                        bool skip_first_key) -> int;
-  
-  //当B+树为空时，创建新的根节点
+  // 辅助方法，进行二分查找
+  auto BinarySearch(const BPlusTreePage *page, const KeyType &key, const KeyComparator &comparator, bool skip_first_key)
+      -> int;
+
+  // 当B+树为空时，创建新的根节点
   auto InsertIntoNewTree(const KeyType &key, const ValueType &value, Context &ctx) -> bool;
-  
-  //执行叶子节点分裂
-  auto HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx, const KeyType &new_key, const ValueType &new_value) -> void;
 
-  //将新节点插入到父节点中
-  auto InsertIntoParent(WritePageGuard &leaf_guard, const KeyType &key, WritePageGuard &right_guard, Context &ctx) -> void;
+  // 执行叶子节点分裂
+  auto HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx) -> void;
 
-  //执行内部节点分裂
-  auto HandleInternalSplit(WritePageGuard &internal_guard, Context &ctx, const KeyType &new_key, const page_id_t &new_value) -> void;
-  
-  //创建新的根节点
+  // 将新节点插入到父节点中
+  auto InsertIntoParent(WritePageGuard &leaf_guard, const KeyType &key, WritePageGuard &right_guard, Context &ctx)
+      -> void;
+
+  // 执行内部节点分裂
+  auto HandleInternalSplit(WritePageGuard &internal_guard, Context &ctx) -> void;
+
+  // 创建新的根节点
   auto CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &right_guard, const KeyType &key, Context &ctx) -> void;
 
-  auto FindLeafPageForWrite(const KeyType &key, std::vector<ValueType> *result, Context &ctx, bool is_insert = true) -> page_id_t;
+  auto FindLeafPageForWrite(const KeyType &key, std::vector<ValueType> *result, Context &ctx, bool is_insert = true)
+      -> page_id_t;
 
   auto HandleLeafUnderFlow(WritePageGuard &leaf_guard, Context &ctx) -> void;
 
@@ -119,17 +121,17 @@ class BPlusTree {
 
   auto RedistributeLeaf(WritePageGuard &leaf_guard, WritePageGuard &parent_guard, Context &ctx) -> bool;
 
-  auto RedistributeInternal(WritePageGuard &internal_guard, WritePageGuard &parent_guard, Context &ctx) -> bool;  
+  auto RedistributeInternal(WritePageGuard &internal_guard, WritePageGuard &parent_guard, Context &ctx) -> bool;
 
   auto MergeLeaf(WritePageGuard &leaf_guard, WritePageGuard &parent_guard, Context &ctx) -> bool;
 
-  auto MergeLeafHelper(WritePageGuard &left_guard, WritePageGuard &right_guard,
-                WritePageGuard &parent_guard, int index_in_parent) -> void;
+  auto MergeLeafHelper(WritePageGuard &left_guard, WritePageGuard &right_guard, WritePageGuard &parent_guard,
+                       int index_in_parent) -> void;
 
   auto MergeInternal(WritePageGuard &internal_guard, WritePageGuard &parent_guard, Context &ctx) -> bool;
-  
-  auto MergeInternalHelper(WritePageGuard &left_guard, WritePageGuard &right_guard,
-                    WritePageGuard &parent_guard, int index_in_parent) -> void;
+
+  auto MergeInternalHelper(WritePageGuard &left_guard, WritePageGuard &right_guard, WritePageGuard &parent_guard,
+                           int index_in_parent) -> void;
   // Returns true if this B+ tree has no keys and values.
   // 如果此 B+ 树没有键和值则返回 true。
   auto IsEmpty() const -> bool;

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         BusTub
 //
@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2015-2022, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #pragma once
 
@@ -38,7 +38,7 @@ class LRUKNode {
 
  public:
   auto GetHistory() const -> const std::list<size_t> & { return history_; }
-  //返回非const引用以便修改访问历史
+  // 返回非const引用以便修改访问历史
   auto GetHistoryMutable() -> std::list<size_t> & { return history_; }
   auto GetK() const -> size_t { return k_; }
   auto GetFid() const -> frame_id_t { return fid_; }
@@ -163,17 +163,17 @@ class LRUKReplacer {
  private:
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
-  //用于记录每个frame的访问历史，key是frame_id，value是对应的LRUKNode（记录访问历史）
+  // 用于记录每个frame的访问历史，key是frame_id，value是对应的LRUKNode（记录访问历史）
   [[maybe_unused]] std::unordered_map<frame_id_t, LRUKNode> node_store_;
-  //记录当前时间戳（全局时间戳）
+  // 记录当前时间戳（全局时间戳）
   [[maybe_unused]] size_t current_timestamp_{0};
-  //记录当前可驱逐帧的数量
+  // 记录当前可驱逐帧的数量
   [[maybe_unused]] size_t curr_size_{0};
-  //记录replacer的大小，即buffer pool的帧数
+  // 记录replacer的大小，即buffer pool的帧数
   [[maybe_unused]] size_t replacer_size_;
   // LRU-k中的k值
   [[maybe_unused]] size_t k_;
-  //物理锁latch
+  // 物理锁latch
   std::mutex latch_;
 };
 

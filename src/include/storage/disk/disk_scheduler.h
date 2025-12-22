@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         BusTub
 //
@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2015-2024, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #pragma once
 
@@ -114,7 +114,7 @@ class DiskScheduler {
    *
    * @param pages The number of pages the caller wants the file used for storage to support.
    */
-  //确保磁盘文件的大小足以容纳至少 pages 个页面
+  // 确保磁盘文件的大小足以容纳至少 pages 个页面
   void IncreaseDiskSpace(size_t pages) { disk_manager_->IncreaseDiskSpace(pages); }
 
   /**

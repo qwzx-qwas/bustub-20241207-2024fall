@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         CMU-DB Project (15-445/645)
 //                         ***DO NO SHARE PUBLICLY***
@@ -7,7 +7,7 @@
 //
 // Copyright (c) 2018-2024, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 #pragma once
 
 #include <queue>
@@ -20,7 +20,7 @@ namespace bustub {
 #define B_PLUS_TREE_INTERNAL_PAGE_TYPE BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>
 #define INTERNAL_PAGE_HEADER_SIZE 12
 #define INTERNAL_PAGE_SLOT_CNT \
-  ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / ((int)(sizeof(KeyType) + sizeof(ValueType))))  // NOLINT
+  ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / ((int)(sizeof(KeyType) + sizeof(ValueType))) -1)  // NOLINT
 
 /**
  * Store `n` indexed keys and `n + 1` child pointers (page_id) within internal page.
@@ -162,40 +162,31 @@ class BPlusTreeInternalPage : public BPlusTreePage {
  private:
   // Array members for page data.
   // 用于存储页面数据的数组成员。
-  KeyType key_array_[INTERNAL_PAGE_SLOT_CNT];
-  ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT];
+  KeyType key_array_[INTERNAL_PAGE_SLOT_CNT + 1];
+  ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT + 1];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
   // （2024 秋）如有需要，可在下方添加更多字段和辅助函数
 };
-
 
 /*
  * Helper method to get/set the key associated with input "index" (a.k.a
  * array offset)
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
-  return key_array_[index];
-}
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType { return key_array_[index]; }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
-  key_array_[index] = key;
-}
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) { key_array_[index] = key; }
 
 /*
  * Helper method to get the value associated with input "index" (a.k.a array
  * offset)
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
-  return page_id_array_[index];
-}
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType { return page_id_array_[index]; }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetValueAt(int index, const ValueType &value) {
-  page_id_array_[index] = value;
-}
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetValueAt(int index, const ValueType &value) { page_id_array_[index] = value; }
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
@@ -208,8 +199,6 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const ->
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::CheckIndex(int index) const {
-    return index >= 1 && index < GetSize();
-}
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::CheckIndex(int index) const -> bool { return index >= 1 && index < GetSize(); }
 
 }  // namespace bustub

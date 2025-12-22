@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         BusTub
 //
@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2015-2024, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #pragma once
 
@@ -82,9 +82,9 @@ class FrameHeader {
   explicit FrameHeader(frame_id_t frame_id);
 
  private:
-  //只读访问
+  // 只读访问
   auto GetData() const -> const char *;
-  //可变访问
+  // 可变访问
   auto GetDataMut() -> char *;
   void Reset();
 
@@ -240,12 +240,12 @@ class BufferPoolManager {
    * 我们建议实现一个辅助函数，用于返回一个空闲且不包含任何数据的帧的 ID。此外，你还可以实现一个辅助函数，
    * 返回已经包含某页面数据的 `FrameHeader` 的共享指针或该 `FrameHeader` 的索引，以便重用。
    */
-  //保护的共享资源：page_table_ (查找、插入、删除映射)，
-  //保护目的：防止多个线程同时修改page_table_导致数据不一致，即保证页表管理的原子性
+  // 保护的共享资源：page_table_ (查找、插入、删除映射)，
+  // 保护目的：防止多个线程同时修改page_table_导致数据不一致，即保证页表管理的原子性
   // std::shared_ptr<std::mutex> page_table_latch_;
 
-  //保护的共享资源：free_frames_ (分配、回收帧ID)
-  //保护目的：防止多个线程同时修改free_frames_导致数据不一致，即保证帧分配/回收的原子性
+  // 保护的共享资源：free_frames_ (分配、回收帧ID)
+  // 保护目的：防止多个线程同时修改free_frames_导致数据不一致，即保证帧分配/回收的原子性
   // std::shared_ptr<std::mutex> free_list_latch_;
 };
 }  // namespace bustub

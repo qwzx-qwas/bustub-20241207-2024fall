@@ -17,7 +17,7 @@ namespace bustub {
 template <typename KeyType>
 class HyperLogLog {
   /** @brief Constant for HLL. */
-  //修正因子
+  // 修正因子
   static constexpr double CONSTANT = 0.79402;
 
  public:
@@ -84,11 +84,11 @@ class HyperLogLog {
   size_t cardinality_;
 
   /** @todo (student) can add their data structures that support HyperLogLog */
-  //声明前导位b
+  // 声明前导位b
   int16_t b_;
-  //声明桶的数量m
+  // 声明桶的数量m
   size_t m_;
-  //声明寄存器数组
+  // 声明寄存器数组
   std::vector<uint8_t> registers_;
   std::mutex mtx_;
 };

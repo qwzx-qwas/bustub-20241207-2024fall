@@ -27,33 +27,33 @@ namespace bustub {
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
-    //set page type
-    SetPageType(IndexPageType::LEAF_PAGE);
-    //set current size
-    SetSize(0);
-    //set next page id
-    next_page_id_ = INVALID_PAGE_ID;
-    //set max page size
-    SetMaxSize(max_size);    
+  // set page type
+  SetPageType(IndexPageType::LEAF_PAGE);
+  // set current size
+  SetSize(0);
+  // set next page id
+  next_page_id_ = INVALID_PAGE_ID;
+  // set max page size
+  SetMaxSize(max_size);
 }
 
 /**
  * Helper methods to set/get next page id
  */
- /*
+/*
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t { return next_page_id_; }
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
-    next_page_id_ = next_page_id;
+   next_page_id_ = next_page_id;
 }
 
 
- * Helper method to find and return the key associated with input "index" (a.k.a
- * array offset)
- */
- /*
+* Helper method to find and return the key associated with input "index" (a.k.a
+* array offset)
+*/
+/*
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType { return key_array_[index]; }
 
@@ -62,13 +62,13 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType { return 
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
-    int size = GetSize();
-    for (int i = 0; i < size; i++) {
-        if (rid_array_[i] == value) {
-            return i;
-        }
-    }
-    return -1; //not found
+   int size = GetSize();
+   for (int i = 0; i < size; i++) {
+       if (rid_array_[i] == value) {
+           return i;
+       }
+   }
+   return -1; //not found
 }
 */
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;

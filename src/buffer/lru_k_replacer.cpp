@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         BusTub
 //
@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2015-2022, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #include "buffer/lru_k_replacer.h"
 #include "common/exception.h"
@@ -16,11 +16,11 @@
 namespace bustub {
 
 LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_frames), k_(k) {
-  //初始化全局时间戳为0，当前可回收帧数量为0
+  // 初始化全局时间戳为0，当前可回收帧数量为0
   current_timestamp_ = 0;
   curr_size_ = 0;
 }
-//找出应被淘汰的frame（具有最大向后k距离的frame），没有就返回std::nullopt
+// 找出应被淘汰的frame（具有最大向后k距离的frame），没有就返回std::nullopt
 auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
   // 加锁
   std::lock_guard<std::mutex> lock(latch_);
@@ -76,49 +76,49 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
 }
 
 void LRUKReplacer::RecordAccess(frame_id_t frame_id, AccessType access_type) {
-  //加锁
+  // 加锁
   std::lock_guard<std::mutex> lock(latch_);
   current_timestamp_++;
-  //检查frame_id是否合法
+  // 检查frame_id是否合法
   if (frame_id >= static_cast<frame_id_t>(replacer_size_)) {
     throw Exception("Invalid frame_id");
   }
-  //更新访问历史
+  // 更新访问历史
   auto it = node_store_.find(frame_id);
   if (it == node_store_.end()) {
-    //如果frame_id不存在，则创建新的LRUKNode
+    // 如果frame_id不存在，则创建新的LRUKNode
     auto &node = node_store_[frame_id];
     node.SetFid(frame_id);
     node.SetK(k_);
     node.GetHistoryMutable().push_back(current_timestamp_);
-    //新节点默认不可回收
+    // 新节点默认不可回收
     node.SetIsEvictable(false);
   } else {
-    //如果frame_id存在，则更新访问历史
+    // 如果frame_id存在，则更新访问历史
     it->second.GetHistoryMutable().push_back(current_timestamp_);
-    //如果访问历史超过k次，则移除最早的访问时间戳
+    // 如果访问历史超过k次，则移除最早的访问时间戳
     if (it->second.GetHistory().size() > k_) {
       it->second.GetHistoryMutable().pop_front();
     }
   }
-  (void)access_type;  //避免未使用参数的编译警告
+  (void)access_type;  // 避免未使用参数的编译警告
 }
 
 void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
-  //加锁
+  // 加锁
   std::lock_guard<std::mutex> lock(latch_);
   if (frame_id >= static_cast<frame_id_t>(replacer_size_)) {
     throw Exception("Invalid frame_id");
   }
   auto it = node_store_.find(frame_id);
   if (it == node_store_.end()) {
-    //如果frame_id不存在，直接返回
+    // 如果frame_id不存在，直接返回
     return;
   }
   if (it->second.IsEvictable() != set_evictable) {
-    //如果可回收状态发生变化，更新curr_size_
+    // 如果可回收状态发生变化，更新curr_size_
     it->second.SetIsEvictable(set_evictable);
-    //如果变为可回收，curr_size_加一；否则减一
+    // 如果变为可回收，curr_size_加一；否则减一
     if (set_evictable) {
       curr_size_++;
     } else if (curr_size_ > 0) {
@@ -128,28 +128,28 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
 }
 
 void LRUKReplacer::Remove(frame_id_t frame_id) {
-  //加锁
+  // 加锁
   std::lock_guard<std::mutex> lock(latch_);
-  //检查frame_id是否合法
+  // 检查frame_id是否合法
   if (frame_id >= static_cast<frame_id_t>(replacer_size_)) {
     throw Exception("Invalid frame_id");
   }
   auto it = node_store_.find(frame_id);
   if (it == node_store_.end()) {
-    //如果frame_id不存在，直接返回
+    // 如果frame_id不存在，直接返回
     return;
   }
   if (!it->second.IsEvictable()) {
-    //如果frame_id不可回收，抛出异常
+    // 如果frame_id不可回收，抛出异常
     throw Exception("Frame is not evictable");
   }
-  //移除frame_id及其访问历史
+  // 移除frame_id及其访问历史
   node_store_.erase(it);
   curr_size_ = std::max(curr_size_ - 1, static_cast<size_t>(0));
 }
 
 auto LRUKReplacer::Size() -> size_t {
-  //加锁
+  // 加锁
   std::lock_guard<std::mutex> lock(latch_);
   return curr_size_;
 }

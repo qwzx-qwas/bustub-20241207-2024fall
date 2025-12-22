@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         BusTub
 //
@@ -8,7 +8,7 @@
 //
 // Copyright (c) 2015-2023, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #include "storage/disk/disk_scheduler.h"
 #include "common/exception.h"
@@ -37,19 +37,19 @@ DiskScheduler::~DiskScheduler() {
 }
 
 void DiskScheduler::Schedule(DiskRequest r) {
-  //直接将请求放入请求队列，互斥锁由Channel管理
+  // 直接将请求放入请求队列，互斥锁由Channel管理
   request_queue_.Put(std::optional<DiskRequest>(std::move(r)));
 }
 
 void DiskScheduler::StartWorkerThread() {
   while (true) {
-    //从channel中获取请求,注意返回的是optional类型
+    // 从channel中获取请求,注意返回的是optional类型
     auto request_opt = request_queue_.Get();
     if (!request_opt.has_value()) {
       // 如果获取到的请求是std::nullopt，表示需要退出循环
       break;
     }
-    //在该线程中处理请求
+    // 在该线程中处理请求
     DiskRequest request = std::move(request_opt).value();
     if (request.is_write_) {
       // 如果是写请求，调用DiskManager的WritePage方法

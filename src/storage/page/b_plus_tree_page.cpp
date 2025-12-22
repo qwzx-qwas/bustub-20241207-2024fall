@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         CMU-DB Project (15-445/645)
 //                         ***DO NO SHARE PUBLICLY***
@@ -7,7 +7,7 @@
 //
 // Copyright (c) 2018, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 #include "storage/page/b_plus_tree_page.h"
 
@@ -21,7 +21,7 @@ namespace bustub {
  * 帮助方法：获取/设置页面类型。
  * Page type 的枚举类定义在 `b_plus_tree_page.h` 中。
  */
- //检查成员变量page_type_是否表示为叶子页的枚举值IndexPageType::LEAF_PAGE
+// 检查成员变量page_type_是否表示为叶子页的枚举值IndexPageType::LEAF_PAGE
 auto BPlusTreePage::IsLeafPage() const -> bool { return page_type_ == IndexPageType::LEAF_PAGE; }
 void BPlusTreePage::SetPageType(IndexPageType page_type) { page_type_ = page_type; }
 

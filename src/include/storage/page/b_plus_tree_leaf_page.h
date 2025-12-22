@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 //                         CMU-DB Project (15-445/645)
 //                         ***DO NO SHARE PUBLICLY***
@@ -7,7 +7,7 @@
 //
 // Copyright (c) 2018-2024, Carnegie Mellon University Database Group
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 #pragma once
 
 #include <string>
@@ -20,7 +20,7 @@ namespace bustub {
 
 #define B_PLUS_TREE_LEAF_PAGE_TYPE BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>
 #define LEAF_PAGE_HEADER_SIZE 16
-#define LEAF_PAGE_SLOT_CNT ((BUSTUB_PAGE_SIZE - LEAF_PAGE_HEADER_SIZE) / (sizeof(KeyType) + sizeof(ValueType)))
+#define LEAF_PAGE_SLOT_CNT ((BUSTUB_PAGE_SIZE - LEAF_PAGE_HEADER_SIZE) / (sizeof(KeyType) + sizeof(ValueType)) - 1)
 
 /**
  * Store indexed key and record id (record id = page id combined with slot id,
@@ -134,8 +134,8 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   // 下一页 ID（用于叶子页链表中的下一个叶子页）。
   // Array members for page data.
   // 用于存储页面数据的数组成员。
-  KeyType key_array_[LEAF_PAGE_SLOT_CNT];
-  ValueType rid_array_[LEAF_PAGE_SLOT_CNT];
+  KeyType key_array_[LEAF_PAGE_SLOT_CNT + 1];
+  ValueType rid_array_[LEAF_PAGE_SLOT_CNT + 1];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
   // （2024 秋）如有需要，可在下方添加更多字段和辅助函数
 };
@@ -159,24 +159,16 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) { next_pa
  * array offset)
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
-  return key_array_[index];
-}
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType { return key_array_[index]; }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
-  key_array_[index] = key;
-}
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) { key_array_[index] = key; }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType {
-  return rid_array_[index];
-}
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType { return rid_array_[index]; }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::SetValueAt(int index, const ValueType &value) {
-  rid_array_[index] = value;
-}
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetValueAt(int index, const ValueType &value) { rid_array_[index] = value; }
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
