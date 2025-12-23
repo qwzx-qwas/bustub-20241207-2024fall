@@ -139,11 +139,11 @@ auto BPLUSTREE_TYPE::InsertIntoNewTree(const KeyType &key, const ValueType &valu
 
 // 处理叶子节点分裂
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx) -> void {
+auto BPLUSTREE_TYPE::HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx, const KeyType &new_key,
+                                     const ValueType &new_value) -> void {
   auto leaf_page = leaf_guard.AsMut<LeafPage>();
-  // 这里由外部函数来承担检查是否要分裂的责任
 
-  // 创建新的叶子节点
+  // 创建新叶子节点
   auto new_leaf_page_id = bpm_->NewPage();
   if (new_leaf_page_id == INVALID_PAGE_ID) {
     throw Exception("Failed to allocate new page for leaf split");
@@ -156,92 +156,95 @@ auto BPLUSTREE_TYPE::HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx) -
   auto new_leaf_page = new_leaf_page_guard.AsMut<LeafPage>();
   new_leaf_page->Init(leaf_max_size_);
 
-  // 将原叶子节点的一半数据移动到新叶子节点
-  int total_size = leaf_page->GetSize();
-  int move_start_index = total_size / 2;
-  int move_count = total_size - move_start_index;
+  // === STEP 1: 用vector收集所有KV对（包括新插入的）===
+  std::vector<std::pair<KeyType, ValueType>> items;
 
-  for (int i = 0; i < move_count; i++) {
-    new_leaf_page->SetKeyAt(i, leaf_page->KeyAt(move_start_index + i));
-    new_leaf_page->SetValueAt(i, leaf_page->ValueAt(move_start_index + i));
-    // 别忘了清空原叶子节点的数据
-    leaf_page->SetKeyAt(move_start_index + i, KeyType{});
-    leaf_page->SetValueAt(move_start_index + i, ValueType{});
+  // 复制旧数据
+  int old_size = leaf_page->GetSize();
+  items.reserve(old_size);
+  for (int i = 0; i < old_size; ++i) {
+    items.emplace_back(leaf_page->KeyAt(i), leaf_page->ValueAt(i));
   }
 
-  new_leaf_page->SetSize(move_count);
-  leaf_page->SetSize(move_start_index);
+  // 插入新数据到正确位置（保持有序）
+  auto insert_pos = std::lower_bound(items.begin(), items.end(), new_key, [this](const auto &pair, const KeyType &key) {
+    return comparator_(pair.first, key) < 0;
+  });
+  items.insert(insert_pos, {new_key, new_value});
 
-  // 更新叶子节点的链表指针
+  // === STEP 2: 计算分裂点（左边多留一个）===
+  int total_size = items.size();           // = max_size + 1
+  int split_point = (total_size + 1) / 2;  // 左边稍多
+
+  // === STEP 3: 清空两个page（避免残留数据）===
+  for (int i = 0; i < leaf_max_size_; ++i) {
+    leaf_page->SetKeyAt(i, KeyType{});
+    leaf_page->SetValueAt(i, ValueType{});
+    new_leaf_page->SetKeyAt(i, KeyType{});
+    new_leaf_page->SetValueAt(i, ValueType{});
+  }
+
+  // === STEP 4: 分配数据到左节点（保证不越界）===
+  leaf_page->SetSize(split_point);  // 逻辑大小 ≤ max_size
+  for (int i = 0; i < split_point; ++i) {
+    leaf_page->SetKeyAt(i, items[i].first);
+    leaf_page->SetValueAt(i, items[i].second);
+  }
+
+  // === STEP 5: 分配数据到右节点===
+  new_leaf_page->SetSize(total_size - split_point);
+  for (int i = split_point; i < total_size; ++i) {
+    new_leaf_page->SetKeyAt(i - split_point, items[i].first);
+    new_leaf_page->SetValueAt(i - split_point, items[i].second);
+  }
+
+  // === STEP 6: 更新链表指针===
   new_leaf_page->SetNextPageId(leaf_page->GetNextPageId());
   leaf_page->SetNextPageId(new_leaf_page_id);
 
-  // 如果当前是根节点(注意，当需要调用这个分裂函数时，
-  // 就说明当前节点肯定会分裂，所以这里肯定会对上层传递"影响")
-  // 通过deque的大小来判断当前节点是否为根节点
+  // === STEP 7: 处理父节点===
+  KeyType up_key = new_leaf_page->KeyAt(0);
+
   if (leaf_guard.GetPageId() == ctx.root_page_id_) {
-    // 处理根节点分裂
-    CreateNewRoot(leaf_guard, new_leaf_page_guard, new_leaf_page->KeyAt(0), ctx);
+    CreateNewRoot(leaf_guard, new_leaf_page_guard, up_key, ctx);
   } else {
-    // 不是根节点就要往上走
-    // 将新叶子节点的第一个key插入到父节点中
-    KeyType new_key = new_leaf_page->KeyAt(0);
-    // 注意ctx的write_set_中的倒数第二个才是parent guard
-
-    InsertIntoParent(leaf_guard, new_key, new_leaf_page_guard, ctx);
-
-    // 释放new叶子节点的写保护和叶子节点的写保护
-    ctx.write_set_.pop_back();
-    ctx.write_set_.pop_back();
-
-    // 检查父节点是否溢出需要分裂
-    auto &parent_guard = ctx.write_set_.back();
-    auto parent_page = parent_guard.AsMut<InternalPage>();
-    if (parent_page->GetSize() > parent_page->GetMaxSize()) {
-      HandleInternalSplit(parent_guard, ctx);
-    }
+    WritePageGuard &parent_guard = ctx.write_set_.rbegin()[2];
+    InsertIntoParent(parent_guard, up_key, new_leaf_page_guard, ctx);
   }
+  ctx.write_set_.pop_back();  // 移除新叶子节点guard
+  ctx.write_set_.pop_back();  // 移除叶子节点guard
 }
 
 // 将新节点插入到父节点中
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::InsertIntoParent(WritePageGuard &leaf_guard, const KeyType &key, WritePageGuard &right_guard,
+auto BPLUSTREE_TYPE::InsertIntoParent(WritePageGuard &parent_guard, const KeyType &key, WritePageGuard &child_guard,
                                       Context &ctx) -> void {
-  // 通过ctx的write_set_找到parent guard
-  // 直接write_set_.back()应该是有问题的，因为之前的代码中还新加入了new_leaf_page_guard
-  int parent_index = -1;
-  for (size_t i = 0; i < ctx.write_set_.size(); i++) {
-    if (ctx.write_set_[i].GetPageId() == leaf_guard.GetPageId()) {
-      parent_index = i - 1;
-      break;
-    }
-  }
-
-  if (parent_index < 0) {
-    throw Exception("Parent not found in write_set_");
-  }
-
-  WritePageGuard &parent_guard = ctx.write_set_[parent_index];
   auto parent_page = parent_guard.AsMut<InternalPage>();
 
-  // 在parent_page中找到插入key的位置
-  int insert_index = BinarySearch(parent_page, key, comparator_, true);
-  insert_index++;  // 因为BinarySearch返回的是小于等于key的最大索引，所以要加1
+  // === 关键：先检查是否需要分裂，而不是插入后检查 ===
+  if (parent_page->GetSize() == parent_page->GetMaxSize()) {
+    // 父节点已满，先分裂父节点
+    HandleInternalSplit(parent_guard, ctx, key, child_guard.GetPageId());
+    return;
+  }
 
-  // 将parent_page中insert_index及之后的元素后移一位
-  for (int i = parent_page->GetSize(); i > insert_index; i--) {
+  // === 安全插入（此时 size < max_size）===
+  int insert_index = BinarySearch(parent_page, key, comparator_, true) + 1;
+
+  // 移动元素（不会越界，因为物理空间足够）
+  for (int i = parent_page->GetSize(); i > insert_index; --i) {
     parent_page->SetKeyAt(i, parent_page->KeyAt(i - 1));
     parent_page->SetValueAt(i, parent_page->ValueAt(i - 1));
   }
 
-  // 插入新的key和right_child的page_id
   parent_page->SetKeyAt(insert_index, key);
-  parent_page->SetValueAt(insert_index, right_guard.GetPageId());
+  parent_page->SetValueAt(insert_index, child_guard.GetPageId());
   parent_page->SetSize(parent_page->GetSize() + 1);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::HandleInternalSplit(WritePageGuard &internal_guard, Context &ctx) -> void {
+auto BPLUSTREE_TYPE::HandleInternalSplit(WritePageGuard &internal_guard, Context &ctx, const KeyType &new_key,
+                                         const page_id_t &new_value) -> void {
   auto internal_page = internal_guard.AsMut<InternalPage>();
   auto new_internal_page_id = bpm_->NewPage();
   if (new_internal_page_id == INVALID_PAGE_ID) {
@@ -254,57 +257,77 @@ auto BPLUSTREE_TYPE::HandleInternalSplit(WritePageGuard &internal_guard, Context
   auto new_internal_page = new_internal_page_guard.AsMut<InternalPage>();
   new_internal_page->Init(internal_max_size_);
 
-  int mid = internal_page->GetSize() / 2;
-  int old_keys = internal_page->GetSize() - 1;
+  // === STEP 1: 用vector收集所有Key-Value（包括新插入的）===
+  // 注意：内部节点的Value比Key多一个
+  std::vector<KeyType> keys;
+  std::vector<page_id_t> values;
 
-  // Value(mid) -> New Value(0)
-  // Value(mid+1) -> New Value(1) ...
-  // 注意这里要移动到old_keys + 1，因为Value比Key多一个
-  // 实际上 internal_page->GetSize() 就是 old_keys + 1
-  for (int i = mid; i <= old_keys; i++) {
-    new_internal_page->SetValueAt(i - mid, internal_page->ValueAt(i));
-    internal_page->SetValueAt(i, INVALID_PAGE_ID);
+  int old_size = internal_page->GetSize();
+  values.push_back(internal_page->ValueAt(0));  // 第一个Value
+
+  for (int i = 1; i < old_size; ++i) {
+    keys.push_back(internal_page->KeyAt(i));
+    values.push_back(internal_page->ValueAt(i));
   }
 
-  // 2. 移动 Keys (从 mid+1 到 old_keys)
-  // Key(mid+1) -> New Key(1) ...
-  for (int i = mid + 1; i <= old_keys; i++) {
-    new_internal_page->SetKeyAt(i - mid, internal_page->KeyAt(i));
+  // 插入新数据（保持有序）
+  auto key_insert_pos =
+      std::lower_bound(keys.begin(), keys.end(), new_key,
+                       [this](const KeyType &k, const KeyType &key) { return comparator_(k, key) < 0; });
+  int idx = std::distance(keys.begin(), key_insert_pos);
+  keys.insert(key_insert_pos, new_key);
+  values.insert(values.begin() + idx + 1, new_value);  // +1 因为value多一个
+
+  // === STEP 2: 计算分裂点（中间key上提）===
+  int total_values = values.size();    // = max_size + 2
+  int split_index = total_values / 2;  // 分裂位置
+
+  KeyType up_key = keys[split_index - 1];  // 中间key上提
+
+  // === STEP 3: 清空两个page===
+  for (int i = 0; i < internal_max_size_; ++i) {
     internal_page->SetKeyAt(i, KeyType{});
+    internal_page->SetValueAt(i, 0);
+    new_internal_page->SetKeyAt(i, KeyType{});
+    new_internal_page->SetValueAt(i, 0);
   }
 
-  // 注意这里要加1，可以看上面的移动逻辑，数一下发现移动的数目要加个1
-  new_internal_page->SetSize(old_keys - mid + 1);
-  internal_page->SetSize(mid);  // 保留中间key给父节点
+  // === STEP 4: 分配数据到左节点===
+  internal_page->SetSize(split_index);
+  internal_page->SetValueAt(0, values[0]);
+  for (int i = 1; i < split_index; ++i) {
+    internal_page->SetKeyAt(i, keys[i - 1]);
+    internal_page->SetValueAt(i, values[i]);
+  }
 
-  KeyType new_key = internal_page->KeyAt(mid);
-  internal_page->SetKeyAt(mid, KeyType{});  // 清空中间key
-  // 如果当前是根节点
+  // === STEP 5: 分配数据到右节点===
+  int new_size = total_values - split_index;
+  new_internal_page->SetSize(new_size);
+  new_internal_page->SetValueAt(0, values[split_index]);
+  for (int i = 1; i < new_size; ++i) {
+    new_internal_page->SetKeyAt(i, keys[split_index + i - 1]);
+    new_internal_page->SetValueAt(i, values[split_index + i]);
+  }
+
+  // === STEP 6: 处理父节点===
   if (internal_guard.GetPageId() == ctx.root_page_id_) {
-    // 处理根节点分裂
-    CreateNewRoot(internal_guard, new_internal_page_guard, new_key, ctx);
+    CreateNewRoot(internal_guard, new_internal_page_guard, up_key, ctx);
   } else {
-    // 不是根节点就要往上走
-    // 将原来中间的key插入到父节点中
-    InsertIntoParent(internal_guard, new_key, new_internal_page_guard, ctx);
-
-    // 确保当前节点被标记为脏页
-    internal_guard.AsMut<InternalPage>();
-
-    // 释放内部节点的写保护 (Sibling)
-    ctx.write_set_.pop_back();
-    // 释放内部节点的写保护 (Current Node)
-    ctx.write_set_.pop_back();
-
-    // 检查父节点是否溢出需要分裂
-    if (!ctx.write_set_.empty()) {
-      auto &parent_guard = ctx.write_set_.back();
-      auto parent_page = parent_guard.AsMut<InternalPage>();
-      if (parent_page->GetSize() > parent_page->GetMaxSize()) {
-        HandleInternalSplit(parent_guard, ctx);
+    int parent_index = -1;
+    for (size_t i = 0; i < ctx.write_set_.size(); ++i) {
+      if (ctx.write_set_[i].GetPageId() == internal_guard.GetPageId()) {
+        parent_index = static_cast<int>(i) - 1;
+        break;
       }
     }
+    if (parent_index == -1) {
+      throw Exception("Parent page not found in write set during internal split");
+    }
+    WritePageGuard &parent_guard = ctx.write_set_[parent_index];
+    InsertIntoParent(parent_guard, up_key, new_internal_page_guard, ctx);
   }
+  ctx.write_set_.pop_back();  // 移除新内部节点guard
+  ctx.write_set_.pop_back();  // 移除内部节点guard
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -376,6 +399,12 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
   auto &leaf_guard = ctx.write_set_.back();
   auto leaf_page = leaf_guard.AsMut<LeafPage>();
 
+  // 检查叶子节点是否溢出需要分裂
+  if (leaf_page->GetSize() == leaf_page->GetMaxSize()) {
+    HandleLeafSplit(leaf_guard, ctx, key, value);
+    return true;
+  }
+
   // 在叶子节点中找到插入key的位置
   int insert_index = BinarySearch(leaf_page, key, comparator_, false);
   insert_index++;  // 因为BinarySearch返回的是小于等于key的最大索引，所以要加1
@@ -388,10 +417,6 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
   leaf_page->SetValueAt(insert_index, value);
   leaf_page->ChangeSizeBy(1);
 
-  // 检查叶子节点是否溢出需要分裂
-  if (leaf_page->GetSize() > leaf_page->GetMaxSize()) {
-    HandleLeafSplit(leaf_guard, ctx);
-  }
   return true;
 }
 
@@ -498,7 +523,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
     // key不存在，直接返回
     return;
   }
-  for (int i = delete_index; i < leaf_page->GetSize(); i++) {
+  for (int i = delete_index; i < leaf_page->GetSize() - 1; i++) {
     leaf_page->SetKeyAt(i, leaf_page->KeyAt(i + 1));
     leaf_page->SetValueAt(i, leaf_page->ValueAt(i + 1));
   }

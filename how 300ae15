@@ -1,0 +1,420 @@
+[33mcommit 300ae1533219f4d89d59417838dc80a8b91e0266[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature[m[33m, [m[1;31morigin/feature[m[33m)[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Dec 22 09:54:11 2025 +0800
+
+    Flawed version,Tried to solve heap memory out-of-bounds writing by using logic max-1 and array max+1 (failed)
+
+[33mcommit cf15ba0d61ce69ad3a4adca044e83dbf3c8ff502[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Dec 21 18:32:52 2025 +0800
+
+    One more test is needed to pass all the tests. The problem encountered is heap-buffer-overflow.
+
+[33mcommit 5efe4d93d055b93bc0d3b926de5990ce40cc701c[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Dec 20 15:51:20 2025 +0800
+
+    task2 passed
+
+[33mcommit e387b17ffe9acc5351f7daa6e28700fc03b65687[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Dec 20 12:36:48 2025 +0800
+
+    A test for delete passed
+
+[33mcommit cfe8b3456393d225df1dcbee5292f59854c70b27[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Dec 17 23:48:54 2025 +0800
+
+    Corrected the previous split logic so that InternalPage no longer contains only key=invalid
+
+[33mcommit 8a3f58443abe50cdbeb63d732705e5b41ca60495[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Dec 14 21:20:05 2025 +0800
+
+    Fixed the issue of no drop guard before deletepage and clarified the termination condition for HandleInternalUnderFlow recursion.
+
+[33mcommit be2c04a981cafecd18b7eb76691011315683a72f[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Dec 10 20:06:22 2025 +0800
+
+    Tests on the non-Iterator part of the insert operation have been completed (the tree structure has been corrected, and latch crabbing has been used to lock the insert operation).
+
+[33mcommit 6a8efc16756bb7849e1d088141ef0836115c635c[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Dec 8 21:14:33 2025 +0800
+
+    First version (encountered memory leaks and deadlocks)
+
+[33mcommit daccd832ee8b156e1bb269414f12d76a7594481a[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Dec 6 17:16:31 2025 +0800
+
+    MergeInternal && MergeInternalHelper
+
+[33mcommit b4a3fe887c6e6efd38634fa282ea4b85666f9ec0[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Dec 6 15:56:03 2025 +0800
+
+    Original MergeLeaf and refactored MergeLeaf
+
+[33mcommit fc892c289f55f5ed4b73a350694b9233344f15a8[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Dec 6 13:09:17 2025 +0800
+
+    redistribute functions
+
+[33mcommit 81c61984c87a78e136a5e6ed8103ce4b239677b2[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Thu Dec 4 20:04:30 2025 +0800
+
+    Some basic logic of Remove and some auxiliary functions were defined
+
+[33mcommit 185e2c1f7f7ee4a98e25475aa8334b12386a44b9[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Thu Dec 4 12:24:00 2025 +0800
+
+    insert && Refactored GetValue
+
+[33mcommit e963176f14d9b76f3dcbc0bf68c0ae38b46e5577[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Dec 3 21:10:41 2025 +0800
+
+    Five helper functions for insert
+
+[33mcommit 6fd90f843f489f93fb18a48a5a1b0b4bb48ca18e[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Dec 2 18:51:16 2025 +0800
+
+    GetValue
+
+[33mcommit f99e8dd48e9cd340cae8a70d3f47feecc0d49468[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Dec 1 17:36:00 2025 +0800
+
+    null
+
+[33mcommit e244323d0032a843bffa6275ef7171944cfa076c[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Dec 1 17:16:19 2025 +0800
+
+    proj2 task1 :the basic definition and implementation of the three classes for B+ Tree
+
+[33mcommit bf09f86b56e4e6437b915efda3cf6878791e8052[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Nov 29 11:22:29 2025 +0800
+
+    Passed the test using serial I/O instead
+
+[33mcommit 3a44a6c42d7d3248028a265d21274a597392f649[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Fri Nov 28 23:39:50 2025 +0800
+
+    left 1
+
+[33mcommit c6338e295ea418c5124d5d48de0b8c503f01e611[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Fri Nov 28 21:11:04 2025 +0800
+
+    left 2
+
+[33mcommit 63d436396f8fc5638b08a0191b1f33469f60bf1c[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Fri Nov 28 17:29:36 2025 +0800
+
+    There are three tests left
+
+[33mcommit 5812dceba20aeee540cbd586f5723dadfd275362[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Nov 26 23:52:03 2025 +0800
+
+    the third version
+
+[33mcommit e14917eefaddfd683ecb4dbc04a43e74d8620751[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Nov 26 16:15:19 2025 +0800
+
+    local tests passed and code formatting adjusted
+
+[33mcommit 3e0c81e2c69f517983e0c4b96d3d0260c9d6af69[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Nov 26 15:43:27 2025 +0800
+
+    pass 7 tests
+
+[33mcommit f2f55de92ebd91272198be63370cb1c3e40e347e[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Nov 25 23:40:35 2025 +0800
+
+    The CheckedReadPage function has been refactored.
+
+[33mcommit 6eb67e1a1e495ed754422f324aa17741bda0a9c8[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Nov 25 23:16:55 2025 +0800
+
+    pass six tests
+
+[33mcommit 54c509f2b2253f85ed83794b8178c0f4472fdd1b[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Nov 25 23:00:08 2025 +0800
+
+    pass  four tests &&  deadlock
+
+[33mcommit 7a0abffb34d561c336bfd8a0df7f17e964e16349[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Nov 24 17:37:19 2025 +0800
+
+    pass one test
+
+[33mcommit 06b400e7e77aee1d0f616f93199dabf7296975b5[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Nov 23 22:24:07 2025 +0800
+
+    second version（possibly a deadlock)
+
+[33mcommit 39055e21fb46bac6b1c0199d6556c36f82bbedd9[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Nov 23 10:40:07 2025 +0800
+
+    first version
+
+[33mcommit 6943d46837af75f0d15d23eccce5b8e6daf0930a[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Nov 23 10:38:33 2025 +0800
+
+    first version
+
+[33mcommit f2806e9fcea99c145af7cad027eaa10cb4771876[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Nov 22 21:07:37 2025 +0800
+
+    flushpage
+
+[33mcommit 70f86b753f8d15a9447bf9e72a0c6e19bac08141[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Nov 22 15:41:43 2025 +0800
+
+    checkedwritepage && checkedreadpage&&newpage&&deletepage
+
+[33mcommit 031d31865b101acb1623f3f704b3fa64abcde0f4[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Nov 22 12:17:47 2025 +0800
+
+    add getpincount && pinpage && unpinpage
+
+[33mcommit 1ac4710bd326a763e87d121828e39da1df686917[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Thu Nov 20 23:46:45 2025 +0800
+
+    disk_scheduler
+
+[33mcommit baff7bdcb9756efa4dfdb88c57d872ab7bfe014b[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Nov 12 18:26:49 2025 +0800
+
+    lruk pass
+
+[33mcommit edc6f1adfcc3e8792d32c576ffa912cd4ef58865[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Nov 5 20:38:02 2025 +0800
+
+    lruk
+
+[33mcommit a7cb70529ce76d7a90d159c582ea5229778bab0b[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Nov 5 12:46:43 2025 +0800
+
+    lru-k
+
+[33mcommit 548c8903a948e0462a2361913e19ae1a92bd2e5f[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Nov 3 23:23:40 2025 +0800
+
+    proj1 evict
+
+[33mcommit 96fe984a3f20970b2ffd7d1ea567a024edba9032[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Wed Oct 22 16:49:59 2025 +0800
+
+    q45
+
+[33mcommit cfc64e2939f288fe46002c4d3b083752315d2a9c[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Oct 21 23:13:01 2025 +0800
+
+    sql
+
+[33mcommit 676f05fa92e3cac819d83ab4dbbc3a4113a59469[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Oct 18 17:37:42 2025 +0800
+
+    change release
+
+[33mcommit c9971ef10fd3a61cb76152a94d4e0d8026b93445[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Thu Oct 16 21:12:29 2025 +0800
+
+    test
+
+[33mcommit e9bf6530bd804a7e28ce1e295f2a21092d00057a[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Thu Oct 16 21:07:26 2025 +0800
+
+    test
+
+[33mcommit 81e5f8a2c2f577c603f921e27d995839a73032b0[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Thu Oct 16 20:15:45 2025 +0800
+
+    pass primer
+
+[33mcommit d7e844147fe1f528209f9da002de18ba7a212077[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Thu Oct 16 20:15:03 2025 +0800
+
+    pass primer
+
+[33mcommit 512aa8de33761f0229526ad1882896bd410a8baa[m
+Merge: 497a52a 8cbb554
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Oct 12 16:28:06 2025 +0800
+
+    Merge branch 'main' of https://github.com/qwzx-qwas/bustub-20241207-2024fall
+
+[33mcommit 497a52ade16d3eafd4f8df5ef147f64e7ec0b3c4[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Oct 12 16:27:48 2025 +0800
+
+    make format
+
+[33mcommit 8cbb5541c9b21ace9c45caeeb58c249df5bda9e2[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Oct 12 13:23:05 2025 +0800
+
+    adjust the format
+
+[33mcommit 93cbb60464c9954a74ab8e6d9be63b5d29a73be5[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Oct 11 22:05:48 2025 +0800
+
+    change format
+
+[33mcommit 81906b02853f88ad7b055c65c875917fdafcaf94[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Oct 11 21:52:33 2025 +0800
+
+    change format
+
+[33mcommit 4197443d2e053ef0e6891cdb343ec8b0c3fd0e01[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Oct 11 21:25:53 2025 +0800
+
+    google c++ style
+
+[33mcommit bed36a4eeb75fa47dddc44de86208c1e7f5cc141[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Oct 11 21:16:52 2025 +0800
+
+     tests pass
+
+[33mcommit 71d144d435ec033a8a48b2da1e79bf116cf608c8[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Fri Oct 10 23:07:34 2025 +0800
+
+    Reduce precision and add mutex locks
+
+[33mcommit c087fed6a2985c06564d25390de79a163c8f638e[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Oct 4 13:52:18 2025 +0800
+
+    failed attempts
+
+[33mcommit 49e3fe14bb17d063b942c565f89a62fc78e829b7[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Sep 30 12:49:12 2025 +0800
+
+    format
+
+[33mcommit 20521cf0102f7eb332d4c4617ce9aa445d39feb7[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Sep 30 11:35:13 2025 +0800
+
+    format
+
+[33mcommit 57a7cdc55cd0e0e207311c52fa357e8ee374d386[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Sep 30 11:01:53 2025 +0800
+
+    correct format
+
+[33mcommit af0e834afa976cf41a910520a4484dcbac89f9de[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Sep 30 11:00:48 2025 +0800
+
+    change format
+
+[33mcommit 8edf74b041719a44afa1250082d2d192bfd5d5c2[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Sep 30 10:33:04 2025 +0800
+
+    debug
+
+[33mcommit b170e1714840e3b4fccefb971bb12dcf8bbfd787[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Sep 29 20:10:20 2025 +0800
+
+    debug
+
+[33mcommit 6c5256849825cc11f8ab777067b2b1f7e6bba2a5[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Sep 29 11:29:37 2025 +0800
+
+    update countzero function
+
+[33mcommit 9c5f9aae9a9924f32021486b32065651cea724cd[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Sep 29 11:20:49 2025 +0800
+
+    update some  detail
+
+[33mcommit 22fc1c4ab200c12e71eb585406484f3d8fc90f15[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Sep 29 10:59:35 2025 +0800
+
+    Updated initialization of dense_bucket_
+
+[33mcommit 40f6a9d4fdfa3ee02f72fa0774499fdb7fc7511d[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Sep 29 10:57:29 2025 +0800
+
+    Updated AddElem and ComputeCardinality
+
+[33mcommit 171387804f06087b23d8d0a0901fde3275ea5df1[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Mon Sep 29 09:42:32 2025 +0800
+
+    DEBUG
+
+[33mcommit 2238ad6fc00bc824f24c15cf4819ed911b484e3e[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Sep 28 15:54:31 2025 +0800
+
+    compiled successfully
+
+[33mcommit 30bfc535e4500138fa44575827dbfeb5c08ffcb9[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sun Sep 28 13:59:31 2025 +0800
+
+    task2
+
+[33mcommit 52a3944c281306ca9e88e6120ac41d5aedb305e1[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Sat Sep 27 20:41:46 2025 +0800
+
+    task1
+
+[33mcommit f4ca4baa7421b6ef8e7cfa51f538bdc9945f806a[m
+Author: qwzx-qwas <1913840946@qq.com>
+Date:   Tue Sep 23 15:53:24 2025 +0800
+
+    15445

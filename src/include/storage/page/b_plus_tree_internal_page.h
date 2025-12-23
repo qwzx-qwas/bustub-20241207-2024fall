@@ -20,7 +20,7 @@ namespace bustub {
 #define B_PLUS_TREE_INTERNAL_PAGE_TYPE BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>
 #define INTERNAL_PAGE_HEADER_SIZE 12
 #define INTERNAL_PAGE_SLOT_CNT \
-  ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / ((int)(sizeof(KeyType) + sizeof(ValueType))) -1)  // NOLINT
+  ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / ((int)(sizeof(KeyType) + sizeof(ValueType))))  // NOLINT
 
 /**
  * Store `n` indexed keys and `n + 1` child pointers (page_id) within internal page.
@@ -162,8 +162,8 @@ class BPlusTreeInternalPage : public BPlusTreePage {
  private:
   // Array members for page data.
   // 用于存储页面数据的数组成员。
-  KeyType key_array_[INTERNAL_PAGE_SLOT_CNT + 1];
-  ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT + 1];
+  KeyType key_array_[INTERNAL_PAGE_SLOT_CNT];
+  ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
   // （2024 秋）如有需要，可在下方添加更多字段和辅助函数
 };
