@@ -43,10 +43,12 @@ enum class IndexType { BPlusTreeIndex, HashTableIndex, STLOrderedIndex, STLUnord
 
 /**
  * The TableInfo class maintains metadata about a table.
+ * TableInfo 类维护有关表的元数据。
  */
 struct TableInfo {
   /**
    * Construct a new TableInfo instance.
+   * 构造一个新的 TableInfo 实例。
    * @param schema The table schema
    * @param name The table name
    * @param table An owning pointer to the table heap
@@ -55,12 +57,16 @@ struct TableInfo {
   TableInfo(Schema schema, std::string name, std::unique_ptr<TableHeap> &&table, table_oid_t oid)
       : schema_{std::move(schema)}, name_{std::move(name)}, table_{std::move(table)}, oid_{oid} {}
   /** The table schema */
+  /** 表模式 */
   Schema schema_;
   /** The table name */
+  /** 表名 */
   const std::string name_;
   /** An owning pointer to the table heap */
+  /** 指向表堆的拥有指针 */
   std::unique_ptr<TableHeap> table_;
   /** The table OID */
+  /** 表 OID */
   const table_oid_t oid_;
 };
 
