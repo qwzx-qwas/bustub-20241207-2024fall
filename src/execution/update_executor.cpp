@@ -69,7 +69,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     //标记删除旧tuple
     TupleMeta old_meta = table_heap->GetTupleMeta(old_rid);
     old_meta.is_deleted_ = true;
-    table_heap->UpdateTupleMeta(old_rid, old_meta);
+    table_heap->UpdateTupleMeta(old_meta, old_rid);
 
     //插入新的tuple
     auto new_rid_opt = table_heap->InsertTuple(TupleMeta{0, false}, new_tuple, exec_ctx_->GetLockManager(),
