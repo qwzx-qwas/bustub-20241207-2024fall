@@ -66,5 +66,14 @@ class UpdateExecutor : public AbstractExecutor {
 
   /** The child executor to obtain value from */
   std::unique_ptr<AbstractExecutor> child_executor_;
+
+  /** The table heap to be updated */
+  TableHeap *table_heap_;
+
+  /** The indexes associated with the table to be updated */
+  std::vector<IndexInfo *> indexes_;
+
+  // Whether the update has been executed
+  bool executed_;
 };
 }  // namespace bustub
