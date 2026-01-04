@@ -57,6 +57,15 @@ class InsertExecutor : public AbstractExecutor {
  private:
   /** The insert plan node to be executed*/
   const InsertPlanNode *plan_;
+  //获取表的信息
+  TableInfo *table_info_;
+  //要插入的表的堆
+  TableHeap *table_heap_;
+  //要插入的表的索引信息
+  std::vector<IndexInfo *> indexes_;
+  
+  //状态量，表示只能成功一次
+  bool executed_；
 };
 
 }  // namespace bustub
