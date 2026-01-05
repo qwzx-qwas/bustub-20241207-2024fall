@@ -68,6 +68,6 @@ class DeleteExecutor : public AbstractExecutor {
 
   std::vector<IndexInfo *> indexes_;
 
-  bool executed_;
+  bool deleted_;
 };
 }  // namespace bustub
