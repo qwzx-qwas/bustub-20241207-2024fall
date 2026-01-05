@@ -47,8 +47,11 @@ class IndexScanExecutor : public AbstractExecutor {
 
   IndexInfo *index_info_;
 
-  BPlusTreeIndexForOneIntegerColumn *tree_;
-  BPlusTreeIndexForTwoIntegerColumns iter_;
-  BPlusTreeIndexForTwoIntegerColumns end_;
+  BPlusTreeIndexForTwoIntegerColumn *tree_;
+  std::optional<BPlusTreeIndexIteratorForTwoIntegerColumn> iter_;
+  std::optional<BPlusTreeIndexIteratorForTwoIntegerColumn> end_;
+  
+  // For handling multiple point lookups (OR clause)
+  size_t current_key_idx_{0};
 };
 }  // namespace bustub
