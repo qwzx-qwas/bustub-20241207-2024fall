@@ -14,11 +14,65 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
+#include <unordered_map>
 
+#include "common/util/hash_util.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/hash_join_plan.h"
 #include "storage/table/tuple.h"
+
+namespace bustub {
+
+struct HashJoinKey {
+  //对于不同属性的连接键,需要支持多个属性的连接键
+  std::vector<Value> column_values_;
+
+  //重载==运算符
+  //如果存在哈希冲突，就要逐个对比属性值是否相等
+  auto operator==(const HashJoinKey &other) const -> bool {
+    //先检查属性值数量是否相等
+    auto other_size_ = other.column_values_.size();
+    if (column_values_.size() != other_size_) {
+      return false;
+    }
+
+    //直接将other和vector里的每个值进行对比
+    for (uint32_t i = 0; i < other_size_; i++) {
+      if (column_values_[i].CompareEquals(other.column_values_[i]) != CmpBool::CmpTrue) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
+} // namespace bustub
+
+//告诉编译器，当遇到bustub::HashJoinKey时，使用这个哈希函数
+//特化std::hash模板
+namespace std {
+template <>
+struct hash<bustub::HashJoinKey> {
+  auto operator()(const bustub::HashJoinKey &key) const -> std::size_t {
+    //初始化哈希值
+    size_t curr_hash = 0;
+
+    //对每个属性值计算哈希值，并组合成最终哈希值
+    for (const auto &val : key.column_values_) {
+      if (!val.IsNull()) {
+        //使用已有的哈希函数计算单个属性值的哈希值
+        //HashUtil::HashValue(&val) 用于算出当前这个属性值的哈希值
+        //HashUtil::CombineHashes(curr_hash, new_hash) 用于把当前属性值的哈希值和之前的哈希值结合起来
+        curr_hash = bustub::HashUtil::CombineHashes(curr_hash, bustub::HashUtil::HashValue(&val));
+      }
+    }
+    return curr_hash;
+  }
+};
+
+}
 
 namespace bustub {
 
@@ -54,6 +108,18 @@ class HashJoinExecutor : public AbstractExecutor {
  private:
   /** The HashJoin plan node to be executed. */
   const HashJoinPlanNode *plan_;
+
+  //左右子执行器
+  std::unique_ptr<AbstractExecutor> left_child_executor_;
+  std::unique_ptr<AbstractExecutor> right_child_executor_;
+  //基于右子执行器构建的哈希表
+  std::unordered_map<HashJoinKey, std::vector<Tuple>> ht_;
+  //输出缓冲区
+  std::vector<Tuple> result_buffer_;
+
+  //暂存schema
+  Schema left_schema_{std::vector<Column>{}};
+  Schema right_schema_{std::vector<Column>{}};
 };
 
 }  // namespace bustub

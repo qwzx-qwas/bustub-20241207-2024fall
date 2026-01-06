@@ -77,6 +77,8 @@ class SimpleAggregationHashTable {
           //统计行数，不关心是否为空
           //直接加1
           {
+            //aggregates_是AggregateValue的成员变量，存储聚合结果
+            //GetAs<int64_t>()将Value转换为int64_t类型进行计算（只有当Value存储的类型是整数时才有效）
             int64_t count = result->aggregates_[i].GetAs<int64_t>();
             count += 1;
             result->aggregates_[i] = ValueFactory::GetIntegerValue(count);

@@ -25,9 +25,6 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
   //重建当前plan节点，使用优化后的子节点
   AbstractPlanNodeRef new_plan = plan->CloneWithChildren(std::move(children));
 
-  if(new_plan->GetType() != bustub::PlanType::SeqScan) {
-      return new_plan;
-  }
   //检查是不是SeqScanPlanNode,不是就返回原plan
   if(new_plan->GetType() == bustub::PlanType::SeqScan) {
     auto seq_scan_plan = std::dynamic_pointer_cast<const bustub::SeqScanPlanNode>(new_plan);

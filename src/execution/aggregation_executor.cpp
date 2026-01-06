@@ -64,6 +64,7 @@ auto AggregationExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       auto initial_agg_val = aht_.GenerateInitialAggregateValue();
       //手动插入初始聚合值
       //因为直接使用InsertCombine不会检查是否为空，而是直接+1
+      //这会导致将空表的count(*)错误地计算为1
       std::vector<Value> values;
       values.insert(values.end(), initial_agg_val.aggregates_.begin(), initial_agg_val.aggregates_.end());
       *tuple = Tuple(values, &plan_->OutputSchema());
