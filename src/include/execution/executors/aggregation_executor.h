@@ -51,7 +51,7 @@ class SimpleAggregationHashTable {
           // Count start starts at zero.
           values.emplace_back(ValueFactory::GetIntegerValue(0));
           break;
-        case AggregationType::CountAggregate:
+        case AggregationType::CountAggregate:  
         case AggregationType::SumAggregate:
         case AggregationType::MinAggregate:
         case AggregationType::MaxAggregate:
@@ -74,10 +74,65 @@ class SimpleAggregationHashTable {
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
       switch (agg_types_[i]) {
         case AggregationType::CountStarAggregate:
+          //统计行数，不关心是否为空
+          //直接加1
+          {
+            int64_t count = result->aggregates_[i].GetAs<int64_t>();
+            count += 1;
+            result->aggregates_[i] = ValueFactory::GetIntegerValue(count);
+          }
+          break;
         case AggregationType::CountAggregate:
+          //统计非空值的个数
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull()) {
+              result->aggregates_[i] = ValueFactory::GetIntegerValue(0);
+            }
+            int64_t count = result->aggregates_[i].GetAs<int64_t>();
+            count += 1;
+            result->aggregates_[i] = ValueFactory::GetIntegerValue(count);
+          }
+          break;
+
         case AggregationType::SumAggregate:
+          //计算数值的总和
+          //如果input是空值，则不进行计算
+          //如果result是空值，则将input赋值给result
+          //如果两者都不是空值，则进行加法计算
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull()) {
+              result->aggregates_[i] = input.aggregates_[i];
+            } else {
+              auto sum = result->aggregates_[i].Add(input.aggregates_[i]);
+              result->aggregates_[i] = sum;
+            }
+          }
+          break;
         case AggregationType::MinAggregate:
+          //如果input是空值，则跳过
+          //如果result是空值，则将input赋值给result
+          //如果两者都不是空值，则进行比较，取较小值赋值给result
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull()) {
+              result->aggregates_[i] = input.aggregates_[i];
+            } else {
+              if (input.aggregates_[i].CompareLessThan(result->aggregates_[i]) == CmpBool::CmpTrue) {
+                result->aggregates_[i] = input.aggregates_[i];
+              }
+            }
+          }
+          break;
         case AggregationType::MaxAggregate:
+        //同上
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull()) {
+              result->aggregates_[i] = input.aggregates_[i];
+            } else {
+              if (input.aggregates_[i].CompareGreaterThan(result->aggregates_[i]) == CmpBool::CmpTrue) {
+                result->aggregates_[i] = input.aggregates_[i];
+              }
+            }
+          }
           break;
       }
     }
@@ -203,9 +258,14 @@ class AggregationExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> child_executor_;
 
   /** Simple aggregation hash table */
-  // TODO(Student): Uncomment SimpleAggregationHashTable aht_;
+  //TODO:删去注释
+  SimpleAggregationHashTable aht_;
 
   /** Simple aggregation hash table iterator */
-  // TODO(Student): Uncomment SimpleAggregationHashTable::Iterator aht_iterator_;
+  //TODO:删去注释
+  SimpleAggregationHashTable::Iterator aht_iterator_;
+
+  //标志位，表示是否完成第一次调用next
+  bool is_built_;
 };
 }  // namespace bustub
