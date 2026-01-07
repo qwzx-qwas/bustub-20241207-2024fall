@@ -57,7 +57,7 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
                            check_and_extract(logic_expr->GetChildAt(1));
                 }
                 // OR 不支持
-                // 其他情况：不是 AND 或 =
+                // 其他情况：不是 AND 或 =，就直接返回false
                 return false;
             }
 
@@ -86,7 +86,7 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
                  }
             }
             
-            // 其他情况：不是 AND 或 =
+            // 其他情况：不是 AND 或 =，
             return false;
       };
 

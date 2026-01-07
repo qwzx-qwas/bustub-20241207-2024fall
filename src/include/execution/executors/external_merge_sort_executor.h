@@ -30,17 +30,65 @@ namespace bustub {
  *
  * Only fixed-length data will be supported in Fall 2024.
  */
+ //用于专门储存外部归并排序的中间数据的页面
+ //由于只测试固定长度元组
+ //完全可以把page分为两部分，前面是元数据，后面是实际数据
+ //元数据用来记录有多少元组
+ //实际数据用来存储元组（连续的内存）
 class SortPage {
  public:
   /**
    * TODO: Define and implement the methods for reading data from and writing data to the sort
    * page. Feel free to add other helper methods.
    */
+
+
+  //用32位整数记录当前页面中元组的数量
+  static constexpr size_t HEADER_SIZE = sizeof(int32_t);
+  //剩下的页面用来存储实际数据
+  static constexpr size_t DATA_SIZE = BUSTUB_PAGE_SIZE - HEADER_SIZE;
+   
+  //获取当前页面中元组的数量
+  auto GetTupleCount()-> int32_t{ return *reinterpret_cast<int32_t *>(this); }
+
+  //设置当前页面中元组的数量
+  auto SetTupleCount(int32_t count) -> void { *reinterpret_cast<int32_t *>(this) = count; }
+
+  //写入页面
+  auto WriteTuple(const Tuple &tuple, size_t tuple_size, size_t slot_idx) -> bool {
+    size_t offset = slot_idx * tuple_size;
+    //检查是否有足够的空间写入元组
+    if (offset + tuple_size > DATA_SIZE) {
+      return false;
+    }
+    //计算写入位置
+    auto *data_ptr = reinterpret_cast<char *>(this) + HEADER_SIZE + offset;
+    //将元组数据写入页面
+    tuple.SerializeTo(data_ptr);
+    return true;
+  }
+
+  //读取页面
+  auto ReadTuple(size_t tuple_size, size_t slot_idx) const -> Tuple {
+    size_t offset = slot_idx * tuple_size;
+    //计算读取位置
+    auto *data_ptr = reinterpret_cast<char *>(this) + HEADER_SIZE + offset;
+    //从页面中反序列化出元组
+    Tuple t;
+    t.DeserializeFrom(data_ptr);
+    return t;
+  }
+
+  
  private:
   /**
    * TODO: Define the private members. You may want to have some necessary metadata for
    * the sort page before the start of the actual data.
    */
+  
+
+
+
 };
 
 /**
@@ -51,9 +99,17 @@ class SortPage {
 class MergeSortRun {
  public:
   MergeSortRun() = default;
-  MergeSortRun(std::vector<page_id_t> pages, BufferPoolManager *bpm) : pages_(std::move(pages)), bpm_(bpm) {}
+  MergeSortRun(std::vector<page_id_t> pages, size_t tuple_size, BufferPoolManager *bpm)
+      : pages_(std::move(pages)), tuple_size_(tuple_size), bpm_(bpm) {}
 
   auto GetPageCount() -> size_t { return pages_.size(); }
+
+  void DeletePages() {
+    for (auto page_id : pages_) {
+      bpm_->DeletePage(page_id);
+    }
+    pages_.clear();
+  }
 
   /** Iterator for iterating on the sorted tuples in one run. */
   class Iterator {
@@ -104,6 +160,10 @@ class MergeSortRun {
      * position in the sorted run. Also feel free to add additional constructors to initialize
      * your private members.
      */
+    size_t page_idx_{0};
+    size_t slot_idx_{0};
+    ReadPageGuard page_guard_;
+    const SortPage *sort_page_{nullptr};
   };
 
   /**
@@ -123,6 +183,7 @@ class MergeSortRun {
  private:
   /** The page IDs of the sort pages that store the sorted tuples. */
   std::vector<page_id_t> pages_;
+  size_t tuple_size_;
   /**
    * The buffer pool manager used to read sort pages. The buffer pool manager is responsible for
    * deleting the sort pages when they are no longer needed.
@@ -163,6 +224,16 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   TupleComparator cmp_;
 
   /** TODO: You will want to add your own private members here. */
+
+  //tuple长度
+  size_t tuple_size;
+
+  std::vector<MergeSortRun> sorted_runs_;
+  std::optional<MergeSortRun::Iterator> current_iterator_;
+
+  void GenerateRun(const std::vector<SortEntry> &run, std::vector<page_id_t> &pages);
+
+  auto MergeRuns() -> std::optional<MergeSortRun>;
 };
 
 }  // namespace bustub
