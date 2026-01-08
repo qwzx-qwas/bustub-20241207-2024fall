@@ -55,11 +55,11 @@ class SeqScanExecutor : public AbstractExecutor {
  private:
   /** The sequential scan plan node to be executed */
   /** 要执行的顺序扫描计划节点 */
-  //SeqScanPlanNode 只是整个大查询计划树（Plan Tree）中的一个“零件”或“节点”
+  // SeqScanPlanNode 只是整个大查询计划树（Plan Tree）中的一个“零件”或“节点”
   const SeqScanPlanNode *plan_;
   //迭代器成员，用来指向当前扫描到的位置
   std::optional<TableIterator> iter_;
   //表的信息
-  const TableInfo *table_info;
+  const TableInfo *table_info_;
 };
 }  // namespace bustub

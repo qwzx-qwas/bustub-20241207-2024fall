@@ -51,7 +51,7 @@ class SimpleAggregationHashTable {
           // Count start starts at zero.
           values.emplace_back(ValueFactory::GetIntegerValue(0));
           break;
-        case AggregationType::CountAggregate:  
+        case AggregationType::CountAggregate:
         case AggregationType::SumAggregate:
         case AggregationType::MinAggregate:
         case AggregationType::MaxAggregate:
@@ -77,9 +77,9 @@ class SimpleAggregationHashTable {
           //统计行数，不关心是否为空
           //直接加1
           {
-            //aggregates_是AggregateValue的成员变量，存储聚合结果
-            //GetAs<int64_t>()将Value转换为int64_t类型进行计算（只有当Value存储的类型是整数时才有效）
-            int64_t count = result->aggregates_[i].GetAs<int64_t>();
+            // aggregates_是AggregateValue的成员变量，存储聚合结果
+            // GetAs<int64_t>()将Value转换为int64_t类型进行计算（只有当Value存储的类型是整数时才有效）
+            auto count = result->aggregates_[i].GetAs<int64_t>();
             count += 1;
             result->aggregates_[i] = ValueFactory::GetIntegerValue(count);
           }
@@ -90,7 +90,7 @@ class SimpleAggregationHashTable {
             if (result->aggregates_[i].IsNull()) {
               result->aggregates_[i] = ValueFactory::GetIntegerValue(0);
             }
-            int64_t count = result->aggregates_[i].GetAs<int64_t>();
+            auto count = result->aggregates_[i].GetAs<int64_t>();
             count += 1;
             result->aggregates_[i] = ValueFactory::GetIntegerValue(count);
           }
@@ -125,7 +125,7 @@ class SimpleAggregationHashTable {
           }
           break;
         case AggregationType::MaxAggregate:
-        //同上
+          //同上
           if (!input.aggregates_[i].IsNull()) {
             if (result->aggregates_[i].IsNull()) {
               result->aggregates_[i] = input.aggregates_[i];
@@ -260,11 +260,11 @@ class AggregationExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> child_executor_;
 
   /** Simple aggregation hash table */
-  //TODO:删去注释
+  // TODO(qwzx): 删去注释
   SimpleAggregationHashTable aht_;
 
   /** Simple aggregation hash table iterator */
-  //TODO:删去注释
+  // TODO(qwzx): 删去注释
   SimpleAggregationHashTable::Iterator aht_iterator_;
 
   //标志位，表示是否完成第一次调用next

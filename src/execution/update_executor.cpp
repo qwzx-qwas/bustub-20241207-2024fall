@@ -35,7 +35,7 @@ void UpdateExecutor::Init() {
   //获得表的索引信息
   auto indexes = catalog->GetTableIndexes(table_info_->name_);
   for (const auto &index : indexes) {
-      indexes_.push_back(index.get());
+    indexes_.push_back(index.get());
   }
   //初始化状态量
   executed_ = false;
@@ -51,12 +51,12 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   uint32_t update_count = 0;
   Tuple old_tuple;
   RID old_rid;
-  
+
   // 1. 收集所有需要更新的元组，避免 Halloween Problem 和迭代器失效
   //因为一边读取一边更新会导致后续更新的tuple被再次读到，导致死循环或迭代器失效
   // 所以提前收集起来（对delete也是一样）
   std::vector<std::pair<Tuple, RID>> tuples_to_update;
-  while(child_executor_->Next(&old_tuple, &old_rid)) {
+  while (child_executor_->Next(&old_tuple, &old_rid)) {
     tuples_to_update.emplace_back(old_tuple, old_rid);
   }
 
@@ -65,22 +65,22 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     //根据更新计划生成新的tuple
     std::vector<Value> updated_values;
     //构造更新后的值列表
-    for(const auto &expr : plan_->target_expressions_) {
+    for (const auto &expr : plan_->target_expressions_) {
       updated_values.push_back(expr->Evaluate(&curr_old_tuple, table_info_->schema_));
     }
     //构造新的tuple
     Tuple new_tuple(updated_values, &table_info_->schema_);
-    
+
     //先维护索引
     for (auto index_info : indexes_) {
       //根据旧tuple和索引的schema生成索引键值
       auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
-                                           index_info->index_->GetKeyAttrs());
+                                                 index_info->index_->GetKeyAttrs());
       //删除旧的索引项
       index_info->index_->DeleteEntry(old_key, curr_old_rid, exec_ctx_->GetTransaction());
       //注意：新键的插入需要在下面拿到new_rid之后进行
     }
-    
+
     //标记删除旧tuple
     TupleMeta old_meta = table_heap_->GetTupleMeta(curr_old_rid);
     old_meta.is_deleted_ = true;
@@ -88,7 +88,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
     //插入新的tuple
     auto new_rid_opt = table_heap_->InsertTuple(TupleMeta{0, false}, new_tuple, exec_ctx_->GetLockManager(),
-                                               exec_ctx_->GetTransaction(), table_info_->oid_);
+                                                exec_ctx_->GetTransaction(), table_info_->oid_);
     if (new_rid_opt.has_value()) {
       RID new_rid = new_rid_opt.value();
       update_count++;
@@ -96,18 +96,19 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       for (auto index_info : indexes_) {
         //根据新tuple和索引的schema生成索引键值
         auto new_key = new_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
-                                             index_info->index_->GetKeyAttrs());
+                                              index_info->index_->GetKeyAttrs());
         //插入新的索引项
         index_info->index_->InsertEntry(new_key, new_rid, exec_ctx_->GetTransaction());
       }
     }
   }
-  
+
   //构造返回的tuple，表示更新的行数
   std::vector<Value> values;
   values.emplace_back(ValueFactory::GetIntegerValue(update_count));
-  *tuple = Tuple(values, &GetOutputSchema());;
-  return true;  
+  *tuple = Tuple(values, &GetOutputSchema());
+  ;
+  return true;
 }
 
 }  // namespace bustub

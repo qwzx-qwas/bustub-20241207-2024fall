@@ -63,7 +63,7 @@ class InsertExecutor : public AbstractExecutor {
   TableHeap *table_heap_;
   //要插入的表的索引信息
   std::vector<IndexInfo *> indexes_;
-  
+
   //状态量，表示只能成功一次
   bool executed_;
   std::unique_ptr<AbstractExecutor> child_executor_;

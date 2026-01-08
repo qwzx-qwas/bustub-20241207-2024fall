@@ -50,7 +50,7 @@ class IndexScanExecutor : public AbstractExecutor {
   BPlusTreeIndexForTwoIntegerColumn *tree_;
   std::optional<BPlusTreeIndexIteratorForTwoIntegerColumn> iter_;
   std::optional<BPlusTreeIndexIteratorForTwoIntegerColumn> end_;
-  
+
   // For handling multiple point lookups (OR clause)
   size_t current_key_idx_{0};
 };

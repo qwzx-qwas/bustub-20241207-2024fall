@@ -43,7 +43,7 @@ void HashJoinExecutor::Init() {
   //初始化Schema
   left_schema_ = left_child_executor_->GetOutputSchema();
   right_schema_ = right_child_executor_->GetOutputSchema();
-  
+
   //基于右子执行器构建哈希表
   Tuple right_tuple;
   RID right_rid;
@@ -63,7 +63,7 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     if (!result_buffer_.empty()) {
       *tuple = result_buffer_.back();
       result_buffer_.pop_back();
-      //hash join 生成的元组不关心rid，可以直接返回一个默认rid，即无效值
+      // hash join 生成的元组不关心rid，可以直接返回一个默认rid，即无效值
       *rid = tuple->GetRid();
       return true;
     }
@@ -82,7 +82,7 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     }
 
     auto it = ht_.find(key);
-    
+
     //找到了匹配的右元组
     if (it != ht_.end()) {
       for (auto iter = it->second.rbegin(); iter != it->second.rend(); ++iter) {
@@ -99,7 +99,7 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
         result_buffer_.emplace_back(values, &plan_->OutputSchema());
       }
     } else if (plan_->GetJoinType() == JoinType::LEFT) {
-      //left join 且没有找到匹配的右元组
+      // left join 且没有找到匹配的右元组
       //输出【左元组+右元组全空值】
       std::vector<Value> values;
       values.reserve(plan_->OutputSchema().GetColumnCount());

@@ -14,16 +14,17 @@
 
 namespace bustub {
 
-SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan) : AbstractExecutor(exec_ctx), plan_(plan) {}
+SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan)
+    : AbstractExecutor(exec_ctx), plan_(plan) {}
 
 void SeqScanExecutor::Init() {
-    //Init的职责是初始化扫描器，设置迭代器到表的起始位置
-    //先通过ExecutorContext获取Catalog
-    auto catalog = exec_ctx_->GetCatalog();
-    //拿到目标id(从plan中获取）的表信息
-    table_info = catalog->GetTable(plan_->GetTableOid()).get();
-    //初始化迭代器到表的起始位置
-    iter_.emplace(table_info->table_->MakeIterator());
+  // Init的职责是初始化扫描器，设置迭代器到表的起始位置
+  //先通过ExecutorContext获取Catalog
+  auto catalog = exec_ctx_->GetCatalog();
+  //拿到目标id(从plan中获取）的表信息
+  table_info_ = catalog->GetTable(plan_->GetTableOid()).get();
+  //初始化迭代器到表的起始位置
+  iter_.emplace(table_info_->table_->MakeIterator());
 }
 
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
@@ -32,7 +33,7 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     if (!meta.is_deleted_) {
       if (plan_->filter_predicate_ != nullptr) {
         //在seq scan中应用谓词过滤
-        auto value = plan_->filter_predicate_->Evaluate(&current_tuple, table_info->schema_);
+        auto value = plan_->filter_predicate_->Evaluate(&current_tuple, table_info_->schema_);
         if (value.IsNull() || !value.GetAs<bool>()) {
           ++(*iter_);
           continue;

@@ -61,8 +61,8 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     RID right_rid;
     if (right_executor_->Next(&right_tuple, &right_rid)) {
       //右表还有元组，检查连接条件
-      auto value = plan_->Predicate()->EvaluateJoin(&left_tuple_, left_executor_->GetOutputSchema(),
-                                                  &right_tuple, right_executor_->GetOutputSchema());
+      auto value = plan_->Predicate()->EvaluateJoin(&left_tuple_, left_executor_->GetOutputSchema(), &right_tuple,
+                                                    right_executor_->GetOutputSchema());
       //判断是否匹配，注意NULL值的处理
       if (!value.IsNull() && value.GetAs<bool>()) {
         //说明找到了匹配的连接元组
@@ -88,7 +88,8 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
           values.emplace_back(left_tuple_.GetValue(&left_executor_->GetOutputSchema(), i));
         }
         for (uint32_t i = 0; i < right_executor_->GetOutputSchema().GetColumnCount(); i++) {
-          values.emplace_back(ValueFactory::GetNullValueByType(right_executor_->GetOutputSchema().GetColumn(i).GetType()));
+          values.emplace_back(
+              ValueFactory::GetNullValueByType(right_executor_->GetOutputSchema().GetColumn(i).GetType()));
         }
         *tuple = Tuple(values, &plan_->OutputSchema());
         //重置状态，准备处理下一个左表元组
@@ -100,5 +101,4 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     }
   }
 }
-}
-
+}  // namespace bustub

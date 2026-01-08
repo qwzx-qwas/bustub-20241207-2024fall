@@ -16,6 +16,7 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <optional>
 #include "common/config.h"
 #include "common/macros.h"
 #include "execution/execution_common.h"
@@ -49,7 +50,7 @@ class SortPage {
   static constexpr size_t DATA_SIZE = BUSTUB_PAGE_SIZE - HEADER_SIZE;
    
   //获取当前页面中元组的数量
-  auto GetTupleCount()-> int32_t{ return *reinterpret_cast<int32_t *>(this); }
+  auto GetTupleCount() const -> int32_t { return *reinterpret_cast<const int32_t *>(this); }
 
   //设置当前页面中元组的数量
   auto SetTupleCount(int32_t count) -> void { *reinterpret_cast<int32_t *>(this) = count; }
@@ -72,7 +73,7 @@ class SortPage {
   auto ReadTuple(size_t tuple_size, size_t slot_idx) const -> Tuple {
     size_t offset = slot_idx * tuple_size;
     //计算读取位置
-    auto *data_ptr = reinterpret_cast<char *>(this) + HEADER_SIZE + offset;
+    auto *data_ptr = reinterpret_cast<const char *>(this) + HEADER_SIZE + offset;
     //从页面中反序列化出元组
     Tuple t;
     t.DeserializeFrom(data_ptr);
@@ -124,7 +125,7 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator++() -> Iterator & { return *this; }
+    auto operator++() -> Iterator &;
 
     /**
      * Dereference the iterator to get the current tuple in the sorted run that the iterator is
@@ -132,14 +133,14 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator*() -> Tuple { return {}; }
+    auto operator*() -> Tuple;
 
     /**
      * Checks whether two iterators are pointing to the same tuple in the same sorted run.
      *
      * TODO: Implement this method.
      */
-    auto operator==(const Iterator &other) const -> bool { return false; }
+    auto operator==(const Iterator &other) const -> bool;
 
     /**
      * Checks whether two iterators are pointing to different tuples in a sorted run or iterating
@@ -147,7 +148,7 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator!=(const Iterator &other) const -> bool { return false; }
+    auto operator!=(const Iterator &other) const -> bool;
 
    private:
     explicit Iterator(const MergeSortRun *run) : run_(run) {}
@@ -162,7 +163,7 @@ class MergeSortRun {
      */
     size_t page_idx_{0};
     size_t slot_idx_{0};
-    ReadPageGuard page_guard_;
+    std::optional<ReadPageGuard> page_guard_;
     const SortPage *sort_page_{nullptr};
   };
 
@@ -171,14 +172,14 @@ class MergeSortRun {
    *
    * TODO: Implement this method.
    */
-  auto Begin() -> Iterator { return {}; }
+  auto Begin() -> Iterator;
 
   /**
    * Get an iterator pointing to the end of the sorted run, i.e. the position after the last tuple.
    *
    * TODO: Implement this method.
    */
-  auto End() -> Iterator { return {}; }
+  auto End() -> Iterator;
 
  private:
   /** The page IDs of the sort pages that store the sorted tuples. */
@@ -224,9 +225,10 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   TupleComparator cmp_;
 
   /** TODO: You will want to add your own private members here. */
+  std::unique_ptr<AbstractExecutor> child_executor_;
 
   //tuple长度
-  size_t tuple_size;
+  size_t tuple_size_;
 
   std::vector<MergeSortRun> sorted_runs_;
   std::optional<MergeSortRun::Iterator> current_iterator_;

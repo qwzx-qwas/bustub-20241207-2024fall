@@ -60,7 +60,7 @@ class NestIndexJoinExecutor : public AbstractExecutor {
   std::vector<RID> result_rids_;
   // The index of Result RID
   uint32_t rid_index_;
-  
+
   // Cache for index info
   const IndexInfo *index_info_;
   // Cache for table info

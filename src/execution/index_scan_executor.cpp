@@ -19,9 +19,9 @@ void IndexScanExecutor::Init() {
   auto *catalog = exec_ctx_->GetCatalog();
   index_info_ = catalog->GetIndex(plan_->GetIndexOid()).get();
   tree_ = dynamic_cast<BPlusTreeIndexForTwoIntegerColumn *>(index_info_->index_.get());
-  
+
   current_key_idx_ = 0;
-  
+
   //查看上面优化器传来的pred_keys_（之前收集的常量值），决定是点查找模式还是全表扫描模式
   if (!plan_->pred_keys_.empty()) {
     // Point Lookup Mode
@@ -70,35 +70,35 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     auto table_info = exec_ctx_->GetCatalog()->GetTable(index_info_->table_name_);
     auto [meta, real_tuple] = table_info->table_->GetTuple(*rid);
 
-     // Check predicate for point lookup
+    // Check predicate for point lookup
     if (!plan_->pred_keys_.empty()) {
       // 当前的值是多少
       auto expected_val = plan_->pred_keys_[current_key_idx_]->Evaluate(nullptr, plan_->OutputSchema());
-      
+
       // Get the actual value from the tuple using the index key schema
       // Note: This assumes single column index for simplicity as per project requirements
-      //auto key_schema = index_info_->index_->GetKeySchema();
+      // auto key_schema = index_info_->index_->GetKeySchema();
       auto key_attrs = index_info_->index_->GetKeyAttrs();
       //实际的值是多少
       auto actual_val = real_tuple.GetValue(&table_info->schema_, key_attrs[0]);
 
-      // If the current tuple's key doesn't match what we are looking for, 
+      // If the current tuple's key doesn't match what we are looking for,
       // it means we've moved past the target key in the index.
       //防止++iter_后，读到的tuple不是我们想要的key对应的tuple
       if (actual_val.CompareEquals(expected_val) != CmpBool::CmpTrue) {
-         // Move to next key if available，跟上面一样的逻辑
-         if (current_key_idx_ + 1 < plan_->pred_keys_.size()) {
-            current_key_idx_++;
-            std::vector<Value> values;
-            values.push_back(plan_->pred_keys_[current_key_idx_]->Evaluate(nullptr, plan_->OutputSchema()));
-            Tuple key_tuple(values, index_info_->index_->GetKeySchema());
-            IntegerKeyType_BTree index_key;
-            index_key.SetFromKey(key_tuple);
-            iter_.emplace(tree_->GetBeginIterator(index_key));
-            continue;
-         }
-         iter_ = std::nullopt;
-         return false;
+        // Move to next key if available，跟上面一样的逻辑
+        if (current_key_idx_ + 1 < plan_->pred_keys_.size()) {
+          current_key_idx_++;
+          std::vector<Value> values;
+          values.push_back(plan_->pred_keys_[current_key_idx_]->Evaluate(nullptr, plan_->OutputSchema()));
+          Tuple key_tuple(values, index_info_->index_->GetKeySchema());
+          IntegerKeyType_BTree index_key;
+          index_key.SetFromKey(key_tuple);
+          iter_.emplace(tree_->GetBeginIterator(index_key));
+          continue;
+        }
+        iter_ = std::nullopt;
+        return false;
       }
     }
 

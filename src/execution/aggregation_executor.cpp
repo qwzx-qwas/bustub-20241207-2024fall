@@ -23,7 +23,7 @@ AggregationExecutor::AggregationExecutor(ExecutorContext *exec_ctx, const Aggreg
       child_executor_(std::move(child_executor)),
       aht_(plan->GetAggregates(), plan->GetAggregateTypes()),
       aht_iterator_(aht_.Begin()) {}
-      
+
 //聚合属于pipebreaker,这意味着它需要从子执行器中拉取所有的元组,完成聚合计算,然后才能产出结果
 
 /*
@@ -32,10 +32,9 @@ AggregationExecutor::AggregationExecutor(ExecutorContext *exec_ctx, const Aggreg
 有Group By的聚合,空表时不产出结果
 */
 
-
 //采用延迟计算的方式
-//Init只负责初始化子执行器,不进行聚合计算
-//Next负责在第一次调用时完成聚合计算,后续调用则直接从聚合结果中产出元组
+// Init只负责初始化子执行器,不进行聚合计算
+// Next负责在第一次调用时完成聚合计算,后续调用则直接从聚合结果中产出元组
 void AggregationExecutor::Init() {
   //初始化子执行器
   child_executor_->Init();
@@ -86,7 +85,7 @@ auto AggregationExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   std::vector<Value> values;
   const auto &key = aht_iterator_.Key();
   const auto &val = aht_iterator_.Val();
-  
+
   values.insert(values.end(), key.group_bys_.begin(), key.group_bys_.end());
   values.insert(values.end(), val.aggregates_.begin(), val.aggregates_.end());
 
