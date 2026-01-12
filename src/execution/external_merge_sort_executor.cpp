@@ -334,6 +334,7 @@ auto MergeSortRun::Iterator::operator++() -> Iterator & {
   }
   return *this;
 }
+}
 
 auto MergeSortRun::Iterator::operator*() -> Tuple {
   BUSTUB_ASSERT(sort_page_ != nullptr, "Dereferencing end iterator or invalid page");
