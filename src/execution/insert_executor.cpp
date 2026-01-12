@@ -50,19 +50,26 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   int insert_count = 0;
   Tuple child_tuple;
   RID child_rid;
-  //从child executor中获取要插入的tuples
+
+  // 1. 收集所有需要插入的元组，避免 Halloween Problem 和无限循环
+  std::vector<Tuple> tuples_to_insert;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
+    tuples_to_insert.push_back(child_tuple);
+  }
+
+  // 2. 执行插入操作
+  for (const auto &tuple_entry : tuples_to_insert) {
     // 构造 TupleMeta
     TupleMeta meta{0, false};
     // 插入到表的堆中
-    auto inserted_rid = table_heap_->InsertTuple(meta, child_tuple, exec_ctx_->GetLockManager(),
+    auto inserted_rid = table_heap_->InsertTuple(meta, tuple_entry, exec_ctx_->GetLockManager(),
                                                  exec_ctx_->GetTransaction(), table_info_->oid_);
     if (inserted_rid.has_value()) {
       insert_count++;
       //更新相关索引
       for (auto index_info : indexes_) {
         //根据tuple和索引的schema生成索引键值
-        Tuple index_key = child_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
+        Tuple index_key = tuple_entry.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
                                                    index_info->index_->GetKeyAttrs());
         //插入索引
         index_info->index_->InsertEntry(index_key, *inserted_rid, exec_ctx_->GetTransaction());

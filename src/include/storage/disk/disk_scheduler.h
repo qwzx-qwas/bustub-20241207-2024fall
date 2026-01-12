@@ -30,6 +30,10 @@ struct DiskRequest {
   /** 标志，指示请求是写操作还是读操作。 */
   bool is_write_;
 
+  /** Flag indicating whether the request is a delete. */
+  /** 标志，指示请求是删除操作。 */
+  bool is_delete_{false};
+
   /**
    *  Pointer to the start of the memory location where a page is either:
    *   1. being read into from disk (on a read).

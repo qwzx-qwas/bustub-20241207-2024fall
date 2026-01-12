@@ -260,11 +260,9 @@ class AggregationExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> child_executor_;
 
   /** Simple aggregation hash table */
-  // TODO(qwzx): 删去注释
   SimpleAggregationHashTable aht_;
 
   /** Simple aggregation hash table iterator */
-  // TODO(qwzx): 删去注释
   SimpleAggregationHashTable::Iterator aht_iterator_;
 
   //标志位，表示是否完成第一次调用next

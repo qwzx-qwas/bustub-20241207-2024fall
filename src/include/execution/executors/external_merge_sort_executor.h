@@ -13,10 +13,11 @@
 #pragma once
 
 #include <cstddef>
+#include <iostream>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
-#include <optional>
 #include "common/config.h"
 #include "common/macros.h"
 #include "execution/execution_common.h"
@@ -31,11 +32,11 @@ namespace bustub {
  *
  * Only fixed-length data will be supported in Fall 2024.
  */
- //用于专门储存外部归并排序的中间数据的页面
- //由于只测试固定长度元组
- //完全可以把page分为两部分，前面是元数据，后面是实际数据
- //元数据用来记录有多少元组
- //实际数据用来存储元组（连续的内存）
+//用于专门储存外部归并排序的中间数据的页面
+//由于只测试固定长度元组
+//完全可以把page分为两部分，前面是元数据，后面是实际数据
+//元数据用来记录有多少元组
+//实际数据用来存储元组（连续的内存）
 class SortPage {
  public:
   /**
@@ -43,12 +44,11 @@ class SortPage {
    * page. Feel free to add other helper methods.
    */
 
-
   //用32位整数记录当前页面中元组的数量
   static constexpr size_t HEADER_SIZE = sizeof(int32_t);
   //剩下的页面用来存储实际数据
   static constexpr size_t DATA_SIZE = BUSTUB_PAGE_SIZE - HEADER_SIZE;
-   
+
   //获取当前页面中元组的数量
   auto GetTupleCount() const -> int32_t { return *reinterpret_cast<const int32_t *>(this); }
 
@@ -80,22 +80,19 @@ class SortPage {
     return t;
   }
 
-  
  private:
   /**
    * TODO: Define the private members. You may want to have some necessary metadata for
    * the sort page before the start of the actual data.
    */
-  
-
-
-
 };
 
 /**
  * A data structure that holds the sorted tuples as a run during external merge sort.
  * Tuples might be stored in multiple pages, and tuples are ordered both within one page
  * and across pages.
+ *表示一组有序的磁盘页面数据（run），这些页面存储了外部归并排序过程中排序后的元组。
+ *同时提供了在这些数据上进行迭代的功能。
  */
 class MergeSortRun {
  public:
@@ -105,6 +102,7 @@ class MergeSortRun {
 
   auto GetPageCount() -> size_t { return pages_.size(); }
 
+  //封装DeletePage逻辑，删除该run所包含的所有页面
   void DeletePages() {
     for (auto page_id : pages_) {
       bpm_->DeletePage(page_id);
@@ -113,6 +111,7 @@ class MergeSortRun {
   }
 
   /** Iterator for iterating on the sorted tuples in one run. */
+  //因为run的数据分散在多个磁盘页面中，用Iterator来实现对这些数据的迭代访问
   class Iterator {
     friend class MergeSortRun;
 
@@ -161,7 +160,9 @@ class MergeSortRun {
      * position in the sorted run. Also feel free to add additional constructors to initialize
      * your private members.
      */
+    //记录是第几页
     size_t page_idx_{0};
+    //记录是当前页的第几个元组
     size_t slot_idx_{0};
     std::optional<ReadPageGuard> page_guard_;
     const SortPage *sort_page_{nullptr};
@@ -203,6 +204,8 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   ExternalMergeSortExecutor(ExecutorContext *exec_ctx, const SortPlanNode *plan,
                             std::unique_ptr<AbstractExecutor> &&child_executor);
 
+  ~ExternalMergeSortExecutor() override;
+
   /** Initialize the external merge sort */
   void Init() override;
 
@@ -227,9 +230,10 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   /** TODO: You will want to add your own private members here. */
   std::unique_ptr<AbstractExecutor> child_executor_;
 
-  //tuple长度
+  // tuple长度
   size_t tuple_size_;
 
+  //存储当前有序的runs
   std::vector<MergeSortRun> sorted_runs_;
   std::optional<MergeSortRun::Iterator> current_iterator_;
 

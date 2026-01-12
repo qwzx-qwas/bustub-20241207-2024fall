@@ -26,6 +26,14 @@ ExternalMergeSortExecutor<K>::ExternalMergeSortExecutor(ExecutorContext *exec_ct
     : AbstractExecutor(exec_ctx), plan_(plan), cmp_(plan->GetOrderBy()), child_executor_(std::move(child_executor)) {}
 
 template <size_t K>
+ExternalMergeSortExecutor<K>::~ExternalMergeSortExecutor() {
+  current_iterator_ = std::nullopt;
+  for (auto &run : sorted_runs_) {
+    run.DeletePages();
+  }
+}
+
+template <size_t K>
 void ExternalMergeSortExecutor<K>::GenerateRun(const std::vector<SortEntry> &run, std::vector<page_id_t> &pages) {
   if (run.empty()) {
     return;
@@ -50,12 +58,14 @@ void ExternalMergeSortExecutor<K>::GenerateRun(const std::vector<SortEntry> &run
       sort_page->SetTupleCount(slot_idx);
 
       // 如果当前排序页已满，申请新页
+      guard.Drop();
       current_page_id = exec_ctx_->GetBufferPoolManager()->NewPage();
       if (current_page_id == INVALID_PAGE_ID) {
         throw Exception("BufferPoolManager is full");
       }
       // 转移 Guard 所有权到新页
       guard = exec_ctx_->GetBufferPoolManager()->WritePage(current_page_id);
+
       // 因为sort_page是指针，重新赋值guard后需要重新获取指针
       sort_page = reinterpret_cast<SortPage *>(guard.GetDataMut());
       pages.push_back(current_page_id);
@@ -68,16 +78,17 @@ void ExternalMergeSortExecutor<K>::GenerateRun(const std::vector<SortEntry> &run
   }
   // 更新最后一页的 TupleCount
   sort_page->SetTupleCount(slot_idx);
+  guard.Drop();
 }
 
 template <size_t K>
 auto ExternalMergeSortExecutor<K>::MergeRuns() -> std::optional<MergeSortRun> {
-  // TODO(qwzx): implement merge logic if needed, but for now we focus on Init
   return std::nullopt;
 }
 
 template <size_t K>
 void ExternalMergeSortExecutor<K>::Init() {
+  // 清理之前的状态
   if (current_iterator_.has_value()) {
     current_iterator_ = std::nullopt;
   }
@@ -105,22 +116,27 @@ void ExternalMergeSortExecutor<K>::Init() {
   size_t max_tuples_per_run = (SortPage::DATA_SIZE * K) / tuple_size_;
 
   while (child_executor_->Next(&tuple, &rid)) {
+    // SortKey是一个vector<Value>，表示用于排序的key
+    //根据order by中的列从tuple中提取对应的Value构成SortKey
     SortKey key = GenerateSortKey(tuple, plan_->GetOrderBy(), schema);
     current_run.emplace_back(std::move(key), std::move(tuple));
 
+    //如果积累在前的元组数量达到了一个run的最大容量，就进行排序并写入磁盘
     if (current_run.size() >= max_tuples_per_run) {
       std::sort(current_run.begin(), current_run.end(), cmp_);
 
       // 将当前 run 写入磁盘
+      //用run_page_ids记录该run所使用的所有page_id
       std::vector<page_id_t> run_page_ids;
       GenerateRun(current_run, run_page_ids);
+      //记录排好序的run
       sorted_runs_.emplace_back(run_page_ids, tuple_size_, exec_ctx_->GetBufferPoolManager());
-
+      //丢掉当前run的数据，开始下一个run
       current_run.clear();
     }
   }
 
-  // 处理剩余的元组
+  // 处理剩余的元组（防止最后一个 run 不满的情况）
   if (!current_run.empty()) {
     std::sort(current_run.begin(), current_run.end(), cmp_);
 
@@ -151,96 +167,109 @@ void ExternalMergeSortExecutor<K>::Init() {
 
       // 归并 run1 和 run2
 
-      auto iter1 = run1.Begin();
-      auto iter2 = run2.Begin();
-
       // key 缓存
       std::optional<SortEntry> entry1;
       std::optional<SortEntry> entry2;
 
-      auto update_entry1 = [&]() {
-        if (iter1 != run1.End()) {
-          SortKey key = GenerateSortKey(*iter1, plan_->GetOrderBy(), schema);
-          entry1.emplace(std::move(key), *iter1);
-        } else {
-          entry1.reset();
-        }
-      };
+      // 使用作用域来控制迭代器的生命周期
+      //即iter1和iter2以及它们持有的ReadPageGuard在归并完成后析构，释放pin count
+      {
+        auto iter1 = run1.Begin();
+        auto iter2 = run2.Begin();
 
-      auto update_entry2 = [&]() {
-        if (iter2 != run2.End()) {
-          SortKey key = GenerateSortKey(*iter2, plan_->GetOrderBy(), schema);
-          entry2.emplace(std::move(key), *iter2);
-        } else {
-          entry2.reset();
-        }
-      };
-
-      // 初始加载
-      update_entry1();
-      update_entry2();
-
-      // 创建新的 run 的 pages
-      std::vector<page_id_t> new_run_pages;
-
-      // 准备写 Buffer
-      page_id_t current_page_id = exec_ctx_->GetBufferPoolManager()->NewPage();
-      if (current_page_id == INVALID_PAGE_ID) {
-        throw Exception("BufferPoolManager is full");
-      }
-      auto guard = exec_ctx_->GetBufferPoolManager()->WritePage(current_page_id);
-      auto *sort_page = reinterpret_cast<SortPage *>(guard.GetDataMut());
-      new_run_pages.push_back(current_page_id);
-      size_t slot_idx = 0;
-
-      while (entry1.has_value() || entry2.has_value()) {
-        Tuple selected_tuple;
-        bool use_iter1 = false;
-
-        if (!entry1.has_value()) {
-          use_iter1 = false;
-        } else if (!entry2.has_value()) {
-          use_iter1 = true;
-        } else {
-          // 比较两个缓存的 SortEntry
-          use_iter1 = cmp_(*entry1, *entry2);
-        }
-
-        if (use_iter1) {
-          selected_tuple = entry1->second;  // 从缓存中取 tuple
-          ++iter1;
-          update_entry1();  // 更新缓存
-        } else {
-          selected_tuple = entry2->second;
-          ++iter2;
-          update_entry2();
-        }
-
-        // 写 Tuple 到 new run
-        if (!sort_page->WriteTuple(selected_tuple, tuple_size_, slot_idx)) {
-          sort_page->SetTupleCount(slot_idx);
-          current_page_id = exec_ctx_->GetBufferPoolManager()->NewPage();
-          if (current_page_id == INVALID_PAGE_ID) {
-            throw Exception("BufferPoolManager is full");
+        //两个缓存更新函数
+        //如果iter还有数据，就生成对应的SortEntry存入缓存entry中
+        //没有数据就将缓存置为nullopt
+        auto update_entry1 = [&]() {
+          // run1是否还有数据
+          if (iter1 != run1.End()) {
+            // 生成 SortKey
+            SortKey key = GenerateSortKey(*iter1, plan_->GetOrderBy(), schema);
+            entry1.emplace(std::move(key), *iter1);
+          } else {
+            entry1.reset();
           }
-          guard = exec_ctx_->GetBufferPoolManager()->WritePage(current_page_id);
-          sort_page = reinterpret_cast<SortPage *>(guard.GetDataMut());
-          new_run_pages.push_back(current_page_id);
-          slot_idx = 0;
-          sort_page->WriteTuple(selected_tuple, tuple_size_, slot_idx);
-        }
-        slot_idx++;
-      }
-      sort_page->SetTupleCount(slot_idx);
-      next_sorted_runs.emplace_back(new_run_pages, tuple_size_, exec_ctx_->GetBufferPoolManager());
+        };
 
-      // 清除旧的 pages
+        auto update_entry2 = [&]() {
+          if (iter2 != run2.End()) {
+            SortKey key = GenerateSortKey(*iter2, plan_->GetOrderBy(), schema);
+            entry2.emplace(std::move(key), *iter2);
+          } else {
+            entry2.reset();
+          }
+        };
+
+        // 初始加载
+        update_entry1();
+        update_entry2();
+
+        // 创建新的 run 的 pages
+        std::vector<page_id_t> new_run_pages;
+
+        // 准备写 Buffer
+        page_id_t current_page_id = exec_ctx_->GetBufferPoolManager()->NewPage();
+        if (current_page_id == INVALID_PAGE_ID) {
+          throw Exception("BufferPoolManager is full");
+        }
+        auto guard = exec_ctx_->GetBufferPoolManager()->WritePage(current_page_id);
+        auto *sort_page = reinterpret_cast<SortPage *>(guard.GetDataMut());
+        new_run_pages.push_back(current_page_id);
+        size_t slot_idx = 0;
+
+        while (entry1.has_value() || entry2.has_value()) {
+          Tuple selected_tuple;
+          bool use_iter1 = false;
+
+          if (!entry1.has_value()) {
+            use_iter1 = false;
+          } else if (!entry2.has_value()) {
+            use_iter1 = true;
+          } else {
+            // 比较两个缓存的 SortEntry
+            use_iter1 = cmp_(*entry1, *entry2);
+          }
+
+          if (use_iter1) {
+            selected_tuple = entry1->second;  // 从缓存中取 tuple
+            ++iter1;
+            update_entry1();  // 更新缓存
+          } else {
+            selected_tuple = entry2->second;
+            ++iter2;
+            update_entry2();
+          }
+
+          // 写 Tuple 到 new run
+          if (!sort_page->WriteTuple(selected_tuple, tuple_size_, slot_idx)) {
+            sort_page->SetTupleCount(slot_idx);
+            guard.Drop();
+            current_page_id = exec_ctx_->GetBufferPoolManager()->NewPage();
+            if (current_page_id == INVALID_PAGE_ID) {
+              throw Exception("BufferPoolManager is full");
+            }
+            guard = exec_ctx_->GetBufferPoolManager()->WritePage(current_page_id);
+            sort_page = reinterpret_cast<SortPage *>(guard.GetDataMut());
+            new_run_pages.push_back(current_page_id);
+            slot_idx = 0;
+            sort_page->WriteTuple(selected_tuple, tuple_size_, slot_idx);
+          }
+          slot_idx++;
+        }
+        sort_page->SetTupleCount(slot_idx);
+        guard.Drop();  // 立即释放 Write Guard
+
+        next_sorted_runs.emplace_back(new_run_pages, tuple_size_, exec_ctx_->GetBufferPoolManager());
+      }  // iter1, iter2 及其持有的 ReadPageGuard 在此处析构
+
+      // 清除旧的 pages (此时 pin count 应该为 0)
       run1.DeletePages();
       run2.DeletePages();
     }
     sorted_runs_ = std::move(next_sorted_runs);
   }
 
+  //现在只有一个 run 了，就是最终排序结果
   if (!sorted_runs_.empty()) {
     current_iterator_ = sorted_runs_[0].Begin();
   }
@@ -254,6 +283,8 @@ auto ExternalMergeSortExecutor<K>::Next(Tuple *tuple, RID *rid) -> bool {
   }
   //检查是否到达结尾
   if (*current_iterator_ == sorted_runs_[0].End()) {
+    current_iterator_ = std::nullopt;
+    sorted_runs_[0].DeletePages();
     return false;
   }
 
@@ -273,8 +304,9 @@ auto MergeSortRun::Iterator::operator++() -> Iterator & {
   if (sort_page_ == nullptr) {
     return *this;
   }
-
+  //尝试在当前页中推进slot_idx_
   slot_idx_++;
+  //如果当前页的slot_idx_已经到达该页的tuple数量，就需要加载下一页
   if (slot_idx_ >= static_cast<size_t>(sort_page_->GetTupleCount())) {
     // 释放旧页
     if (page_guard_.has_value()) {

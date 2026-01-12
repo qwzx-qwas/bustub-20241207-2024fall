@@ -276,6 +276,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * @return 如果页面存在但无法删除返回 `false`，如果页面不存在或删除成功返回 `true`。
  */
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  /*
   std::unique_lock latch(*bpm_latch_);
   // 检查页面是否在页表中
   auto page_table_iter = page_table_.find(page_id);
@@ -302,6 +303,45 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   page_table_.erase(page_table_iter);
   // 将帧加入空闲帧列表
   free_frames_.push_back(frame_id);
+  return true;
+  */
+
+  std::unique_lock latch(*bpm_latch_);
+  // 检查页面是否在页表中
+  auto page_table_iter = page_table_.find(page_id);
+  if (page_table_iter != page_table_.end()) {
+    frame_id_t frame_id = page_table_iter->second;
+    // 检查页面是否被固定
+    if (frames_[frame_id]->pin_count_.load() > 0) {
+      return false;
+    }
+
+    replacer_->Remove(frame_id);
+    // 清空当前帧数据
+    frames_[frame_id]->Reset();
+    // 从页表中移除页面
+    page_table_.erase(page_table_iter);
+    // 将帧加入空闲帧列表
+    free_frames_.push_back(frame_id);
+  }
+
+  // DeallocatePage() logic
+  // Schedule Delete Request
+  // 即使页面不在内存中，也需要在磁盘上删除
+  //只要调用deletepage就会进行删除操作，而不是会因为上面的判断而跳过
+  {
+    auto promise = std::promise<bool>();
+    auto future = promise.get_future();
+    DiskRequest req;
+    req.is_write_ = false;
+    req.is_delete_ = true;
+    req.page_id_ = page_id;
+    req.data_ = nullptr;
+    req.callback_ = std::move(promise);
+    disk_scheduler_->Schedule(std::move(req));
+    future.get();
+  }
+
   return true;
 }
 

@@ -51,7 +51,9 @@ void DiskScheduler::StartWorkerThread() {
     }
     // 在该线程中处理请求
     DiskRequest request = std::move(request_opt).value();
-    if (request.is_write_) {
+    if (request.is_delete_) {
+      disk_manager_->DeletePage(request.page_id_);
+    } else if (request.is_write_) {
       // 如果是写请求，调用DiskManager的WritePage方法
       disk_manager_->WritePage(request.page_id_, request.data_);
     } else {
