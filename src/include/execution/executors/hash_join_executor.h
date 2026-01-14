@@ -120,6 +120,9 @@ class HashJoinExecutor : public AbstractExecutor {
   //暂存schema
   Schema left_schema_{std::vector<Column>{}};
   Schema right_schema_{std::vector<Column>{}};
+
+  // 布隆过滤器
+  std::vector<bool> bloom_filter_;
 };
 
 }  // namespace bustub

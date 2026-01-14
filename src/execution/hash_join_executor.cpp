@@ -44,6 +44,11 @@ void HashJoinExecutor::Init() {
   left_schema_ = left_child_executor_->GetOutputSchema();
   right_schema_ = right_child_executor_->GetOutputSchema();
 
+  // 初始化布隆过滤器,大小设置为10000(可以根据实际情况调整)
+  // 将大小增加到 400000 位，以适应更大的测试数据集，避免过滤器过早饱和
+  bloom_filter_.resize(400000);
+  std::fill(bloom_filter_.begin(), bloom_filter_.end(), false);
+
   //基于右子执行器构建哈希表
   Tuple right_tuple;
   RID right_rid;
@@ -53,6 +58,13 @@ void HashJoinExecutor::Init() {
       key.column_values_.emplace_back(expr->Evaluate(&right_tuple, right_schema_));
     }
     ht_[key].emplace_back(right_tuple);
+
+    // 计算哈希值并更新布隆过滤器
+    std::hash<HashJoinKey> hasher;
+    auto hash_val = hasher(key);
+    // 使用两个简单的哈希函数（模拟），减少冲突
+    bloom_filter_[hash_val % bloom_filter_.size()] = true;
+    bloom_filter_[(hash_val >> 16) % bloom_filter_.size()] = true;
   }
 }
 
@@ -79,6 +91,26 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     //计算左元组的连接键
     for (const auto &expr : plan_->LeftJoinKeyExpressions()) {
       key.column_values_.emplace_back(expr->Evaluate(&left_tuple, left_schema_));
+    }
+
+    // 先查询布隆过滤器
+    // 如果布隆过滤器说不存在，那就一定不存在，直接跳过
+    std::hash<HashJoinKey> hasher;
+    auto hash_val = hasher(key);
+    if (!bloom_filter_[hash_val % bloom_filter_.size()] || !bloom_filter_[(hash_val >> 16) % bloom_filter_.size()]) {
+      if (plan_->GetJoinType() == JoinType::LEFT) {
+        std::vector<Value> values;
+        values.reserve(plan_->OutputSchema().GetColumnCount());
+
+        for (uint32_t i = 0; i < left_schema_.GetColumnCount(); ++i) {
+          values.emplace_back(left_tuple.GetValue(&left_schema_, i));
+        }
+        for (uint32_t i = 0; i < right_schema_.GetColumnCount(); ++i) {
+          values.emplace_back(ValueFactory::GetNullValueByType(right_schema_.GetColumn(i).GetType()));
+        }
+        result_buffer_.emplace_back(values, &plan_->OutputSchema());
+      }
+      continue;
     }
 
     auto it = ht_.find(key);
