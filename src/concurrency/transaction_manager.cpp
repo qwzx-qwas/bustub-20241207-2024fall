@@ -40,9 +40,13 @@ auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * 
   auto txn_id = next_txn_id_++;
   auto txn = std::make_unique<Transaction>(txn_id, isolation_level);
   auto *txn_ref = txn.get();
-  txn_map_.insert(std::make_pair(txn_id, std::move(txn)));
-
+  txn_map_.insert(std::make_pair(txn_id, std::move(txn)));                        
+  
   // TODO(fall2023): set the timestamps here. Watermark updated below.
+  //因为last_commit_ts_实际上记录的是已经发生过的、最新一次提交的时间戳。
+  //就是每进行一次提交，吐出的下一个时间戳。
+  txn_ref->read_ts_ = last_commit_ts_.load();
+  txn_ref->commit_ts_ = 0;  
 
   running_txns_.AddTxn(txn_ref->read_ts_);
   return txn_ref;
@@ -54,6 +58,8 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
   std::unique_lock<std::mutex> commit_lck(commit_mutex_);
 
   // TODO(fall2023): acquire commit ts!
+  txn->commit_ts_ = last_commit_ts_.load() + 1;
+  last_commit_ts_ = txn->commit_ts_.load();
 
   if (txn->state_ != TransactionState::RUNNING) {
     throw Exception("txn not in running state");
@@ -80,12 +86,16 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
   return true;
 }
 
+/*
+We have already provided the starter code for TransactionManager::Abort,
+and you do not need to change anything in Abort in order to get 
+full points for Task #1.
+*/
 void TransactionManager::Abort(Transaction *txn) {
   if (txn->state_ != TransactionState::RUNNING && txn->state_ != TransactionState::TAINTED) {
     throw Exception("txn not in running / tainted state");
   }
 
-  // TODO(fall2023): Implement the abort logic!
 
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
   txn->state_ = TransactionState::ABORTED;

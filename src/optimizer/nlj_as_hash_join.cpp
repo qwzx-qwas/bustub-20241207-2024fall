@@ -14,7 +14,7 @@
 #include "execution/plans/nested_loop_join_plan.h"
 #include "execution/plans/projection_plan.h"
 #include "optimizer/optimizer.h"
-#include "type/type_id.h"
+#include "type/type_id.h"  
 
 namespace bustub {
 //不同于被注释的版本，这个版本需要额外处理其他两种情况
