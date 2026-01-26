@@ -83,4 +83,6 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
 // your implementation. Please add your own ones as necessary so that you do not need to write
 // the same code everywhere.
 
+
+
 }  // namespace bustub
