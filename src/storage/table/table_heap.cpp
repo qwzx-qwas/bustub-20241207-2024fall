@@ -120,7 +120,9 @@ auto TableHeap::MakeIterator() -> TableIterator {
 }
 
 auto TableHeap::MakeEagerIterator() -> TableIterator { return {this, {first_page_id_, 0}, {INVALID_PAGE_ID, 0}}; }
-
+/*UpdateTupleInPlace：这个函数是用来覆盖（Overwrite）一个已经在页面上占了位置的 Tuple 的。在 Insert 时，
+由于你是调用 TableHeap::InsertTuple 来寻找空闲空间并插入新数据，
+InsertTuple 内部已经帮你完成了写入操作。你不需要“原地更新”一个不存在的东西。*/
 auto TableHeap::UpdateTupleInPlace(const TupleMeta &meta, const Tuple &tuple, RID rid,
                                    std::function<bool(const TupleMeta &meta, const Tuple &table, RID rid)> &&check)
     -> bool {

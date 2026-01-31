@@ -93,9 +93,10 @@ auto GenerateSortKey(const Tuple &tuple, const std::vector<OrderBy> &order_bys, 
         
 auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const TupleMeta &base_meta,
                       const std::vector<UndoLog> &undo_logs) -> std::optional<Tuple> {
+                    
   std::vector<Value> current_values;
   bool exists = !base_meta.is_deleted_;
-  if (exists) {
+    if (exists) {
     for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
       current_values.push_back(base_tuple.GetValue(schema, i));
     }
@@ -107,6 +108,14 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
       current_values.push_back(ValueFactory::GetNullValueByType(schema->GetColumn(i).GetType()));
     }
   }
+/*  for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
+    if (exists) {
+        current_values.push_back(base_tuple.GetValue(schema, i));
+    } else {
+        // base 是删除状态，用 Null 占位
+        current_values.push_back(ValueFactory::GetNullValueByType(schema->GetColumn(i).GetType()));
+    }
+  }*/
 
   // 2. 正序遍历：从最新到最旧应用 UndoLog (这是剥洋葱)
   for (const auto &log : undo_logs) {
@@ -114,28 +123,27 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
       exists = false;
       continue;
     }
-    
     // 如果 log 不是 deleted，说明在这个日志的时间点，元组是存在的
-    exists = true; 
-    
-    // 提取日志中的部分列，覆盖到 current_values 中
-    uint32_t partial_idx = 0;
-    std::vector<uint32_t> attrs;
-    for (uint32_t i = 0; i < log.modified_fields_.size(); ++i) {
-      if (log.modified_fields_[i]) {
-        attrs.push_back(i);
+      exists = true;
+      // 提取日志中的部分列，覆盖到 current_values 中
+      uint32_t partial_idx = 0;
+      std::vector<uint32_t> attrs;
+      for (uint32_t i = 0; i < log.modified_fields_.size(); ++i) {
+        if (log.modified_fields_[i]) {
+          attrs.push_back(i);
+        }
       }
+
+      // 2. 此时再调用 CopySchema 就匹配了
+      auto partial_schema = Schema::CopySchema(schema, attrs);
+
+      for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
+        if (log.modified_fields_[i]) {
+          current_values[i] = log.tuple_.GetValue(&partial_schema, partial_idx++);
+        }
+      }             
     }
 
-    // 2. 此时再调用 CopySchema 就匹配了
-    auto partial_schema = Schema::CopySchema(schema, attrs);
-
-    for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
-      if (log.modified_fields_[i]) {
-        current_values[i] = log.tuple_.GetValue(&partial_schema, partial_idx++);
-      }
-    }
-  }
 
   if (!exists) return std::nullopt;
 
@@ -164,18 +172,24 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
   
   //获取当前事务的读取时间戳
   auto read_ts = txn->GetReadTs();
-  //当前事务的临时时间戳
-  auto my_ts = txn->GetTransactionTempTs();
+  
+  auto my_id = txn->GetTransactionId();
   auto meta_ts = base_meta.ts_;
 
+
+
   //情况1 加 情况3中的“自己修改的”情况
-  if ((meta_ts < TXN_START_ID && meta_ts <= read_ts) || (meta_ts >= TXN_START_ID &&
-                                                    meta_ts == my_ts)) {
-    return base_meta.is_deleted_ ? std::nullopt : std::make_optional(result_logs);
-  }
+if ((meta_ts < TXN_START_ID && meta_ts <= read_ts) || (meta_ts >= TXN_START_ID &&meta_ts == my_id)) {
+    // 如果 is_deleted_ 是 true，说明在当前事务视角下该行不存在
+    if (base_meta.is_deleted_) {
+        return std::nullopt;
+    }
+    // 否则返回空 vector，表示直接读取主表 tuple
+    return std::vector<UndoLog>{};
+}
   //情况2 加 情况3中的“别人修改的”情况
   if((meta_ts < TXN_START_ID && meta_ts > read_ts) || (meta_ts >= TXN_START_ID &&
-                                                    meta_ts != my_ts)) {
+                                                    meta_ts != my_id)) {
     //遍历版本链
     std::optional<UndoLink> current_undo_link = undo_link;
     while (current_undo_link.has_value() && current_undo_link->IsValid()) {
@@ -214,10 +228,80 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
  * @param ts The timestamp of the base tuple.
  * @param prev_version The undo link to the latest undo log of this tuple.
  * @return The generated undo log.
+ *
+ * @brief 当事务第一次尝试修改该元组时，生成一个新的撤销日志（undo log）。
+ *
+ * @param schema 表的模式（Schema）。
+ * @param base_tuple 更新前的基础元组（从表堆中获取），如果元组被删除则为 nullptr。
+ * @param target_tuple 更新后的目标元组，如果是删除操作则为 nullptr。
+ * @param ts 基础元组的时间戳。
+ * @param prev_version 指向该元组最新撤销日志的撤销链（undo link）。
+ * @return 生成的撤销日志。
+ */
+ /*假设一个事务多次更新同一个元组，我们希望在特定事务内的每次更新只产生一个 UndoLog。
+ GenerateNewUndoLog 用于每个元组的首次修改。
+ 之后，使用 GenerateUpdatedUndoLog 将后续修改合并到现有的那一个 UndoLog 中。
  */
 auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple, timestamp_t ts,
                         UndoLink prev_version) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  //对比 base_tuple（旧）和 target_tuple（新），找出哪些列变了，并把旧值存进 UndoLog。
+
+  //创建新的 UndoLog
+  UndoLog log;
+  log.ts_ = ts;
+  log.prev_version_ = prev_version;
+
+  //初始化modified_fields_为false，表示所有列都未修改
+  std::vector<bool> modified_fields(schema->GetColumnCount(), false);
+  std::vector<Value> old_values;
+  //记录哪些列被修改了
+  std::vector<uint32_t> changed_indices;
+    if (log.is_deleted_) {
+    return log;
+  }
+  
+  //task4.2中的“当向一个已删除的元组插入新版本时”
+   if (base_tuple == nullptr) {
+      log.is_deleted_ = true;
+    //当base_tuple为空时，让undolog的modified_fields_全为false
+    log.modified_fields_ = std::vector<bool>(schema->GetColumnCount(), false);
+    return log;
+  }
+
+  log.is_deleted_ = false;
+  bool is_deleted_opt = (target_tuple == nullptr);
+  //遍历 Schema，对比两元组每一列的值，将结果写入modified_fields_
+  for(uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
+    Value old_value = base_tuple->GetValue(schema, i);
+    if(is_deleted_opt) {
+      //如果是删除操作，所有列都被修改了,意味着保存所有旧值
+      modified_fields[i] = true;
+      changed_indices.push_back(i);
+      old_values.push_back(old_value);
+      continue;
+    }
+
+    Value new_value = target_tuple->GetValue(schema, i);
+    if(!old_value.CompareExactlyEquals(new_value)) {
+      //该列被修改了
+      modified_fields[i] = true;
+      //记录对应的列索引和旧值
+      changed_indices.push_back(i);
+      old_values.push_back(old_value);
+    }
+  }
+
+  //log.is_deleted_ = is_deleted_opt;
+  log.modified_fields_ = std::move(modified_fields);
+  if (changed_indices.empty()) {
+    //没有任何修改
+    //log.tuple_ = Tuple(); //空tuple
+    return log;
+  }
+  Schema changed_schema = Schema::CopySchema(schema, changed_indices);
+  log.tuple_ = Tuple(old_values, &changed_schema);
+
+  return log;
 }
 
 /**
@@ -232,7 +316,113 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
  */
 auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple,
                             const UndoLog &log) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  if (log.is_deleted_) {
+    return log;
+  }                            
+  UndoLog new_log = log;
+  
+ if (base_tuple == nullptr) {
+    //当base_tuple为空时，让undolog的modified_fields_全为false
+    new_log.modified_fields_ = std::vector<bool>(schema->GetColumnCount(), false);
+            new_log.is_deleted_ = true;
+        new_log.tuple_ = Tuple(); // 空 tuple
+    return new_log;
+  }
+
+
+  bool is_deleted = (target_tuple == nullptr);
+  //new_log.is_deleted_ = is_deleted;
+  if(is_deleted) {
+    new_log.is_deleted_ = false;
+    
+    // 标记所有列都被修改（即都需要恢复）
+    new_log.modified_fields_ = std::vector<bool>(schema->GetColumnCount(), true);
+    
+    // 构建旧 UndoLog 的 schema 用于读取（复用后续 UPDATE 逻辑中的变量）
+    std::vector<uint32_t> old_log_attrs;
+    for (uint32_t i = 0; i < log.modified_fields_.size(); ++i) {
+      if (log.modified_fields_[i]) {
+        old_log_attrs.push_back(i);
+      }
+    }
+    Schema old_log_partial_schema = Schema::CopySchema(schema, old_log_attrs);
+    uint32_t old_log_val_idx = 0;
+    
+    // 保存所有列的旧值：如果之前修改过从 log 取，否则从 base_tuple 取
+    std::vector<Value> all_values;
+    for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
+      if (log.modified_fields_[i]) {
+        // 从旧的 UndoLog 获取该列的原始值
+        all_values.push_back(log.tuple_.GetValue(&old_log_partial_schema, old_log_val_idx++));
+      } else {
+        // 该列在本次事务中未被修改过，从 base_tuple 获取（这也是原始值）
+        all_values.push_back(base_tuple->GetValue(schema, i));
+      }
+    }
+    new_log.tuple_ = Tuple(all_values, schema);
+    
+    return new_log;
+  } 
+  new_log.is_deleted_ = false;
+  
+
+  std::vector<bool> current_modified(schema->GetColumnCount(), false);
+  std::vector<Value> all_old_values;
+  std::vector<uint32_t> all_changed_indices;
+
+  // 获取旧 UndoLog 内部 Tuple 的 Schema 指针，用于高效读取 Value
+  std::vector<uint32_t> old_log_attrs;
+  for (uint32_t i = 0; i < log.modified_fields_.size(); ++i) {
+    if (log.modified_fields_[i]) {
+      old_log_attrs.push_back(i);
+    }
+  }
+  Schema old_log_partial_schema = Schema::CopySchema(schema, old_log_attrs);
+  // 核心优化：使用偏移量指针同步遍历旧的 Partial Tuple 内容
+  //因为旧的log.tuple_只存储被修改的列，所以需要专门一个指针来追踪读取位置，
+  // 这个指针只在modified_fields_为true时递增
+  uint32_t old_log_val_idx = 0;
+  
+  for(uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
+    bool previously_modified = log.modified_fields_[i];
+    bool currently_modified = false;
+    
+    if (is_deleted) {
+      currently_modified = true;
+    } else {
+      Value old_val = base_tuple->GetValue(schema, i);
+      Value new_val = target_tuple->GetValue(schema, i);
+      currently_modified = (!old_val.CompareExactlyEquals(new_val));
+    }
+
+    //只要之前改了或现在改了，modified就算改了,计为true
+    if (previously_modified || currently_modified) {
+      current_modified[i] = true;
+      all_changed_indices.push_back(i);
+      //获取旧值
+      Value old_value;
+      if (is_deleted || !previously_modified) {
+
+        //从base_tuple中获取旧值
+        all_old_values.push_back(base_tuple->GetValue(schema, i));
+       
+      } else {
+        //从原有log中获取旧值
+        //需要构造Partial Schema来读取log.tuple_
+        
+         all_old_values.push_back(log.tuple_.GetValue(&old_log_partial_schema, old_log_val_idx++));
+      }
+    }
+  }
+  new_log.modified_fields_ = std::move(current_modified);
+  if (all_changed_indices.empty()) {
+    //没有任何修改
+    new_log.tuple_ = Tuple(); //空tuple
+    return new_log;
+  }
+  Schema changed_schema = Schema::CopySchema(schema, all_changed_indices);
+  new_log.tuple_ = Tuple(all_old_values, &changed_schema);
+  return new_log;
 }
 
 void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const TableInfo *table_info,

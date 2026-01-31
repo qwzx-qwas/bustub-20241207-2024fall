@@ -24,7 +24,11 @@
 #include "type/value_factory.h"
 
 namespace bustub {
-
+/*UpdateUndoLink：这个函数是用来修改一个现有 RID 的版本链指向的。
+对于 Insert：该记录是全新的，在它之前没有任何历史版本。
+它的 UndoLink 应该是空的（std::nullopt）。
+在 Bustub 的实现中，新插入记录的初始 UndoLink 默认为空，
+你甚至不需要显式调用 UpdateUndoLink 去设置它。*/
 auto TransactionManager::UpdateUndoLink(RID rid, std::optional<UndoLink> prev_link,
                                         std::function<bool(std::optional<UndoLink>)> &&check) -> bool {
   std::unique_lock<std::shared_mutex> lck(version_info_mutex_);

@@ -83,11 +83,16 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     Tuple projected_tuple;
     if (logs.empty()) {
       //没有undo log，说明当前tuple就是需要的版本
+      //还是需要检查是否被删除
+      //if(meta.is_deleted_) {
+        //++(*iter_);
+        //continue;
+      //}
       projected_tuple = current_tuple;
     } else {
       //有undo log，调用ReconstructTuple进行重建
       auto reconstructed_tuple_opt = ReconstructTuple(&table_info_->schema_, current_tuple, meta, logs);
-      //理论上不可能是std::nullopt，因为CollectUndoLogs已经保证了tuple存在
+      
       if (!reconstructed_tuple_opt.has_value()) {
         ++(*iter_);
         continue;
