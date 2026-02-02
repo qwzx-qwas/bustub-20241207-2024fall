@@ -95,6 +95,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
                       const std::vector<UndoLog> &undo_logs) -> std::optional<Tuple> {
                     
   std::vector<Value> current_values;
+  //表示该元组在当前最新版本中的状态
   bool exists = !base_meta.is_deleted_;
     if (exists) {
     for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
@@ -102,23 +103,20 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
     }
   } else {
     // 如果 base 是删掉的，数组填空占位，exists 为 false
-    //current_values.resize(schema->GetColumnCount());
+    //一个一个列地填充 Null 值，使其长度合法
     for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
       //用ValueFactory生成对应类型的Null值
       current_values.push_back(ValueFactory::GetNullValueByType(schema->GetColumn(i).GetType()));
     }
   }
-/*  for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
-    if (exists) {
-        current_values.push_back(base_tuple.GetValue(schema, i));
-    } else {
-        // base 是删除状态，用 Null 占位
-        current_values.push_back(ValueFactory::GetNullValueByType(schema->GetColumn(i).GetType()));
-    }
-  }*/
 
   // 2. 正序遍历：从最新到最旧应用 UndoLog (这是剥洋葱)
   for (const auto &log : undo_logs) {
+    //倒带操作：如果遍历到某个 undo_log 时，
+    // 如果 log.is_deleted_ 为 true，
+    // 意味着在这个 undo_log 所代表的时间点（即回滚操作应用之后），
+    // 该元组变成了“已删除”状态。
+    //那就让当前版本的 exists 标记为 false（完成倒带），表示该元组在那个时间点不存在
     if (log.is_deleted_) {
       exists = false;
       continue;
@@ -144,7 +142,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
       }             
     }
 
-
+  //返回目标时间点的元组状态
   if (!exists) return std::nullopt;
 
   return Tuple(current_values, schema);
@@ -170,16 +168,17 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
   // 2.当前tuple较新或被其他人使用，需要遍历版本链，收集所有在读取时间戳之后的撤销日志。
   // 3.当前元组由本事务修改
   
-  //获取当前事务的读取时间戳
+  //获取当前事务的读取时间戳（不是以TXN_START_ID起始的事务ID）(利用二者的巨大差异来区分状态)
   auto read_ts = txn->GetReadTs();
-  
+  //获取当前事务ID（实际上是以TXN_START_ID起始，然后不断++）
   auto my_id = txn->GetTransactionId();
+  //当前存储在table heap中的元组的时间戳(最新版本)
   auto meta_ts = base_meta.ts_;
 
 
 
   //情况1 加 情况3中的“自己修改的”情况
-if ((meta_ts < TXN_START_ID && meta_ts <= read_ts) || (meta_ts >= TXN_START_ID &&meta_ts == my_id)) {
+if ((meta_ts < TXN_START_ID && meta_ts <= read_ts) || meta_ts == my_id) {
     // 如果 is_deleted_ 是 true，说明在当前事务视角下该行不存在
     if (base_meta.is_deleted_) {
         return std::nullopt;
@@ -190,7 +189,7 @@ if ((meta_ts < TXN_START_ID && meta_ts <= read_ts) || (meta_ts >= TXN_START_ID &
   //情况2 加 情况3中的“别人修改的”情况
   if((meta_ts < TXN_START_ID && meta_ts > read_ts) || (meta_ts >= TXN_START_ID &&
                                                     meta_ts != my_id)) {
-    //遍历版本链
+    //遍历版本链（因为此时的tuple对当前事务不可见，必须回退到第一个对read_ts可见的版本）
     std::optional<UndoLink> current_undo_link = undo_link;
     while (current_undo_link.has_value() && current_undo_link->IsValid()) {
       UndoLog log = txn_mgr->GetUndoLog(current_undo_link.value());
@@ -269,6 +268,7 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   }
 
   log.is_deleted_ = false;
+  //判断是否是删除操作
   bool is_deleted_opt = (target_tuple == nullptr);
   //遍历 Schema，对比两元组每一列的值，将结果写入modified_fields_
   for(uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
@@ -332,7 +332,9 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
 
   bool is_deleted = (target_tuple == nullptr);
   //new_log.is_deleted_ = is_deleted;
+  //如果是删除操作
   if(is_deleted) {
+    //表示这条undo log描述的是删除之前的有效状态
     new_log.is_deleted_ = false;
     
     // 标记所有列都被修改（即都需要恢复）
@@ -384,16 +386,13 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   uint32_t old_log_val_idx = 0;
   
   for(uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
+    //原有undo log中该列是否被修改过
     bool previously_modified = log.modified_fields_[i];
     bool currently_modified = false;
     
-    if (is_deleted) {
-      currently_modified = true;
-    } else {
-      Value old_val = base_tuple->GetValue(schema, i);
-      Value new_val = target_tuple->GetValue(schema, i);
-      currently_modified = (!old_val.CompareExactlyEquals(new_val));
-    }
+    Value old_val = base_tuple->GetValue(schema, i);
+    Value new_val = target_tuple->GetValue(schema, i);
+    currently_modified = (!old_val.CompareExactlyEquals(new_val));
 
     //只要之前改了或现在改了，modified就算改了,计为true
     if (previously_modified || currently_modified) {
@@ -401,8 +400,9 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
       all_changed_indices.push_back(i);
       //获取旧值
       Value old_value;
-      if (is_deleted || !previously_modified) {
-
+      //所要记录的是这个事务第一次修改该列之前的值
+      if (!previously_modified) {
+        //之前没改过，从base_tuple取旧值
         //从base_tuple中获取旧值
         all_old_values.push_back(base_tuple->GetValue(schema, i));
        

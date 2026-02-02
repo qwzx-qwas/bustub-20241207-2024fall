@@ -132,13 +132,8 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     txn->AppendWriteSet(table_info_->oid_, *inserted_rid);
   }
   //4.无需undolog
-
-    // 构造 TupleMeta
-    //TupleMeta meta{0, false};
-    // 插入到表的堆中
-    //auto inserted_rid = table_heap_->InsertTuple(meta, tuple_entry, exec_ctx_->GetLockManager(),
-    //                                             exec_ctx_->GetTransaction(), table_info_->oid_);
-    if (inserted_rid.has_value()) {
+  
+  if (inserted_rid.has_value()) {
       insert_count++;
       //更新相关索引
       for (auto index_info : indexes_) {

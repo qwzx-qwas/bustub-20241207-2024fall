@@ -95,6 +95,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   //当前事务id
   timestamp_t curr_txn_id = txn->GetTransactionId();
   auto *txn_mgr = exec_ctx_->GetTransactionManager();
+  //当前事务的读取时间戳（最新已提交版本的时间戳）
   auto read_ts = txn->GetReadTs();
 
   deleted_ = true;
@@ -113,6 +114,10 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   for (const auto &[curr_old_tuple, curr_old_rid] : tuples_to_delete) {
 
     auto tuple_meta = table_heap_->GetTupleMeta(curr_old_rid);
+    //读取的是该 tuple 在元数据里保存的 MVCC 标识/时间戳 —— 它不是仅仅“临时”的任意值，
+    // 而是用来表示该行当前版本的版本信息：
+    //若含有 TXN_START_ID 标志位，则 tuple_ts 表示一个未提交的事务 id（即该行被某个事务占用）；
+    //若不含该标志位，则 tuple_ts 表示该行最后一次提交的时间戳（commit ts）。 
     auto tuple_ts = tuple_meta.ts_;
     
   //如果是write-write冲突，直接报错
@@ -145,6 +150,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         prev_version = UndoLink();
       }
       //调用 GenerateNewUndoLog，把当前主表里的旧值存进日志
+      //这里的target_tuple为nullptr，表示删除操作
       undo_log = GenerateNewUndoLog(&table_info_->schema_, &curr_old_tuple, nullptr, tuple_ts, prev_version);
       //在事务里新建一条日志记录
       UndoLink new_undo_link = txn->AppendUndoLog(undo_log);
@@ -160,6 +166,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         if (prev_link.has_value() && prev_link->IsValid()) {
           UndoLog old_undo_log = txn_mgr->GetUndoLog(*prev_link);
           //将本次修改与事务中已有的旧日志合并。
+          //这里的target_tuple为nullptr，表示删除操作
           undo_log = GenerateUpdatedUndoLog(&table_info_->schema_, &curr_old_tuple, nullptr, old_undo_log);  
           //直接覆盖原来的日志，不增加日志数量。
           txn->ModifyUndoLog(prev_link->prev_log_idx_, undo_log);
