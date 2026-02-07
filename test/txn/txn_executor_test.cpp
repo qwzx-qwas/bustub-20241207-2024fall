@@ -187,8 +187,7 @@ TEST(TxnExecutorTest, InsertDeleteConflictTest) {  // NOLINT
 }
 
 TEST(TxnExecutorTest, GenerateUndoLogTest) {
-
-{
+  {
     fmt::println(stderr, "--- GenerateUndoLogTest: Simple update ---");
     auto schema = ParseCreateStatement("a integer,b double,c boolean");
     auto partial_schema = ParseCreateStatement("b double,c boolean");
@@ -200,7 +199,7 @@ TEST(TxnExecutorTest, GenerateUndoLogTest) {
     ASSERT_TRUE(tuple.has_value());
     ASSERT_TRUE(IsTupleContentEqual(*tuple, base_tuple));
   }
-  
+
   {
     fmt::println(stderr, "--- GenerateUndoLogTest: Simple delete ---");
     auto schema = ParseCreateStatement("a integer,b double,c boolean");

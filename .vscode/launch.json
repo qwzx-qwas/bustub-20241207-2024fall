@@ -5,7 +5,7 @@
             "name": "Debug Bustub Test",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/test/txn_executor_test",
+            "program": "${workspaceFolder}/build/test/txn_index_concurrent_test",
             "args": ["--gtest_filter=*"], 
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

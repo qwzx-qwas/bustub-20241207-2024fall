@@ -11,8 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "execution/executors/seq_scan_executor.h"
-#include "execution/execution_common.h"
 #include "concurrency/transaction_manager.h"
+#include "execution/execution_common.h"
 
 namespace bustub {
 
@@ -83,16 +83,16 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     Tuple projected_tuple;
     if (logs.empty()) {
       //没有undo log，说明当前tuple就是需要的版本
-      //还是需要检查是否被删除
-      //if(meta.is_deleted_) {
-        //++(*iter_);
-        //continue;
-      //}
+      //需要检查是否被删除
+      if (meta.is_deleted_) {
+        ++(*iter_);
+        continue;
+      }
       projected_tuple = current_tuple;
     } else {
       //有undo log，调用ReconstructTuple进行重建
       auto reconstructed_tuple_opt = ReconstructTuple(&table_info_->schema_, current_tuple, meta, logs);
-      
+
       if (!reconstructed_tuple_opt.has_value()) {
         ++(*iter_);
         continue;
@@ -100,15 +100,14 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       projected_tuple = *reconstructed_tuple_opt;
     }
 
-
-      if (plan_->filter_predicate_ != nullptr) {
-        //在seq scan中应用谓词过滤
-        auto value = plan_->filter_predicate_->Evaluate(&projected_tuple, table_info_->schema_);
-        if (value.IsNull() || !value.GetAs<bool>()) {
-          ++(*iter_);
-          continue;
-        }
+    if (plan_->filter_predicate_ != nullptr) {
+      //在seq scan中应用谓词过滤
+      auto value = plan_->filter_predicate_->Evaluate(&projected_tuple, table_info_->schema_);
+      if (value.IsNull() || !value.GetAs<bool>()) {
+        ++(*iter_);
+        continue;
       }
+    }
     *tuple = projected_tuple;
     *rid = current_rid;
     ++(*iter_);
@@ -116,6 +115,5 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   }
   return false;
 }
-
 
 }  // namespace bustub

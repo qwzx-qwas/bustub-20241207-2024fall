@@ -29,10 +29,10 @@ class Watermark {
     }
     return watermark_;
   }
-  
+
   //当前最新的提交时间戳
   timestamp_t commit_ts_;
- 
+
   //所有活跃事务中最小的read_ts
   timestamp_t watermark_;
 
