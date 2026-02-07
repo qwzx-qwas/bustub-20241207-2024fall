@@ -43,8 +43,8 @@ auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * 
   txn_map_.insert(std::make_pair(txn_id, std::move(txn)));
 
   // TODO(fall2023): set the timestamps here. Watermark updated below.
-  //因为last_commit_ts_实际上记录的是已经发生过的、最新一次提交的时间戳。
-  //就是每进行一次提交，吐出的下一个时间戳。
+  // 因为last_commit_ts_实际上记录的是已经发生过的、最新一次提交的时间戳。
+  // 就是每进行一次提交，吐出的下一个时间戳。
   txn_ref->read_ts_ = last_commit_ts_.load();
   txn_ref->commit_ts_ = 0;
 
@@ -81,22 +81,22 @@ auto TransactionManager::VerifyTxn(Transaction *txn) -> bool { return true; }
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
 
   // TODO(fall2023): set commit timestamp + update last committed timestamp here.
-  //更新基础元组
-  //遍历写集合
+  // 更新基础元组
+  // 遍历写集合
   for (const auto &write_entry : txn->GetWriteSets()) {
     auto table_oid = write_entry.first;
     auto rid_set = write_entry.second;
-    //获取表信息
+    // 获取表信息
     auto table_info = catalog_->GetTable(table_oid).get();
     auto table_heap = table_info->table_.get();
 
     for (const auto &rid : rid_set) {
 
-      //获取当前元组及其元数据
+      // 获取当前元组及其元数据
       auto [meta, tuple] = table_heap->GetTuple(rid);
-      //更新元数据的提交时间戳
+      // 更新元数据的提交时间戳
       meta.ts_ = commit_ts;
-      //原子地更新元组元数据
+      // 原子地更新元组元数据
       table_heap->UpdateTupleMeta(meta, rid);
 
 
@@ -125,11 +125,11 @@ auto TransactionManager::VerifyTxn(Transaction *txn) -> bool { return true; }
     }
   }
 
-  //更新事务状态
+  // 更新事务状态
   txn->state_ = TransactionState::COMMITTED;
-  //更新全局活跃事务的最新提交时间戳
+  // 更新全局活跃事务的最新提交时间戳
   running_txns_.UpdateCommitTs(commit_ts);
-  //将该事务从活跃事务列表中移除
+  // 将该事务从活跃事务列表中移除
   running_txns_.RemoveTxn(txn->read_ts_);
 
   // last_commit_ts_.fetch_add(1);
@@ -298,7 +298,7 @@ void TransactionManager::Abort(Transaction *txn) {
     return;
   }
 
-  // 1. 防止 GC 干扰
+  // 1. 先将状态标记为 TAINTED，防止 GC 干扰
   txn->state_ = TransactionState::TAINTED;
 
   auto write_sets = txn->GetWriteSets();
@@ -311,40 +311,57 @@ void TransactionManager::Abort(Transaction *txn) {
       auto meta = table_info->table_->GetTupleMeta(rid);
 
       // 只有当前事务拥有的行才需要回滚
-      if (meta.ts_ != txn->GetTransactionId()) continue;
+      if (meta.ts_ != txn->GetTransactionId()) {
+        continue;
+      }
 
       auto undo_link_opt = GetUndoLink(rid);
 
       if (undo_link_opt.has_value() && undo_link_opt->IsValid()) {
         // --- 情况 A: 更新或删除的回滚 ---
-        // 1. 获取该事务产生的最后一条 UndoLog
-        auto undo_log = GetUndoLog(*undo_link_opt);
+        // 沿着版本链回溯，收集直到第一个已提交的日志（ts_ < TXN_START_ID），同时收集中间日志
+        std::vector<UndoLog> collected_logs;
+        std::optional<UndoLink> cur = undo_link_opt;
+        bool found_committed = false;
+        UndoLog committed_log;
 
-        // 2. 恢复主表元组数据和元数据 (恢复到旧的时间戳和删除状态)
-        auto original_tuple_opt =
-            ReconstructTuple(&table_info->schema_, table_info->table_->GetTuple(rid).second, meta, {undo_log});
-
-        if (original_tuple_opt.has_value()) {
-          table_info->table_->UpdateTupleInPlace({undo_log.ts_, undo_log.is_deleted_}, original_tuple_opt.value(), rid);
-        } else {
-          table_info->table_->UpdateTupleMeta({undo_log.ts_, true}, rid);
+        while (cur.has_value() && cur->IsValid()) {
+          UndoLog log = GetUndoLog(*cur);
+          collected_logs.push_back(log);
+          if (log.ts_ < TXN_START_ID) {
+            committed_log = log;
+            found_committed = true;
+            break;
+          }
+          cur = log.prev_version_;
         }
 
-        // 3. 关键：恢复该行的 UndoLink，跳过当前事务的 Log，指向更早的版本
-        UpdateUndoLink(rid, undo_log.prev_version_);
-
+        if (found_committed) {
+          // 使用收集到的日志恢复到该已提交版本
+          auto original_tuple_opt =
+              ReconstructTuple(&table_info->schema_, table_info->table_->GetTuple(rid).second, meta, collected_logs);
+          if (original_tuple_opt.has_value()) {
+            table_info->table_->UpdateTupleInPlace({committed_log.ts_, committed_log.is_deleted_},
+                                                   original_tuple_opt.value(), rid);
+          } else {
+            table_info->table_->UpdateTupleMeta({committed_log.ts_, true}, rid);
+          }
+          // 将 UndoLink 回溯到该已提交日志之前的版本
+          UpdateUndoLink(rid, committed_log.prev_version_);
+        } else {
+          // 整个链中都没有已提交版本，说明该行在事务开始前并不存在（本事务插入），将其标记为删除
+          table_info->table_->UpdateTupleMeta({0, true}, rid);
+          UpdateUndoLink(rid, std::optional<UndoLink>());
+        }
       } else {
         // --- 情况 B: 新插入元组的回滚 ---
         // 直接标记为已删除，并将时间戳归零（表示不再被任何事务拥有）
         table_info->table_->UpdateTupleMeta({0, true}, rid);
-
-        // 注意：由于 BusTub 的索引实现不要求物理删除，
-        // 这里标记标记 is_deleted=true 后，IndexScan 应该能正确过滤。
       }
     }
   }
 
-  // 3. 状态转换与清理
+  // 3. 状态转换与清理：在锁内设置为 ABORTED 并从 running list 中移除（使用 txn id 作为键）
   {
     std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
     txn->state_ = TransactionState::ABORTED;
@@ -357,13 +374,13 @@ void TransactionManager::GarbageCollection() {
   for (const auto &table_name : catalog_->GetTableNames()) {
     auto table_info = catalog_->GetTable(table_name).get();
     auto table_heap = table_info->table_.get();
-    //获取表的迭代器
+    // 获取表的迭代器
     auto iter = table_heap->MakeIterator();
-    //遍历表中的每一行
+    // 遍历表中的每一行
     while (!iter.IsEnd()) {
       RID rid = iter.GetRID();
       auto [meta, tuple] = iter.GetTuple();
-      //获取该行的undo link
+      // 获取该行的undo link
       std::optional<UndoLink> link = GetUndoLink(rid);
       std::optional<UndoLink> prev_link;
       if (link.has_value()) {
@@ -379,7 +396,7 @@ void TransactionManager::GarbageCollection() {
         continue;
       }
 
-      //遍历版本链
+      // 遍历版本链
       while (prev_link.has_value() && prev_link->IsValid()) {
         auto undo_log_opt = GetUndoLogOptional(*prev_link);
         if (!undo_log_opt.has_value()) {
@@ -387,24 +404,24 @@ void TransactionManager::GarbageCollection() {
         }
         const auto &undo_log = *undo_log_opt;
         alive_txns.insert(prev_link->prev_txn_);
-        //检查该日志的时间戳
-        //如果该日志的时间戳大于watermark，说明该日志对应的事务还活着
+        // 检查该日志的时间戳
+        // 如果该日志的时间戳大于watermark，说明该日志对应的事务还活着
         if (undo_log.ts_ <= running_txns_.GetWatermark()) {
-          //记录该活跃事务id
+          // 记录该活跃事务id
           break;
         }
-        //继续往前找
+        // 继续往前找
         prev_link = undo_log.prev_version_;
       }
       ++iter;
     }
   }
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
-  //遍历事务映射表，找出不活跃的事务
+  // 遍历事务映射表，找出不活跃的事务
   for (auto it = txn_map_.begin(); it != txn_map_.end();) {
     auto txn_id = it->first;
     auto &txn = it->second;
-    //如果这个事务已经commit或abort，并且不在活跃事务列表中
+    // 如果这个事务已经commit或abort，并且不在活跃事务列表中
     if ((txn->state_ == TransactionState::COMMITTED || txn->state_ == TransactionState::ABORTED) &&
         alive_txns.find(txn_id) == alive_txns.end()) {
       //该事务不活跃，可以删除

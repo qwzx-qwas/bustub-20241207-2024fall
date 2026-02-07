@@ -23,23 +23,23 @@ UpdateExecutor::UpdateExecutor(ExecutorContext *exec_ctx, const UpdatePlanNode *
     : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {
   // As of Fall 2022, you DON'T need to implement update executor to have perfect score in project 3 / project 4.
 }
-//需要先删除旧的tuple，然后插入新的tuple
-//需要注意更新索引
+// 需要先删除旧的tuple，然后插入新的tuple
+// 需要注意更新索引
 
 void UpdateExecutor::Init() {
-  //初始化child executor
+  // 初始化child executor
   child_executor_->Init();
   auto *catalog = exec_ctx_->GetCatalog();
-  //获取要更新的表
+  // 获取要更新的表
   table_info_ = catalog->GetTable(plan_->GetTableOid()).get();
-  //获得表的堆（实际存储数据的地方）
+  // 获得表的堆（实际存储数据的地方）
   table_heap_ = table_info_->table_.get();
-  //获得表的索引信息
+  // 获得表的索引信息
   auto indexes = catalog->GetTableIndexes(table_info_->name_);
   for (const auto &index : indexes) {
     indexes_.push_back(index.get());
   }
-  //初始化状态量
+  // 初始化状态量
   executed_ = false;
 }
 /*auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
@@ -154,7 +154,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     //如果是write-write冲突，直接报错
     //如果是未提交事务或读取时间戳落后于当前事务ID，说明有冲突
     //检测到冲突时，将事务状态设为 TAINTED，并抛出 ExecutionException
-    if ((((tuple_ts & TXN_START_ID) != 0) && (tuple_ts != curr_txn_id)) ||
+    if (((tuple_ts & TXN_START_ID) != 0 && (tuple_ts != curr_txn_id)) ||
         ((tuple_ts > read_ts) && ((tuple_ts & TXN_START_ID) == 0))) {
       txn->SetTainted();
       throw ExecutionException("UpdateExecutor::Next failed due to write-write conflict.");
@@ -193,7 +193,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         if (!IsTupleContentEqual(old_key, new_key)) {
           primary_key_changed = true;
         }
-        pk_indexes.push_back({index_info, old_key, new_key});
+        pk_indexes.push_back(PrimaryKeyInfo{index_info, old_key, new_key});
       }
     }
 
@@ -307,7 +307,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
           auto existing_ts = existing_meta.ts_;
 
           // write-write冲突检测
-          if ((((existing_ts & TXN_START_ID) != 0) && (existing_ts != curr_txn_id)) ||
+          if (((existing_ts & TXN_START_ID) != 0 && (existing_ts != curr_txn_id)) ||
               ((existing_ts > read_ts) && ((existing_ts & TXN_START_ID) == 0))) {
             txn->SetTainted();
             throw ExecutionException("UpdateExecutor::Next failed due to write-write conflict.");

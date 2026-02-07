@@ -24,14 +24,14 @@ DeleteExecutor::DeleteExecutor(ExecutorContext *exec_ctx, const DeletePlanNode *
     : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {}
 
 void DeleteExecutor::Init() {
-  //初始化child executor
+  // 初始化child executor
   child_executor_->Init();
   auto *catalog = exec_ctx_->GetCatalog();
-  //获取要删除的表
+  // 获取要删除的表
   table_info_ = catalog->GetTable(plan_->GetTableOid()).get();
-  //获得表的堆（实际存储数据的地方）
+  // 获得表的堆（实际存储数据的地方）
   table_heap_ = table_info_->table_.get();
-  //获得表的索引信息
+  // 获得表的索引信息
   auto indexes = catalog->GetTableIndexes(table_info_->name_);
   for (const auto &index : indexes) {
     indexes_.push_back(index.get());
@@ -113,15 +113,15 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   // 执行删除操作
   for (const auto &[curr_old_tuple, curr_old_rid] : tuples_to_delete) {
     auto tuple_meta = table_heap_->GetTupleMeta(curr_old_rid);
-    //读取的是该 tuple 在元数据里保存的 MVCC 标识/时间戳 —— 它不是仅仅“临时”的任意值，
+    // 读取的是该 tuple 在元数据里保存的 MVCC 标识/时间戳 —— 它不是仅仅“临时”的任意值，
     // 而是用来表示该行当前版本的版本信息：
-    //若含有 TXN_START_ID 标志位，则 tuple_ts 表示一个未提交的事务 id（即该行被某个事务占用）；
-    //若不含该标志位，则 tuple_ts 表示该行最后一次提交的时间戳（commit ts）。
+    // 若含有 TXN_START_ID 标志位，则 tuple_ts 表示一个未提交的事务 id（即该行被某个事务占用）；
+    // 若不含该标志位，则 tuple_ts 表示该行最后一次提交的时间戳（commit ts）。
     auto tuple_ts = tuple_meta.ts_;
 
-    //如果是write-write冲突，直接报错
-    //如果是未提交事务或读取时间戳落后于当前事务ID，说明有冲突
-    //检测到冲突时，将事务状态设为 TAINTED，并抛出 ExecutionException
+    // 如果是write-write冲突，直接报错
+    // 如果是未提交事务或读取时间戳落后于当前事务ID，说明有冲突
+    // 检测到冲突时，将事务状态设为 TAINTED，并抛出 ExecutionException
     if ((((tuple_ts & TXN_START_ID) != 0) && (tuple_ts != curr_txn_id)) ||
         ((tuple_ts > read_ts) && ((tuple_ts & TXN_START_ID) == 0))) {
       txn->SetTainted();
@@ -147,12 +147,12 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       } else {
         prev_version = UndoLink();
       }
-      //调用 GenerateNewUndoLog，把当前主表里的旧值存进日志
-      //这里的target_tuple为nullptr，表示删除操作
+      // 调用 GenerateNewUndoLog，把当前主表里的旧值存进日志
+      // 这里的target_tuple为nullptr，表示删除操作
       undo_log = GenerateNewUndoLog(&table_info_->schema_, &curr_old_tuple, nullptr, tuple_ts, prev_version);
-      //在事务里新建一条日志记录
+      // 在事务里新建一条日志记录
       UndoLink new_undo_link = txn->AppendUndoLog(undo_log);
-      //原子性地修改主表数据，并将主表的 UndoLink 指向这条新日志
+      // 原子性地修改主表数据，并将主表的 UndoLink 指向这条新日志
       /*原子性地同时更新主表中 curr_old_rid 位置的 tuple 内容（用 curr_old_tuple 覆盖），
       并将该 tuple 的 UndoLink 指向新的 undo log（new_undo_link）。
       这样可以保证主表和 UndoLink 的一致性，防止并发下出现部分更新。
@@ -165,17 +165,17 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
             return meta.ts_ == tuple_ts;
           });
     } else {
-      //不是第一次修改，获取之前的undolog
+      // 不是第一次修改，获取之前的undolog
       if (prev_link.has_value() && prev_link->IsValid()) {
         UndoLog old_undo_log = txn_mgr->GetUndoLog(*prev_link);
-        //将本次修改与事务中已有的旧日志合并。
-        //这里的target_tuple为nullptr，表示删除操作
+        // 将本次修改与事务中已有的旧日志合并。
+        // 这里的target_tuple为nullptr，表示删除操作
         undo_log = GenerateUpdatedUndoLog(&table_info_->schema_, &curr_old_tuple, nullptr, old_undo_log);
-        //直接覆盖原来的日志，不增加日志数量。
+        // 直接覆盖原来的日志，不增加日志数量。
         txn->ModifyUndoLog(prev_link->prev_log_idx_, undo_log);
       }
 
-      //只改主表内容，不改 UndoLink（因为它已经指向正确的日志位置了）
+      // 只改主表内容，不改 UndoLink（因为它已经指向正确的日志位置了）
       /*在表的主存储（TableHeap）中，直接用 curr_old_tuple 的内容覆盖 curr_old_rid 位置的旧 tuple 数据，
       同时将该 tuple 的元数据（TupleMeta）中的事务 ID 设置为 curr_txn_id，is_deleted 标记为 true。
       这个操作不会修改 UndoLink，只更新主表内容，适用于同一事务多次更新同一行的情况
@@ -189,7 +189,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
     if (delete_success) {
       txn->AppendWriteSet(table_info_->oid_, curr_old_rid);
-      //维护索引，由4.2要求：不再调用 index->DeleteEntry(...) 来移除索引条目。
+      // 维护索引，由4.2要求：不再调用 index->DeleteEntry(...) 来移除索引条目。
       // 只做表中 tuple 的 UpdateTupleAndUndoLink（写 undo log）并标记 is_deleted。
       /*for (auto index_info : indexes_) {
         auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
@@ -202,7 +202,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       throw ExecutionException("DeleteExecutor::Next failed to update tuple.");
     }
   }
-  //构造返回的tuple，表示更新的行数
+  // 构造返回的tuple，表示更新的行数
   std::vector<Value> values;
   values.emplace_back(ValueFactory::GetIntegerValue(delete_count));
   *tuple = Tuple(values, &GetOutputSchema());

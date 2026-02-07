@@ -72,24 +72,24 @@ auto GenerateSortKey(const Tuple &tuple, const std::vector<OrderBy> &order_bys, 
  * @return An optional tuple that represents the reconstructed tuple. If the tuple is deleted as the result, returns
  * std::nullopt.
  */
-// 元组模式（Schema，表长什么样）、
-// 基础元组（Base Tuple，表堆中的最新版本）
-// 及其元数据（包含is_delete，表示当前是否被删除)（两者均存储在表堆中），
-// 以及一个按修改时间从近到远排序的撤销日志（Undo Logs）列表
+//  元组模式（Schema，表长什么样）、
+//  基础元组（Base Tuple，表堆中的最新版本）
+//  及其元数据（包含is_delete，表示当前是否被删除)（两者均存储在表堆中），
+//  以及一个按修改时间从近到远排序的撤销日志（Undo Logs）列表
 
-// Undo Log表示“我这一步，改了哪些列，原来是什么”
-// modified_fields_ —— 改了哪几列，长度是 schema 的列数，bool值表示该列是否被修改
-// tuple_ —— 被改列的“旧值”
-// is_deleted_ —— “在那次修改之前，这个元组是否存在”
+//  Undo Log表示“我这一步，改了哪些列，原来是什么”
+//  modified_fields_ —— 改了哪几列，长度是 schema 的列数，bool值表示该列是否被修改
+//  tuple_ —— 被改列的“旧值”
+//  is_deleted_ —— “在那次修改之前，这个元组是否存在”
 
-// 要做的是：从现在的Base Tuple开始，逆序应用这些Undo Log，最终得到“在某个时间点，这个元组是什么样子”
-// （输入的Undo Log实际上是该给定时间戳之后发生的所有修改）
+//  要做的是：从现在的Base Tuple开始，逆序应用这些Undo Log，最终得到“在某个时间点，这个元组是什么样子”
+//  （输入的Undo Log实际上是该给定时间戳之后发生的所有修改）
 
-// 再次提醒： 在 ReconstructTuple 中，你不需要使用甚至不需要检查时间戳（ts_）字段
-// 和前一版本（prev_version_）字段。prev_version_ 应当由 ReconstructTuple 的调用方使用，
-// 用于确定哪些 UndoLog 应该放入输入向量中。
+//  再次提醒： 在 ReconstructTuple 中，你不需要使用甚至不需要检查时间戳（ts_）字段
+//  和前一版本（prev_version_）字段。prev_version_ 应当由 ReconstructTuple 的调用方使用，
+//  用于确定哪些 UndoLog 应该放入输入向量中。
 
-//根据modified_fields_从原始Schema中抽出一个Partial Schema,用它去读Undo Log中的tuple_
+// 根据modified_fields_从原始Schema中抽出一个Partial Schema,用它去读Undo Log中的tuple_
 
 auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const TupleMeta &base_meta,
                       const std::vector<UndoLog> &undo_logs) -> std::optional<Tuple> {

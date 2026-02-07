@@ -21,11 +21,11 @@ SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNod
 
 void SeqScanExecutor::Init() {
   // Init的职责是初始化扫描器，设置迭代器到表的起始位置
-  //先通过ExecutorContext获取Catalog
+  // 先通过ExecutorContext获取Catalog
   auto catalog = exec_ctx_->GetCatalog();
-  //拿到目标id(从plan中获取）的表信息
+  // 拿到目标id(从plan中获取）的表信息
   table_info_ = catalog->GetTable(plan_->GetTableOid()).get();
-  //初始化迭代器到表的起始位置
+  // 初始化迭代器到表的起始位置
   iter_.emplace(table_info_->table_->MakeIterator());
 }
 /*
