@@ -121,6 +121,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   //当前事务id
   timestamp_t curr_txn_id = txn->GetTransactionId();
   auto *txn_mgr = exec_ctx_->GetTransactionManager();
+  //获取事务的读取时间戳
   auto read_ts = txn->GetReadTs();
   //事务的临时时间戳
   timestamp_t txn_ts = txn->GetTransactionTempTs();

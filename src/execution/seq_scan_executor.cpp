@@ -27,6 +27,11 @@ void SeqScanExecutor::Init() {
   table_info_ = catalog->GetTable(plan_->GetTableOid()).get();
   // 初始化迭代器到表的起始位置
   iter_.emplace(table_info_->table_->MakeIterator());
+
+  auto txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+    txn->AppendScanPredicate(plan_->GetTableOid(), plan_->filter_predicate_);
+  }
 }
 /*
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {

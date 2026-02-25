@@ -52,7 +52,102 @@ auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * 
   return txn_ref;
 }
 
-auto TransactionManager::VerifyTxn(Transaction *txn) -> bool { return true; }
+//OCC的向后验证
+auto TransactionManager::VerifyTxn(Transaction *txn) -> bool {
+  if (txn->GetIsolationLevel() != IsolationLevel::SERIALIZABLE) {
+    return true;
+  }
+
+  // 1. 检查是否为读写事务。如果写集合为空，视为只读且无需验证
+  if (txn->GetWriteSets().empty()) {
+    return true;
+  }
+
+  auto read_ts = txn->GetReadTs();
+  const auto &scan_predicates = txn->GetScanPredicates();
+  if (scan_predicates.empty()) {
+    return true;
+  }
+
+  // 2. 找到该事务开始后提交的所有事务
+  std::vector<Transaction *> committed_txns;
+  {
+    std::shared_lock<std::shared_mutex> lck(txn_map_mutex_);
+    for (const auto &pair : txn_map_) {
+      auto *t = pair.second.get();
+      // 如果 t->GetCommitTs() > read_ts，
+      // 说明 t 所做的修改在当前事务的快照之后。
+      // 这些修改对当前事务来说是“未来的改动”，是潜在的冲突源。
+      if (t->GetTransactionState() == TransactionState::COMMITTED && t->GetCommitTs() > read_ts &&
+          t->GetTransactionId() != txn->GetTransactionId()) {
+        committed_txns.push_back(t);
+      }
+    }
+  }
+
+  if (committed_txns.empty()) {
+    return true;
+  }
+
+  // 3. 将这些冲突事务的write_set（这些竞争事务修改过的所有行）汇总到一个conflict_rids集合中去
+  std::unordered_map<table_oid_t, std::unordered_set<RID>> conflict_rids;
+  for (auto *t : committed_txns) {
+    for (const auto &[table_oid, rids] : t->GetWriteSets()) {
+      conflict_rids[table_oid].insert(rids.begin(), rids.end());
+    }
+  }
+
+  // 4. 对其中的每一个记录沿着版本链去判断
+  for (const auto &[table_oid, rids] : conflict_rids) {
+    if (scan_predicates.find(table_oid) == scan_predicates.end()) {
+      continue;
+    }
+
+    auto table_info = catalog_->GetTable(table_oid).get();
+    const auto &schema = table_info->schema_;
+    const auto &preds = scan_predicates.at(table_oid);
+
+    for (const auto &rid : rids) {
+      auto [base_meta, base_tuple] = table_info->table_->GetTuple(rid);
+      auto undo_link = GetUndoLink(rid);
+
+      auto logs_opt = CollectUndoLogs(rid, base_meta, base_tuple, undo_link, txn, this);
+      
+      //检查最新版本
+      // 检查该RID在tableHeap中的最新版本是否是非删除的
+      if (!base_meta.is_deleted_) {
+        for (const auto &pred : preds) {
+          // 如果扫描时没有where条件，则pred为nullptr
+          // 将谓词逻辑应用于base_tuple上，判断是否满足条件
+          if (!pred || pred->Evaluate(&base_tuple, schema).GetAs<bool>()) {
+            return false;
+          }
+        }
+      }
+
+      // 检查历史版本
+      if (logs_opt.has_value()) {
+        auto logs = std::move(*logs_opt);
+        for (size_t i = 1; i <= logs.size(); ++i) {
+          std::vector<UndoLog> sub_logs;
+          for (size_t j = 0; j < i; ++j) {
+            sub_logs.push_back(logs[j]);
+          }
+          auto reconstructed = ReconstructTuple(&schema, base_tuple, base_meta, sub_logs);
+          if (reconstructed.has_value()) {
+            for (const auto &pred : preds) {
+              if (!pred || pred->Evaluate(&*reconstructed, schema).GetAs<bool>()) {
+                return false;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return true;
+}
 /*auto TransactionManager::Commit(Transaction *txn) -> bool {
   //确保提交过程是线程安全的
   std::unique_lock<std::mutex> commit_lck(commit_mutex_);
@@ -138,6 +233,14 @@ auto TransactionManager::VerifyTxn(Transaction *txn) -> bool { return true; }
 }*/
 auto TransactionManager::Commit(Transaction *txn) -> bool {
   std::unique_lock<std::mutex> commit_lck(commit_mutex_);
+
+  if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+    if (!VerifyTxn(txn)) {
+      commit_lck.unlock();
+      Abort(txn);
+      return false;
+    }
+  }
 
   // 1. 预取 commit_ts，但不立即增加全局 last_commit_ts_
   timestamp_t commit_ts = last_commit_ts_.load() + 1;
@@ -301,6 +404,7 @@ void TransactionManager::Abort(Transaction *txn) {
   // 1. 先将状态标记为 TAINTED，防止 GC 干扰
   txn->state_ = TransactionState::TAINTED;
 
+  // 这个事务改过哪些行
   auto write_sets = txn->GetWriteSets();
   for (auto &entry : write_sets) {
     auto table_oid = entry.first;
@@ -308,6 +412,7 @@ void TransactionManager::Abort(Transaction *txn) {
     auto table_info = catalog_->GetTable(table_oid).get();
 
     for (auto &rid : rids) {
+      // tuplemeta 包含了 ts_ 和 is_deleted_，我们需要根据 ts_ 判断当前版本是否由本事务持有
       auto meta = table_info->table_->GetTupleMeta(rid);
 
       // 只有当前事务拥有的行才需要回滚
@@ -316,7 +421,11 @@ void TransactionManager::Abort(Transaction *txn) {
       }
 
       auto undo_link_opt = GetUndoLink(rid);
+      TupleMeta restore_meta;
+      Tuple restore_tuple;
 
+      // 左边的条件是std::optional的判断，判断有没有给这个rid生成过undo log(即看他是否有修改历史)
+      // 右边的条件是判断这个undo log是否合法（即是否真的记录了一次修改）
       if (undo_link_opt.has_value() && undo_link_opt->IsValid()) {
         // --- 情况 A: 更新或删除的回滚 ---
         // 沿着版本链回溯，收集直到第一个已提交的日志（ts_ < TXN_START_ID），同时收集中间日志
@@ -341,13 +450,16 @@ void TransactionManager::Abort(Transaction *txn) {
           auto original_tuple_opt =
               ReconstructTuple(&table_info->schema_, table_info->table_->GetTuple(rid).second, meta, collected_logs);
           if (original_tuple_opt.has_value()) {
-            table_info->table_->UpdateTupleInPlace({committed_log.ts_, committed_log.is_deleted_},
-                                                   original_tuple_opt.value(), rid);
+            restore_meta = {committed_log.ts_, committed_log.is_deleted_};
+            restore_tuple = original_tuple_opt.value();
+            UpdateTupleAndUndoLink(this, rid, committed_log.prev_version_, table_info->table_.get(), txn, restore_meta,
+                                   restore_tuple);
           } else {
+            // 如果还原结果为空（说明原版本是物理删除或不存在），我们至少要恢复 Meta 信息（ts 和 is_deleted）
+            // 并且必须把 UndoLink 恢复到修改之前的状态。
             table_info->table_->UpdateTupleMeta({committed_log.ts_, true}, rid);
+            UpdateUndoLink(rid, committed_log.prev_version_);
           }
-          // 将 UndoLink 回溯到该已提交日志之前的版本
-          UpdateUndoLink(rid, committed_log.prev_version_);
         } else {
           // 整个链中都没有已提交版本，说明该行在事务开始前并不存在（本事务插入），将其标记为删除
           table_info->table_->UpdateTupleMeta({0, true}, rid);
@@ -357,6 +469,7 @@ void TransactionManager::Abort(Transaction *txn) {
         // --- 情况 B: 新插入元组的回滚 ---
         // 直接标记为已删除，并将时间戳归零（表示不再被任何事务拥有）
         table_info->table_->UpdateTupleMeta({0, true}, rid);
+        UpdateUndoLink(rid, std::optional<UndoLink>());
       }
     }
   }

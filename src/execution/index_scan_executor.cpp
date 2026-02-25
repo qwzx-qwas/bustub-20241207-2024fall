@@ -42,6 +42,11 @@ void IndexScanExecutor::Init() {
     iter_.emplace(tree_->GetBeginIterator());
   }
   end_.emplace(tree_->GetEndIterator());
+
+  auto txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+    txn->AppendScanPredicate(plan_->table_oid_, plan_->filter_predicate_);
+  }
 }
 /*auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (!iter_.has_value()) {

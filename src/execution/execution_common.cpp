@@ -22,7 +22,7 @@
 namespace bustub {
 
 TupleComparator::TupleComparator(std::vector<OrderBy> order_bys) : order_bys_(std::move(order_bys)) {}
-
+// 排序时比较两个元组的排序键，按照 order_bys_ 中指定的列和顺序进行比较
 auto TupleComparator::operator()(const SortEntry &entry_a, const SortEntry &entry_b) const -> bool {
   const auto &key_a = entry_a.first;
   const auto &key_b = entry_b.first;
@@ -91,10 +91,11 @@ auto GenerateSortKey(const Tuple &tuple, const std::vector<OrderBy> &order_bys, 
 
 // 根据modified_fields_从原始Schema中抽出一个Partial Schema,用它去读Undo Log中的tuple_
 
+// 注意ReconstructTuple的主体是一条tuple的各列，而不是表中的若干行列
 auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const TupleMeta &base_meta,
                       const std::vector<UndoLog> &undo_logs) -> std::optional<Tuple> {
   std::vector<Value> current_values;
-  //表示该元组在当前最新版本中的状态
+  // 表示该元组在当前最新版本中的状态
   bool exists = !base_meta.is_deleted_;
   if (exists) {
     for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
@@ -102,7 +103,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
     }
   } else {
     // 如果 base 是删掉的，数组填空占位，exists 为 false
-    //一个一个列地填充 Null 值，使其长度合法
+    // 一个一个列地填充 Null 值，使其长度合法
     for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
       //用ValueFactory生成对应类型的Null值
       current_values.push_back(ValueFactory::GetNullValueByType(schema->GetColumn(i).GetType()));
@@ -115,7 +116,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
     // 如果 log.is_deleted_ 为 true，
     // 意味着在这个 undo_log 所代表的时间点（即回滚操作应用之后），
     // 该元组变成了“已删除”状态。
-    //那就让当前版本的 exists 标记为 false（完成倒带），表示该元组在那个时间点不存在
+    // 那就让当前版本的 exists 标记为 false（完成倒带），表示该元组在那个时间点不存在
     if (log.is_deleted_) {
       exists = false;
       continue;
@@ -123,6 +124,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
     // 如果 log 不是 deleted，说明在这个日志的时间点，元组是存在的
     exists = true;
     // 提取日志中的部分列，覆盖到 current_values 中
+    // 遍历该undolog中的modified_fields_，发现哪些列曾经被改过
     uint32_t partial_idx = 0;
     std::vector<uint32_t> attrs;
     for (uint32_t i = 0; i < log.modified_fields_.size(); ++i) {
@@ -131,9 +133,10 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
       }
     }
 
-    // 2. 此时再调用 CopySchema 就匹配了
+    // 用CopySchema根据记录的已更改的列的索引，生成一个新的 Partial Schema，这个 Partial Schema 只包含被修改过的列
     auto partial_schema = Schema::CopySchema(schema, attrs);
-
+    // 依据log.modified_fields_,导航到 current_values 中对应的列索引，使用 Partial Schema 进行覆写
+    // schema->GetColumnCount()返回该tuple有多少列
     for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
       if (log.modified_fields_[i]) {
         current_values[i] = log.tuple_.GetValue(&partial_schema, partial_idx++);
@@ -169,14 +172,16 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
   // 2.当前tuple较新或被其他人使用，需要遍历版本链，收集所有在读取时间戳之后的撤销日志。
   // 3.当前元组由本事务修改
 
-  //获取当前事务的读取时间戳（不是以TXN_START_ID起始的事务ID）(利用二者的巨大差异来区分状态)
+  //获取当前事务的读取时间戳（事务视角的现在时刻）（不是以TXN_START_ID起始的事务ID）(利用二者的巨大差异来区分是否已经提交)
   auto read_ts = txn->GetReadTs();
-  //获取当前事务ID（实际上是以TXN_START_ID起始，然后不断++）
+  //获取当前事务ID（实际上是以TXN_START_ID起始，然后不断++，这里还未提交）
   auto my_id = txn->GetTransactionId();
   //当前存储在table heap中的元组的时间戳(最新版本)
   auto meta_ts = base_meta.ts_;
 
-  //情况1 加 情况3中的“自己修改的”情况
+  // 该tuple已经提交且提交时间早于当前事务的读取时间戳，
+  // 或者该tuple由当前事务修改（不管提交与否），都说明当前版本就是我们需要的版本，
+  // 不需要任何undo log
   if ((meta_ts < TXN_START_ID && meta_ts <= read_ts) || meta_ts == my_id) {
     // 如果 is_deleted_ 是 true，说明在当前事务视角下该行不存在
     if (base_meta.is_deleted_) {
@@ -294,7 +299,7 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   log.modified_fields_ = std::move(modified_fields);
   if (changed_indices.empty()) {
     //没有任何修改
-    // log.tuple_ = Tuple(); //空tuple
+    log.tuple_ = Tuple();  //空tuple
     return log;
   }
   Schema changed_schema = Schema::CopySchema(schema, changed_indices);

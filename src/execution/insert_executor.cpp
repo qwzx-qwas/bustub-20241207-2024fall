@@ -86,7 +86,7 @@ void InsertExecutor::Init() {
 
 // MVCC版InsertExecutor::Next
 auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
-  // 执行插入操作
+  // 先检查是否已经执行过插入
   if (executed_) {
     return false;
   }
