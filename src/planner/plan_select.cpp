@@ -59,6 +59,9 @@ auto Planner::PlanSelect(const SelectStatement &statement) -> AbstractPlanNodeRe
 
   bool has_agg = false;
   bool has_window_agg = false;
+  bool defer_projection = false;
+  std::vector<AbstractExpressionRef> deferred_exprs;
+  std::vector<std::string> deferred_column_names;
   // Binder already checked that normal aggregations and window aggregations cannot coexist.
   for (const auto &item : statement.select_list_) {
     if (item->HasAggregation()) {
@@ -83,21 +86,24 @@ auto Planner::PlanSelect(const SelectStatement &statement) -> AbstractPlanNodeRe
     // Plan aggregation
     plan = PlanSelectAgg(statement, std::move(plan));
   } else {
-    // Plan normal select
-    std::vector<AbstractExpressionRef> exprs;
-    std::vector<std::string> column_names;
-    std::vector<AbstractPlanNodeRef> children = {plan};
+    // For plain SELECT, ORDER BY may reference columns outside the final output.
+    // Defer the final projection until after sort/limit so those columns remain visible.
     for (const auto &item : statement.select_list_) {
       auto [name, expr] = PlanExpression(*item, {plan});
       if (name == UNNAMED_COLUMN) {
         name = fmt::format("__unnamed#{}", universal_id_++);
       }
-      exprs.emplace_back(std::move(expr));
-      column_names.emplace_back(std::move(name));
+      deferred_exprs.emplace_back(std::move(expr));
+      deferred_column_names.emplace_back(std::move(name));
     }
-    plan = std::make_shared<ProjectionPlanNode>(std::make_shared<Schema>(ProjectionPlanNode::RenameSchema(
-                                                    ProjectionPlanNode::InferProjectionSchema(exprs), column_names)),
-                                                std::move(exprs), std::move(plan));
+    if (statement.is_distinct_) {
+      plan = std::make_shared<ProjectionPlanNode>(
+          std::make_shared<Schema>(ProjectionPlanNode::RenameSchema(
+              ProjectionPlanNode::InferProjectionSchema(deferred_exprs), deferred_column_names)),
+          std::move(deferred_exprs), std::move(plan));
+    } else {
+      defer_projection = true;
+    }
   }
 
   // Plan DISTINCT as group agg
@@ -164,6 +170,13 @@ auto Planner::PlanSelect(const SelectStatement &statement) -> AbstractPlanNodeRe
     }
 
     plan = std::make_shared<LimitPlanNode>(std::make_shared<Schema>(plan->OutputSchema()), plan, *limit);
+  }
+
+  if (defer_projection) {
+    plan = std::make_shared<ProjectionPlanNode>(
+        std::make_shared<Schema>(ProjectionPlanNode::RenameSchema(
+            ProjectionPlanNode::InferProjectionSchema(deferred_exprs), deferred_column_names)),
+        std::move(deferred_exprs), std::move(plan));
   }
 
   return plan;

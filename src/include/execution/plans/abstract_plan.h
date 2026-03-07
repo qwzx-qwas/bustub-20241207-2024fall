@@ -31,6 +31,7 @@ namespace bustub {
   }
 
 /** PlanType represents the types of plans that we have in our system. */
+//PlanType是全局计划节点枚举，供工厂/执行器使用
 enum class PlanType {
   SeqScan,
   IndexScan,
@@ -50,7 +51,8 @@ enum class PlanType {
   TopNPerGroup,
   MockScan,
   InitCheck,
-  Window
+  Window,
+  VectorKnnScan
 };
 
 class AbstractPlanNode;

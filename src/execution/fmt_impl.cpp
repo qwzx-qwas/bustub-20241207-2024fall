@@ -14,6 +14,7 @@
 #include "execution/plans/projection_plan.h"
 #include "execution/plans/sort_plan.h"
 #include "execution/plans/topn_plan.h"
+#include "execution/plans/vector_knn_scan_plan.h"
 
 namespace bustub {
 
@@ -81,6 +82,10 @@ auto LimitPlanNode::PlanNodeToString() const -> std::string { return fmt::format
 
 auto TopNPlanNode::PlanNodeToString() const -> std::string {
   return fmt::format("TopN {{ n={}, order_bys={}}}", n_, order_bys_);
+}
+
+auto VectorKnnScanPlanNode::PlanNodeToString() const -> std::string {
+  return fmt::format("VectorKnnScan {{ k={}, distance_expr={} }}", k_, distance_expr_);
 }
 
 }  // namespace bustub

@@ -36,6 +36,7 @@
 #include "execution/executors/topn_per_group_executor.h"
 #include "execution/executors/update_executor.h"
 #include "execution/executors/values_executor.h"
+#include "execution/executors/vector_knn_scan_executor.h"
 #include "execution/executors/window_function_executor.h"
 #include "execution/plans/filter_plan.h"
 #include "execution/plans/mock_scan_plan.h"
@@ -44,8 +45,10 @@
 #include "execution/plans/topn_per_group_plan.h"
 #include "execution/plans/topn_plan.h"
 #include "execution/plans/values_plan.h"
+#include "execution/plans/vector_knn_scan_plan.h"
 #include "execution/plans/window_plan.h"
 #include "storage/index/generic_key.h"
+
 
 namespace bustub {
 
@@ -61,6 +64,12 @@ auto ExecutorFactory::CreateExecutor(ExecutorContext *exec_ctx, const AbstractPl
     // Create a new index scan executor
     case PlanType::IndexScan: {
       return std::make_unique<IndexScanExecutor>(exec_ctx, dynamic_cast<const IndexScanPlanNode *>(plan.get()));
+    }
+    
+    //增加一个 case 来支持 VectorKnnScanPlanNode，返回一个 VectorKnnScanExecutor。
+    //即Creat a new vector knn scan executor
+    case PlanType::VectorKnnScan: {
+      return std::make_unique<VectorKnnScanExecutor>(exec_ctx, dynamic_cast<const VectorKnnScanPlanNode *>(plan.get()));
     }
 
     // Create a new insert executor
@@ -189,6 +198,7 @@ auto ExecutorFactory::CreateExecutor(ExecutorContext *exec_ctx, const AbstractPl
       auto child = ExecutorFactory::CreateExecutor(exec_ctx, group_topn_plan->GetChildPlan());
       return std::make_unique<TopNPerGroupExecutor>(exec_ctx, group_topn_plan, std::move(child));
     }
+
 
     default:
       UNREACHABLE("Unsupported plan type.");

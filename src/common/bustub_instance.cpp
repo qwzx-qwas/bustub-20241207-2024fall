@@ -341,7 +341,6 @@ auto BusTubInstance::ExecuteSqlTxn(const std::string &sql, ResultWriter &writer,
     auto optimized_plan = optimizer.Optimize(planner.plan_);
 
     l.unlock();
-
     // Execute the query.
     auto exec_ctx = MakeExecutorContext(txn, is_delete);
     if (check_options != nullptr) {

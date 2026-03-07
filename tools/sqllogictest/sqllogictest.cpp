@@ -119,6 +119,11 @@ auto ProcessExtraOptions(const std::string &sql, bustub::BusTubInstance &instanc
           return false;
         }
         check_options->check_options_set_.emplace(bustub::CheckOption::ENABLE_TOPN_CHECK);
+      } else if (opt == "ensure:vector_knn_scan") {
+        if (!bustub::StringUtil::Contains(result.str(), "VectorKnnScan")) {
+          fmt::print("VectorKnnScan not found\n");
+          return false;
+        }
       } else if (opt == "ensure:index_join") {
         if (!bustub::StringUtil::Contains(result.str(), "NestedIndexJoin")) {
           fmt::print("NestedIndexJoin not found\n");

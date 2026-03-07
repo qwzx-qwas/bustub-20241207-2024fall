@@ -26,9 +26,12 @@ namespace bustub {
 /** The SortKey defines a list of values that sort is based on */
 using SortKey = std::vector<Value>;
 /** The SortEntry defines a key-value pairs for sorting tuples and corresponding RIDs */
+//排序时按SortKey比较，输出或写回run时是完整的Tuple
 using SortEntry = std::pair<SortKey, Tuple>;
 
 /** The Tuple Comparator provides a comparison function for SortEntry */
+// SortEntry的比较器
+// 内部保存order_bys_,在实现里按照每一列依次比较两个SortKey里的值
 class TupleComparator {
  public:
   explicit TupleComparator(std::vector<OrderBy> order_bys);

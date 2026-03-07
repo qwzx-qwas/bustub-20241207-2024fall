@@ -13,6 +13,7 @@ add_library(
         order_by_index_scan.cpp
         sort_limit_as_topn.cpp
         seqscan_as_indexscan.cpp
+        vector_knn_scan.cpp
         column_pruning.cpp)
 
 set(ALL_OBJECT_FILES
