@@ -1,0 +1,41 @@
+statement ok
+CREATE TABLE t1(v VECTOR(3), id INTEGER);
+
+statement ok
+CREATE INDEX t1v_idx ON t1 USING ivfflat (v);
+
+statement ok
+INSERT INTO t1 VALUES
+  (ARRAY [1.0, 0.0, 0.0], 1),
+  (ARRAY [1.0, 1.0, 0.0], 2),
+  (ARRAY [0.0, 1.0, 0.0], 3);
+
+query +ensure:vector_index_scan
+select id from t1 order by l2_distance(v, ARRAY [1.0, 0.0, 0.0]) limit 2;
+----
+1
+2
+
+query +ensure:topn
+select id from t1 order by cosine_distance(v, ARRAY [1.0, 0.0, 0.0]) limit 2;
+----
+1
+2
+
+statement ok
+CREATE TABLE t2(v VECTOR(3), id INTEGER);
+
+statement ok
+CREATE INDEX t2v_idx ON t2 USING ivfflat (v) WITH (metric = 'cosine', nlist = 2, nprobe = 2);
+
+statement ok
+INSERT INTO t2 VALUES
+  (ARRAY [1.0, 1.0, 0.0], 1),
+  (ARRAY [2.0, 1.0, 0.0], 2),
+  (ARRAY [0.0, 1.0, 0.0], 3);
+
+query +ensure:vector_index_scan
+select id from t2 order by cosine_distance(v, ARRAY [1.0, 1.0, 0.0]) limit 2;
+----
+1
+2

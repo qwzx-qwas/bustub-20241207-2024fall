@@ -52,7 +52,8 @@ enum class PlanType {
   MockScan,
   InitCheck,
   Window,
-  VectorKnnScan
+  VectorKnnScan,
+  VectorIndexScan
 };
 
 class AbstractPlanNode;

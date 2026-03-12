@@ -35,6 +35,7 @@
 #include "execution/executors/topn_executor.h"
 #include "execution/executors/topn_per_group_executor.h"
 #include "execution/executors/update_executor.h"
+#include "execution/executors/vector_index_scan_executor.h"
 #include "execution/executors/values_executor.h"
 #include "execution/executors/vector_knn_scan_executor.h"
 #include "execution/executors/window_function_executor.h"
@@ -45,6 +46,7 @@
 #include "execution/plans/topn_per_group_plan.h"
 #include "execution/plans/topn_plan.h"
 #include "execution/plans/values_plan.h"
+#include "execution/plans/vector_index_scan_plan.h"
 #include "execution/plans/vector_knn_scan_plan.h"
 #include "execution/plans/window_plan.h"
 #include "storage/index/generic_key.h"
@@ -70,6 +72,11 @@ auto ExecutorFactory::CreateExecutor(ExecutorContext *exec_ctx, const AbstractPl
     //即Creat a new vector knn scan executor
     case PlanType::VectorKnnScan: {
       return std::make_unique<VectorKnnScanExecutor>(exec_ctx, dynamic_cast<const VectorKnnScanPlanNode *>(plan.get()));
+    }
+
+    case PlanType::VectorIndexScan: {
+      return std::make_unique<VectorIndexScanExecutor>(exec_ctx,
+                                                       dynamic_cast<const VectorIndexScanPlanNode *>(plan.get()));
     }
 
     // Create a new insert executor

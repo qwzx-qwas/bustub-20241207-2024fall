@@ -124,6 +124,11 @@ auto ProcessExtraOptions(const std::string &sql, bustub::BusTubInstance &instanc
           fmt::print("VectorKnnScan not found\n");
           return false;
         }
+      } else if (opt == "ensure:vector_index_scan") {
+        if (!bustub::StringUtil::Contains(result.str(), "VectorIndexScan")) {
+          fmt::print("VectorIndexScan not found\n");
+          return false;
+        }
       } else if (opt == "ensure:index_join") {
         if (!bustub::StringUtil::Contains(result.str(), "NestedIndexJoin")) {
           fmt::print("NestedIndexJoin not found\n");

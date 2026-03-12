@@ -5,7 +5,9 @@ add_library(
     b_plus_tree.cpp
     extendible_hash_table_index.cpp
     index_iterator.cpp
-    linear_probe_hash_table_index.cpp)
+    linear_probe_hash_table_index.cpp
+    ivfflat_index.cpp
+    )
 
 set(ALL_OBJECT_FILES
     ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:bustub_storage_index>

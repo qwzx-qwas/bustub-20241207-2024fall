@@ -4,6 +4,7 @@
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <type_traits>
 #include <tuple>
 
 #include "binder/binder.h"
@@ -41,6 +42,86 @@
 #include "type/value_factory.h"
 
 namespace bustub {
+
+namespace {
+
+auto ParsePositiveIndexOption(const IndexOptionValue &value, const std::string &name) -> std::size_t {
+  auto parse_string = [&](const std::string &text) -> std::size_t {
+    try {
+      const auto parsed = std::stoll(text);
+      if (parsed <= 0) {
+        throw bustub::Exception(fmt::format("{} must be a positive integer", name));
+      }
+      return static_cast<std::size_t>(parsed);
+    } catch (const std::invalid_argument &) {
+      throw bustub::Exception(fmt::format("{} must be a positive integer", name));
+    } catch (const std::out_of_range &) {
+      throw bustub::Exception(fmt::format("{} is out of range", name));
+    }
+  };
+
+  return std::visit(
+      [&](const auto &typed_value) -> std::size_t {
+        using T = std::decay_t<decltype(typed_value)>;
+        if constexpr (std::is_same_v<T, int64_t>) {
+          if (typed_value <= 0) {
+            throw bustub::Exception(fmt::format("{} must be a positive integer", name));
+          }
+          return static_cast<std::size_t>(typed_value);
+        } else {
+          return parse_string(typed_value);
+        }
+      },
+      value);
+}
+
+auto ParseMetricOption(const IndexOptionValue &value) -> VectorIndexDistanceMetric {
+  const auto text = std::visit(
+      [](const auto &typed_value) -> std::string {
+        using T = std::decay_t<decltype(typed_value)>;
+        if constexpr (std::is_same_v<T, int64_t>) {
+          return std::to_string(typed_value);
+        } else {
+          return typed_value;
+        }
+      },
+      value);
+  const auto metric = StringUtil::Lower(text);
+  if (metric == "l2") {
+    return VectorIndexDistanceMetric::L2;
+  }
+  if (metric == "cosine") {
+    return VectorIndexDistanceMetric::Cosine;
+  }
+  if (metric == "ip" || metric == "inner_product") {
+    return VectorIndexDistanceMetric::InnerProduct;
+  }
+  throw bustub::Exception("metric must be one of: l2, cosine, ip");
+}
+
+auto BuildIVFFlatOptions(const IndexStatement &stmt) -> IVFFlatIndexOptions {
+  IVFFlatIndexOptions options;
+  for (const auto &[raw_name, value] : stmt.options_) {
+    const auto name = StringUtil::Lower(raw_name);
+    if (name == "nlist") {
+      options.nlist_ = ParsePositiveIndexOption(value, "nlist");
+      continue;
+    }
+    if (name == "nprobe") {
+      options.nprobe_ = ParsePositiveIndexOption(value, "nprobe");
+      continue;
+    }
+    if (name == "metric") {
+      options.metric_ = ParseMetricOption(value);
+      continue;
+    }
+    throw bustub::Exception(fmt::format("unsupported ivfflat option {}", raw_name));
+  }
+  options.nprobe_ = std::min(options.nprobe_, options.nlist_);
+  return options;
+}
+
+}  // namespace
 
 void BusTubInstance::HandleCreateStatement(Transaction *txn, const CreateStatement &stmt, ResultWriter &writer) {
   std::unique_lock<std::shared_mutex> l(catalog_lock_);
@@ -87,10 +168,11 @@ void BusTubInstance::HandleCreateStatement(Transaction *txn, const CreateStateme
 
 void BusTubInstance::HandleIndexStatement(Transaction *txn, const IndexStatement &stmt, ResultWriter &writer) {
   std::vector<uint32_t> col_ids;
+  const auto is_ivfflat = stmt.index_type_ == "ivfflat";
   for (const auto &col : stmt.cols_) {
     auto idx = stmt.table_->schema_.GetColIdx(col->col_name_.back());
     col_ids.push_back(idx);
-    if (stmt.table_->schema_.GetColumn(idx).GetType() != TypeId::INTEGER) {
+    if (!is_ivfflat && stmt.table_->schema_.GetColumn(idx).GetType() != TypeId::INTEGER) {
       throw NotImplementedException("only support creating index on integer column");
     }
   }
@@ -105,8 +187,18 @@ void BusTubInstance::HandleIndexStatement(Transaction *txn, const IndexStatement
     throw NotImplementedException("only support creating index with exactly one or two columns");
   }
 
+  if (is_ivfflat) {
+    if (col_ids.size() != 1) {
+      throw NotImplementedException("ivfflat only supports single-column index");
+    }
+    if (key_schema.GetColumn(0).GetType() != TypeId::VECTOR) {
+      throw NotImplementedException("ivfflat only supports VECTOR column");
+    }
+  }
+
   std::unique_lock<std::shared_mutex> l(catalog_lock_);
   std::shared_ptr<IndexInfo> info = nullptr;
+  const auto ivfflat_options = is_ivfflat ? BuildIVFFlatOptions(stmt) : IVFFlatIndexOptions{};
 
   if (stmt.index_type_.empty()) {
     info = catalog_->CreateIndex<IntegerKeyType, IntegerValueType, IntegerComparatorType>(
@@ -128,6 +220,9 @@ void BusTubInstance::HandleIndexStatement(Transaction *txn, const IndexStatement
     info = catalog_->CreateIndex<IntegerKeyType, IntegerValueType, IntegerComparatorType>(
         txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema, col_ids, TWO_INTEGER_SIZE,
         IntegerHashFunctionType{}, false, IndexType::STLUnorderedIndex);
+  } else if (stmt.index_type_ == "ivfflat") {
+    info = catalog_->CreateIVFFlatIndex(txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema,
+                                        col_ids, false, ivfflat_options);
   } else {
     UNIMPLEMENTED("unsupported index type " + stmt.index_type_);
   }

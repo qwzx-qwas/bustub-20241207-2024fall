@@ -13,6 +13,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,6 +23,8 @@
 #include "type/value.h"
 
 namespace bustub {
+
+enum class VectorIndexDistanceMetric { L2, Cosine, InnerProduct };
 
 class Transaction;
 
@@ -183,6 +186,13 @@ class Index {
    * @param transaction The transaction context
    */
   virtual void ScanKey(const Tuple &key, std::vector<RID> *result, Transaction *transaction) = 0;
+
+  // 用query区别于key,强调这是“查询向量”，而不是“索引键”，虽然它们的类型都是Tuple
+  virtual auto SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result, Transaction *transaction) -> void {
+    throw NotImplementedException("KNN search is not supported for this index type");
+  }
+
+  virtual auto GetVectorDistanceMetric() const -> std::optional<VectorIndexDistanceMetric> { return std::nullopt; }
 
  protected:
   /** The Index structure owns its metadata */

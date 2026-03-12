@@ -25,6 +25,7 @@ add_library(
         topn_check_executor.cpp
         update_executor.cpp
         values_executor.cpp
+        vector_index_scan_executor.cpp
         vector_knn_scan_executor.cpp
         window_function_executor.cpp
 )

@@ -6,9 +6,17 @@
 
 namespace bustub {
 
+namespace {
+
+auto IndexOptionToString(const IndexOption &option) -> std::string {
+  return std::visit([&](const auto &value) { return fmt::format("{}={}", option.first, value); }, option.second);
+}
+
+}  // namespace
+
 IndexStatement::IndexStatement(std::string index_name, std::unique_ptr<BoundBaseTableRef> table,
                                std::vector<std::unique_ptr<BoundColumnRef>> cols, std::string index_type,
-                               std::vector<std::string> col_options, std::vector<std::pair<std::string, int>> options)
+                               std::vector<std::string> col_options, std::vector<IndexOption> options)
     : BoundStatement(StatementType::INDEX_STATEMENT),
       index_name_(std::move(index_name)),
       table_(std::move(table)),
@@ -18,8 +26,13 @@ IndexStatement::IndexStatement(std::string index_name, std::unique_ptr<BoundBase
       options_(std::move(options)) {}
 
 auto IndexStatement::ToString() const -> std::string {
+  std::vector<std::string> options;
+  options.reserve(options_.size());
+  for (const auto &option : options_) {
+    options.emplace_back(IndexOptionToString(option));
+  }
   return fmt::format("BoundIndex {{ index_name={}, table={}, cols={}, using={}, col_options=[{}], options=[{}] }}",
-                     index_name_, *table_, cols_, index_type_, fmt::join(col_options_, ","), fmt::join(options_, ","));
+                     index_name_, *table_, cols_, index_type_, fmt::join(col_options_, ","), fmt::join(options, ","));
 }
 
 }  // namespace bustub

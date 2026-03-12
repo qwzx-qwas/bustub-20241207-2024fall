@@ -75,6 +75,7 @@ set(BUSTUB_SLT_SOURCES
         "${PROJECT_SOURCE_DIR}/test/sql/p3.leaderboard-q1.slt"
         "${PROJECT_SOURCE_DIR}/test/sql/p3.leaderboard-q2.slt"
         "${PROJECT_SOURCE_DIR}/test/sql/p3.leaderboard-q3.slt"
+        "${PROJECT_SOURCE_DIR}/test/sql/vector_index_scan.slt"
         )
 
 add_custom_target(test-p3 ${CMAKE_CTEST_COMMAND} -R SQLLogicTest)

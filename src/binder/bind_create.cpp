@@ -197,16 +197,27 @@ auto Binder::BindIndex(duckdb_libpgquery::PGIndexStmt *stmt) -> std::unique_ptr<
     }
   }
 
-  std::vector<std::pair<std::string, int>> options;
+  std::vector<IndexOption> options;
 
   if (stmt->options != nullptr) {
     for (auto c = stmt->options->head; c != nullptr; c = lnext(c)) {
       auto def_elem = reinterpret_cast<duckdb_libpgquery::PGDefElem *>(c->data.ptr_value);
-      int val;
-      if (def_elem->arg != nullptr) {
-        val = reinterpret_cast<duckdb_libpgquery::PGValue *>(def_elem->arg)->val.ival;
+      if (def_elem->arg == nullptr) {
+        options.emplace_back(def_elem->defname, int64_t{1});
+        continue;
       }
-      options.emplace_back(def_elem->defname, val);
+      auto *value = reinterpret_cast<duckdb_libpgquery::PGValue *>(def_elem->arg);
+      switch (value->type) {
+        case duckdb_libpgquery::T_PGInteger:
+          options.emplace_back(def_elem->defname, static_cast<int64_t>(value->val.ival));
+          break;
+        case duckdb_libpgquery::T_PGFloat:
+        case duckdb_libpgquery::T_PGString:
+          options.emplace_back(def_elem->defname, std::string(value->val.str));
+          break;
+        default:
+          throw NotImplementedException("unsupported index option type");
+      }
     }
   }
 

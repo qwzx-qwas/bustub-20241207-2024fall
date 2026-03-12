@@ -14,6 +14,7 @@
 #include "execution/plans/projection_plan.h"
 #include "execution/plans/sort_plan.h"
 #include "execution/plans/topn_plan.h"
+#include "execution/plans/vector_index_scan_plan.h"
 #include "execution/plans/vector_knn_scan_plan.h"
 
 namespace bustub {
@@ -86,6 +87,14 @@ auto TopNPlanNode::PlanNodeToString() const -> std::string {
 
 auto VectorKnnScanPlanNode::PlanNodeToString() const -> std::string {
   return fmt::format("VectorKnnScan {{ k={}, distance_expr={} }}", k_, distance_expr_);
+}
+
+auto VectorIndexScanPlanNode::PlanNodeToString() const -> std::string {
+  if (filter_predicate_ != nullptr) {
+    return fmt::format("VectorIndexScan {{ index_oid={}, k={}, query={}, filter={} }}", index_oid_, k_, query_expr_,
+                       filter_predicate_);
+  }
+  return fmt::format("VectorIndexScan {{ index_oid={}, k={}, query={} }}", index_oid_, k_, query_expr_);
 }
 
 }  // namespace bustub

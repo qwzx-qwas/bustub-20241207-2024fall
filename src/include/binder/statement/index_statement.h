@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "binder/bound_statement.h"
@@ -19,11 +20,14 @@
 
 namespace bustub {
 
+using IndexOptionValue = std::variant<int64_t, std::string>;
+using IndexOption = std::pair<std::string, IndexOptionValue>;
+
 class IndexStatement : public BoundStatement {
  public:
   explicit IndexStatement(std::string index_name, std::unique_ptr<BoundBaseTableRef> table,
                           std::vector<std::unique_ptr<BoundColumnRef>> cols, std::string index_type,
-                          std::vector<std::string> col_options, std::vector<std::pair<std::string, int>> options);
+                          std::vector<std::string> col_options, std::vector<IndexOption> options);
 
   /** Name of the index */
   std::string index_name_;
@@ -38,7 +42,7 @@ class IndexStatement : public BoundStatement {
   std::string index_type_;
 
   std::vector<std::string> col_options_;
-  std::vector<std::pair<std::string, int>> options_;
+  std::vector<IndexOption> options_;
 
   auto ToString() const -> std::string override;
 };
