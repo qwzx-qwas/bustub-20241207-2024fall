@@ -16,7 +16,7 @@ select id from t1 order by l2_distance(v, ARRAY [1.0, 0.0, 0.0]) limit 2;
 1
 2
 
-query +ensure:topn
+query +ensure:vector_knn_scan
 select id from t1 order by cosine_distance(v, ARRAY [1.0, 0.0, 0.0]) limit 2;
 ----
 1
@@ -39,3 +39,30 @@ select id from t2 order by cosine_distance(v, ARRAY [1.0, 1.0, 0.0]) limit 2;
 ----
 1
 2
+
+statement ok
+CREATE TABLE t3(v VECTOR(3), id INTEGER);
+
+statement ok
+CREATE INDEX t3v_idx ON t3 USING ivfflat (v) WITH (nlist = 2, nprobe = 1);
+
+statement ok
+INSERT INTO t3 VALUES
+  (ARRAY [0.0, 0.0, 0.0], 1),
+  (ARRAY [40.0, 0.0, 0.0], 2),
+  (ARRAY [100.0, 0.0, 0.0], 3);
+
+query +ensure:vector_index_scan
+select id from t3 where id <> 1 order by l2_distance(v, ARRAY [30.0, 0.0, 0.0]) limit 1;
+----
+2
+
+query +ensure:vector_index_scan
+select id from t3 where id <> 1 order by l2_distance(v, ARRAY [30.0, 0.0, 0.0]) limit 2;
+----
+2
+3
+
+query +ensure:vector_index_scan
+select id from t3 where id < 0 order by l2_distance(v, ARRAY [30.0, 0.0, 0.0]) limit 2;
+----

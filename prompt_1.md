@@ -103,7 +103,7 @@
 ## 需要明确的实现问题
 1. `SearchKnn` 是一次只返回 `k` 个，还是支持“过取”更多候选。
 2. 若第一次候选不足，如何继续扩大搜索范围。
-3. 在 IVFFlat 下，补候选是扩大 `nprobe`、扩大返回上限，还是由 executor 反复请求更多候选。
+3. 在 IVFFlat 下，补候选是逐步扩大 `nprobe`、扩大返回上限。
 4. 最终返回的结果必须满足 MVCC 可见性和 filter 条件。
 
 ## 测试要求
@@ -120,3 +120,7 @@
 4. 说明当前候选补充策略的限制。
 
 
+
+# 可参考：
+/mnt/d/cmu15445/bustub-20241207-2024fall/learning_prompt.md
+/mnt/d/cmu15445/bustub-20241207-2024fall/learning_QA.md

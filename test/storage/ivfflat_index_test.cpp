@@ -1,12 +1,15 @@
 #include <string>
+#include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "common/bustub_instance.h"
+#include "common/util/string_util.h"
 #include "gtest/gtest.h"
 #include "storage/index/int_comparator.h"
 #include "storage/index/ivfflat_index.h"
+#include "../txn/txn_common.h"
 
 namespace bustub {
 
@@ -21,6 +24,26 @@ struct IndexedVectorEntry {
 void ExecuteStatement(BusTubInstance &instance, const std::string &sql) {
   NoopWriter writer;
   ASSERT_TRUE(instance.ExecuteSql(sql, writer));
+}
+
+auto QueryRows(BusTubInstance &instance, const std::string &sql) -> std::vector<std::vector<std::string>> {
+  StringVectorWriter writer;
+  EXPECT_TRUE(instance.ExecuteSql(sql, writer));
+  return writer.values_;
+}
+
+auto QueryRowsTxn(BusTubInstance &instance, Transaction *txn, const std::string &sql)
+    -> std::vector<std::vector<std::string>> {
+  StringVectorWriter writer;
+  EXPECT_TRUE(instance.ExecuteSqlTxn(sql, writer, txn));
+  return writer.values_;
+}
+
+auto ExplainPlan(BusTubInstance &instance, const std::string &sql) -> std::string {
+  std::stringstream ss;
+  SimpleStreamWriter writer(ss);
+  EXPECT_TRUE(instance.ExecuteSql("EXPLAIN (o) " + sql, writer));
+  return ss.str();
 }
 
 auto GetIVFFlatIndex(BusTubInstance &instance, const std::string &table_name, const std::string &index_name)
@@ -190,6 +213,132 @@ TEST(IVFFlatIndexTest, InsertAfterIndexCreation) {
   for (const auto &entry : entries) {
     AssertIndexContains(index, entry);
   }
+}
+
+TEST(IVFFlatIndexTest, ExactKnnRewriteMatchesStarterPlanAndEmptyTable) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE exact_knn(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO exact_knn VALUES "
+                   "(ARRAY [1.0, 0.0, 0.0], 1), "
+                   "(ARRAY [2.0, 0.0, 0.0], 2), "
+                   "(ARRAY [3.0, 0.0, 0.0], 3)");
+
+  const auto sql = "SELECT id FROM exact_knn ORDER BY l2_distance(v, ARRAY [1.0, 0.0, 0.0]) LIMIT 2";
+  const auto optimized_plan = ExplainPlan(*bustub, sql);
+  EXPECT_TRUE(StringUtil::Contains(optimized_plan, "VectorKnnScan")) << optimized_plan;
+
+  const auto exact_rows = QueryRows(*bustub, sql);
+
+  ExecuteStatement(*bustub, "SET force_optimizer_starter_rule=yes");
+  const auto starter_plan = ExplainPlan(*bustub, sql);
+  EXPECT_FALSE(StringUtil::Contains(starter_plan, "VectorKnnScan")) << starter_plan;
+  EXPECT_TRUE(StringUtil::Contains(starter_plan, "ExternalMergeSort")) << starter_plan;
+  const auto starter_rows = QueryRows(*bustub, sql);
+  EXPECT_EQ(exact_rows, starter_rows);
+
+  ExecuteStatement(*bustub, "SET force_optimizer_starter_rule=no");
+  ExecuteStatement(*bustub, "CREATE TABLE exact_knn_empty(v VECTOR(3), id INTEGER)");
+  const auto empty_sql = "SELECT id FROM exact_knn_empty ORDER BY l2_distance(v, ARRAY [1.0, 0.0, 0.0]) LIMIT 3";
+  const auto empty_plan = ExplainPlan(*bustub, empty_sql);
+  EXPECT_TRUE(StringUtil::Contains(empty_plan, "VectorKnnScan")) << empty_plan;
+  EXPECT_TRUE(QueryRows(*bustub, empty_sql).empty());
+}
+
+TEST(IVFFlatIndexTest, ExactKnnKeepsIndexPriorityAndDimensionMismatchError) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE knn_priority(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO knn_priority VALUES "
+                   "(ARRAY [1.0, 0.0, 0.0], 1), "
+                   "(ARRAY [1.0, 1.0, 0.0], 2), "
+                   "(ARRAY [0.0, 1.0, 0.0], 3)");
+  ExecuteStatement(*bustub, "CREATE INDEX knn_priority_l2 ON knn_priority USING ivfflat (v)");
+
+  const auto l2_sql = "SELECT id FROM knn_priority ORDER BY l2_distance(v, ARRAY [1.0, 0.0, 0.0]) LIMIT 2";
+  const auto l2_plan = ExplainPlan(*bustub, l2_sql);
+  EXPECT_TRUE(StringUtil::Contains(l2_plan, "VectorIndexScan")) << l2_plan;
+  EXPECT_FALSE(StringUtil::Contains(l2_plan, "VectorKnnScan")) << l2_plan;
+
+  const auto cosine_sql = "SELECT id FROM knn_priority ORDER BY cosine_distance(v, ARRAY [1.0, 0.0, 0.0]) LIMIT 2";
+  const auto cosine_plan = ExplainPlan(*bustub, cosine_sql);
+  EXPECT_TRUE(StringUtil::Contains(cosine_plan, "VectorKnnScan")) << cosine_plan;
+  EXPECT_FALSE(StringUtil::Contains(cosine_plan, "VectorIndexScan")) << cosine_plan;
+
+  NoopWriter writer;
+  EXPECT_THROW(
+      bustub->ExecuteSql("SELECT id FROM knn_priority ORDER BY cosine_distance(v, ARRAY [1.0, 0.0]) LIMIT 1", writer),
+      Exception);
+}
+
+TEST(IVFFlatIndexTest, ExactKnnRespectsMvccVisibility) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE mvcc_knn(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO mvcc_knn VALUES "
+                   "(ARRAY [5.0, 0.0, 0.0], 5), "
+                   "(ARRAY [10.0, 0.0, 0.0], 10)");
+
+  const auto sql = "SELECT id FROM mvcc_knn ORDER BY l2_distance(v, ARRAY [0.0, 0.0, 0.0]) LIMIT 2";
+  const auto plan = ExplainPlan(*bustub, sql);
+  EXPECT_TRUE(StringUtil::Contains(plan, "VectorKnnScan")) << plan;
+
+  auto *reader_txn = BeginTxn(*bustub, "reader_txn");
+  auto *writer_txn = BeginTxn(*bustub, "writer_txn");
+  WithTxn(writer_txn, ExecuteTxn(*bustub, _var, _txn,
+                                 "INSERT INTO mvcc_knn VALUES (ARRAY [1.0, 0.0, 0.0], 1)"));
+  WithTxn(writer_txn, CommitTxn(*bustub, _var, _txn));
+
+  EXPECT_EQ((QueryRowsTxn(*bustub, reader_txn, sql)),
+            (std::vector<std::vector<std::string>>{{"5"}, {"10"}}));
+
+  auto *fresh_txn = BeginTxn(*bustub, "fresh_txn");
+  EXPECT_EQ((QueryRowsTxn(*bustub, fresh_txn, sql)),
+            (std::vector<std::vector<std::string>>{{"1"}, {"5"}}));
+
+  WithTxn(reader_txn, CommitTxn(*bustub, _var, _txn));
+  WithTxn(fresh_txn, CommitTxn(*bustub, _var, _txn));
+}
+
+TEST(IVFFlatIndexTest, VectorIndexScanFilterBackfillsCandidates) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE filter_knn(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub, "CREATE INDEX filter_knn_idx ON filter_knn USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO filter_knn VALUES "
+                   "(ARRAY [0.0, 0.0, 0.0], 1), "
+                   "(ARRAY [40.0, 0.0, 0.0], 2), "
+                   "(ARRAY [100.0, 0.0, 0.0], 3)");
+
+  const auto sql = "SELECT id FROM filter_knn WHERE id <> 1 "
+                   "ORDER BY l2_distance(v, ARRAY [30.0, 0.0, 0.0]) LIMIT 2";
+  const auto plan = ExplainPlan(*bustub, sql);
+  EXPECT_TRUE(StringUtil::Contains(plan, "VectorIndexScan")) << plan;
+  EXPECT_TRUE(StringUtil::Contains(plan, "filter=(#0.1!=1)")) << plan;
+
+  const auto optimized_rows = QueryRows(*bustub, sql);
+  EXPECT_EQ(optimized_rows, (std::vector<std::vector<std::string>>{{"2"}, {"3"}}));
+
+  ExecuteStatement(*bustub, "SET force_optimizer_starter_rule=yes");
+  const auto starter_rows = QueryRows(*bustub, sql);
+  EXPECT_EQ(optimized_rows, starter_rows);
+}
+
+TEST(IVFFlatIndexTest, VectorIndexScanFilterCanReturnEmpty) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE filter_knn_empty(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub,
+                   "CREATE INDEX filter_knn_empty_idx ON filter_knn_empty USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO filter_knn_empty VALUES "
+                   "(ARRAY [0.0, 0.0, 0.0], 1), "
+                   "(ARRAY [40.0, 0.0, 0.0], 2)");
+
+  const auto sql = "SELECT id FROM filter_knn_empty WHERE id < 0 "
+                   "ORDER BY l2_distance(v, ARRAY [30.0, 0.0, 0.0]) LIMIT 2";
+  const auto plan = ExplainPlan(*bustub, sql);
+  EXPECT_TRUE(StringUtil::Contains(plan, "VectorIndexScan")) << plan;
+  EXPECT_TRUE(QueryRows(*bustub, sql).empty());
 }
 
 }  // namespace bustub

@@ -67,9 +67,6 @@ auto ExecutorFactory::CreateExecutor(ExecutorContext *exec_ctx, const AbstractPl
     case PlanType::IndexScan: {
       return std::make_unique<IndexScanExecutor>(exec_ctx, dynamic_cast<const IndexScanPlanNode *>(plan.get()));
     }
-    
-    //增加一个 case 来支持 VectorKnnScanPlanNode，返回一个 VectorKnnScanExecutor。
-    //即Creat a new vector knn scan executor
     case PlanType::VectorKnnScan: {
       return std::make_unique<VectorKnnScanExecutor>(exec_ctx, dynamic_cast<const VectorKnnScanPlanNode *>(plan.get()));
     }

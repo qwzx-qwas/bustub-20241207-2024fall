@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <tuple>
 #include <vector>
 
 #include "catalog/catalog.h"
@@ -22,10 +23,12 @@ class VectorIndexScanExecutor : public AbstractExecutor {
 
  private:
   auto IsTupleVisible(const TableInfo *table_info, RID rid, Tuple *tuple) const -> bool;
+  auto ApplyFilter(const TableInfo *table_info, const Tuple &tuple) const -> bool;
+  auto EvaluateDistance(const TableInfo *table_info, const Tuple &tuple) const -> double;
 
   const VectorIndexScanPlanNode *plan_;
   IndexInfo *index_info_{nullptr};
-  std::vector<RID> result_rids_;
+  std::vector<std::pair<Tuple, RID>> results_;
   std::size_t result_idx_{0};
 };
 

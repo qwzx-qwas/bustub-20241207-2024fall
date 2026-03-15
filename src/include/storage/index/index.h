@@ -192,7 +192,18 @@ class Index {
     throw NotImplementedException("KNN search is not supported for this index type");
   }
 
+  // SearchKnnWithProbe提供了一个更细粒度的接口，允许调用者指定探测数量以控制搜索范围。
+  virtual auto SearchKnnWithProbe(const Tuple &query, size_t k, std::size_t probe_count, std::vector<RID> *result,
+                                  Transaction *transaction) -> void {
+    // Index types that do not expose a probe knob can reuse the basic KNN API.
+    SearchKnn(query, k, result, transaction);
+  }
+
   virtual auto GetVectorDistanceMetric() const -> std::optional<VectorIndexDistanceMetric> { return std::nullopt; }
+
+  virtual auto GetDefaultKnnProbeCount() const -> std::optional<std::size_t> { return std::nullopt; }
+
+  virtual auto GetMaxKnnProbeCount() const -> std::optional<std::size_t> { return std::nullopt; }
 
  protected:
   /** The Index structure owns its metadata */

@@ -4,19 +4,19 @@ CREATE TABLE t1(v1 VECTOR(3), v2 integer);
 statement ok
 INSERT INTO t1 VALUES (ARRAY [1.0, 1.0, 1.0], 232), (ARRAY [2.0, 1.0, 1.0], 233), (ARRAY [3.0, 1.0, 1.0], 234), (ARRAY [4.0, 1.0, 1.0], 235);
 
-query +ensure:topn
+query +ensure:vector_knn_scan
 select v2 from t1 order by l2_distance(v1, ARRAY [1.0, 1.0, 1.0]) limit 2;
 ----
 232
 233
 
-query +ensure:topn
+query +ensure:vector_knn_scan
 select v2 from t1 order by cosine_distance(v1, ARRAY [1.0, 1.0, 1.0]) limit 2;
 ----
 232
 233
 
-query +ensure:topn
+query +ensure:vector_knn_scan
 select v2 from t1 order by ip_distance(v1, ARRAY [1.0, 1.0, 1.0]) limit 2;
 ----
 235
@@ -30,7 +30,7 @@ select v2, l2_distance(v1, ARRAY [1.0, 1.0, 1.0]) from t1;
 234 2.000000
 235 3.000000
 
-query +ensure:topn
+query +ensure:vector_knn_scan
 select v2 from t1 order by l2_distance(v1, ARRAY [1.0, 1.0, 1.0]) limit 10;
 ----
 232
@@ -53,7 +53,7 @@ select v2 from t1 order by l2_distance(v1, ARRAY [1.0, 1.0, 1.0]), v2 desc limit
 statement ok
 CREATE TABLE t2(v1 VECTOR(3), v2 integer);
 
-query +ensure:topn
+query +ensure:vector_knn_scan
 select v2 from t2 order by l2_distance(v1, ARRAY [1.0, 1.0, 1.0]) limit 3;
 ----
 

@@ -9,11 +9,11 @@
 namespace bustub {
 
 /**
- * VectorKnnScanPlanNode represents a vector KNN scan operation.
+ * VectorKnnScanPlanNode represents an exact vector KNN operation.
  *
- * When optimizer detects a query pattern like `Limit(Sort(child))` where sort
- * key is vector distance, it can be transformed into this specialized plan
- * node to leverage vector index acceleration.
+ * When optimizer detects a query pattern like `Limit(Sort(child))` where the
+ * sort key is a supported vector distance expression and there is no matching
+ * vector index rewrite, it can transform the plan into this specialized node.
  */
 class VectorKnnScanPlanNode : public AbstractPlanNode {
  public:

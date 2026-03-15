@@ -62,7 +62,14 @@ class IVFFlatIndex : public Index {
 
   auto SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result, Transaction *transaction) -> void override;
 
+  auto SearchKnnWithProbe(const Tuple &query, size_t k, std::size_t probe_count, std::vector<RID> *result,
+                          Transaction *transaction) -> void override;
+
   auto GetVectorDistanceMetric() const -> std::optional<VectorIndexDistanceMetric> override { return metric_; }
+
+  auto GetDefaultKnnProbeCount() const -> std::optional<std::size_t> override { return nprobe_; }
+
+  auto GetMaxKnnProbeCount() const -> std::optional<std::size_t> override { return lists_.empty() ? nlist_ : lists_.size(); }
 
   auto GetNList() const -> std::size_t { return nlist_; }
 
@@ -279,13 +286,23 @@ void IVFFlatIndex<KT, VT, Cmp>::ScanKey(const Tuple &key, std::vector<RID> *resu
 template <typename KT, typename VT, typename Cmp>
 auto IVFFlatIndex<KT, VT, Cmp>::SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result,
                                           Transaction *transaction) -> void {
+  // Preserve the stage-1 behavior for callers that just want the index default.
+  SearchKnnWithProbe(query, k, nprobe_, result, transaction);
+}
+
+template <typename KT, typename VT, typename Cmp>
+auto IVFFlatIndex<KT, VT, Cmp>::SearchKnnWithProbe(const Tuple &query, size_t k, std::size_t probe_count,
+                                                   std::vector<RID> *result, Transaction *transaction) -> void {
   std::scoped_lock<std::mutex> lck(lock_);
   result->clear();
   if (centroids_.empty()) {
     return;
   }
 
-  const auto closest_lists = FindClosestCentroidsUnlocked(query, nprobe_);
+  // Stage 2 may temporarily widen the search radius beyond the index default
+  // to recover enough post-filter candidates.
+  const auto effective_probe_count = std::max<std::size_t>(1, std::min(probe_count, centroids_.size()));
+  const auto closest_lists = FindClosestCentroidsUnlocked(query, effective_probe_count);
   std::vector<std::pair<double, RID>> dist_rids;
   for (const auto list_idx : closest_lists) {
     dist_rids.reserve(dist_rids.size() + lists_[list_idx].size());
