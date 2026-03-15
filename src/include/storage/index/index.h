@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,6 +26,20 @@
 namespace bustub {
 
 enum class VectorIndexDistanceMetric { L2, Cosine, InnerProduct };
+
+/** 作用：统一表达 ANN 查询预算，避免执行器直接依赖某个索引实现的私有术语。 */
+struct AnnSearchOptions {
+  std::size_t top_k_{0};
+  std::size_t candidate_budget_{0};
+  std::size_t search_budget_{0};
+};
+
+/** 作用：携带 ANN 候选的 RID 与索引键版本，便于执行器做 MVCC / stale 复查。 */
+struct VectorIndexCandidate {
+  RID rid_{};
+  Tuple index_key_{};
+  std::uint64_t candidate_id_{0};
+};
 
 class Transaction;
 
@@ -192,18 +207,46 @@ class Index {
     throw NotImplementedException("KNN search is not supported for this index type");
   }
 
-  // SearchKnnWithProbe提供了一个更细粒度的接口，允许调用者指定探测数量以控制搜索范围。
+  /** 作用：统一对外暴露 ANN 搜索接口，`search_budget_` 由具体索引自行解释。 */
+  virtual auto SearchVector(const Tuple &query, const AnnSearchOptions &options, std::vector<VectorIndexCandidate> *result,
+                            Transaction *transaction) -> void {
+    throw NotImplementedException("Approximate vector search is not supported for this index type");
+  }
+
+  /** 作用：兼容旧的 KNN 调用方，并复用新的通用 ANN 搜索接口。 */
+  virtual auto GetDefaultAnnSearchOptions(std::size_t top_k) const -> std::optional<AnnSearchOptions> {
+    return std::nullopt;
+  }
+
+  /** 作用：向执行器暴露搜索预算上限，但不泄露具体实现名词。 */
+  virtual auto GetMaxAnnSearchBudget() const -> std::optional<std::size_t> { return std::nullopt; }
+
+  /** 作用：兼容旧接口，内部转发到通用 ANN 接口。 */
   virtual auto SearchKnnWithProbe(const Tuple &query, size_t k, std::size_t probe_count, std::vector<RID> *result,
                                   Transaction *transaction) -> void {
-    // Index types that do not expose a probe knob can reuse the basic KNN API.
-    SearchKnn(query, k, result, transaction);
+    const auto options = AnnSearchOptions{k, k, probe_count};
+    std::vector<VectorIndexCandidate> candidates;
+    SearchVector(query, options, &candidates, transaction);
+    result->clear();
+    result->reserve(candidates.size());
+    for (const auto &candidate : candidates) {
+      result->push_back(candidate.rid_);
+    }
   }
 
   virtual auto GetVectorDistanceMetric() const -> std::optional<VectorIndexDistanceMetric> { return std::nullopt; }
 
-  virtual auto GetDefaultKnnProbeCount() const -> std::optional<std::size_t> { return std::nullopt; }
+  /** 作用：兼容旧接口，避免影响未迁移的调用方。 */
+  virtual auto GetDefaultKnnProbeCount() const -> std::optional<std::size_t> {
+    auto options = GetDefaultAnnSearchOptions(1);
+    if (!options.has_value()) {
+      return std::nullopt;
+    }
+    return options->search_budget_;
+  }
 
-  virtual auto GetMaxKnnProbeCount() const -> std::optional<std::size_t> { return std::nullopt; }
+  /** 作用：兼容旧接口，避免影响未迁移的调用方。 */
+  virtual auto GetMaxKnnProbeCount() const -> std::optional<std::size_t> { return GetMaxAnnSearchBudget(); }
 
  protected:
   /** The Index structure owns its metadata */

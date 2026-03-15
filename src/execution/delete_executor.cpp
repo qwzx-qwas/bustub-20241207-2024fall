@@ -19,6 +19,15 @@
 
 namespace bustub {
 
+namespace {
+
+/** 作用：识别当前索引是否属于向量索引，便于只对该类索引执行阶段一维护逻辑。 */
+auto IsVectorIndex(const IndexInfo *index_info) -> bool {
+  return index_info->index_->GetVectorDistanceMetric().has_value();
+}
+
+}  // namespace
+
 DeleteExecutor::DeleteExecutor(ExecutorContext *exec_ctx, const DeletePlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
     : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {}
@@ -189,14 +198,15 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
     if (delete_success) {
       txn->AppendWriteSet(table_info_->oid_, curr_old_rid);
-      // 维护索引，由4.2要求：不再调用 index->DeleteEntry(...) 来移除索引条目。
-      // 只做表中 tuple 的 UpdateTupleAndUndoLink（写 undo log）并标记 is_deleted。
-      /*for (auto index_info : indexes_) {
-        auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
-      index_info->index_->GetKeyAttrs());
-        //删除旧的索引项
+      // 仅对向量索引做 stale 标记，保持旧版本仍可供 MVCC 查询路径复查。
+      for (auto index_info : indexes_) {
+        if (!IsVectorIndex(index_info)) {
+          continue;
+        }
+        auto old_key =
+            curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs());
         index_info->index_->DeleteEntry(old_key, curr_old_rid, txn);
-      }*/
+      }
       delete_count++;
     } else {
       throw ExecutionException("DeleteExecutor::Next failed to update tuple.");

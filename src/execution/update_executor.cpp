@@ -18,6 +18,15 @@
 
 namespace bustub {
 
+namespace {
+
+/** 作用：识别当前索引是否属于向量索引，便于只对该类索引执行阶段一维护逻辑。 */
+auto IsVectorIndex(const IndexInfo *index_info) -> bool {
+  return index_info->index_->GetVectorDistanceMetric().has_value();
+}
+
+}  // namespace
+
 UpdateExecutor::UpdateExecutor(ExecutorContext *exec_ctx, const UpdatePlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
     : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {
@@ -42,74 +51,6 @@ void UpdateExecutor::Init() {
   // 初始化状态量
   executed_ = false;
 }
-/*auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
-  //先检查是否已经执行过更新
-  if (executed_) {
-    return false;
-  }
-  executed_ = true;
-  // Update logic here
-  uint32_t update_count = 0;
-  Tuple old_tuple;
-  RID old_rid;
-
-  // 1. 收集所有需要更新的元组，避免 Halloween Problem 和迭代器失效
-  //因为一边读取一边更新会导致后续更新的tuple被再次读到，导致死循环或迭代器失效
-  // 所以提前收集起来（对delete也是一样）
-  std::vector<std::pair<Tuple, RID>> tuples_to_update;
-  while (child_executor_->Next(&old_tuple, &old_rid)) {
-    tuples_to_update.emplace_back(old_tuple, old_rid);
-  }
-
-  // 2. 执行更新操作
-  for (const auto &[curr_old_tuple, curr_old_rid] : tuples_to_update) {
-    //根据更新计划生成新的tuple
-    std::vector<Value> updated_values;
-    //构造更新后的值列表
-    for (const auto &expr : plan_->target_expressions_) {
-      updated_values.push_back(expr->Evaluate(&curr_old_tuple, table_info_->schema_));
-    }
-    //构造新的tuple
-    Tuple new_tuple(updated_values, &table_info_->schema_);
-
-    //先维护索引
-    for (auto index_info : indexes_) {
-      //根据旧tuple和索引的schema生成索引键值
-      auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
-                                                 index_info->index_->GetKeyAttrs());
-      //删除旧的索引项
-      index_info->index_->DeleteEntry(old_key, curr_old_rid, exec_ctx_->GetTransaction());
-      //注意：新键的插入需要在下面拿到new_rid之后进行
-    }
-
-    //标记删除旧tuple
-    TupleMeta old_meta = table_heap_->GetTupleMeta(curr_old_rid);
-    old_meta.is_deleted_ = true;
-    table_heap_->UpdateTupleMeta(old_meta, curr_old_rid);
-
-    //插入新的tuple
-    auto new_rid_opt = table_heap_->InsertTuple(TupleMeta{0, false}, new_tuple, exec_ctx_->GetLockManager(),
-                                                exec_ctx_->GetTransaction(), table_info_->oid_);
-    if (new_rid_opt.has_value()) {
-      RID new_rid = new_rid_opt.value();
-      update_count++;
-      //更新相关索引
-      for (auto index_info : indexes_) {
-        //根据新tuple和索引的schema生成索引键值
-        auto new_key = new_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
-                                              index_info->index_->GetKeyAttrs());
-        //插入新的索引项
-        index_info->index_->InsertEntry(new_key, new_rid, exec_ctx_->GetTransaction());
-      }
-    }
-  }
-
-  //构造返回的tuple，表示更新的行数
-  std::vector<Value> values;
-  values.emplace_back(ValueFactory::GetIntegerValue(update_count));
-  *tuple = Tuple(values, &GetOutputSchema());
-  return true;
-}*/
 
 auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   //先检查是否已经执行过更新
@@ -185,6 +126,13 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       Tuple new_key_;
     };
     std::vector<PrimaryKeyInfo> pk_indexes;
+    struct VectorIndexInfo {
+      IndexInfo *index_info_;
+      Tuple old_key_;
+      Tuple new_key_;
+      bool key_changed_;
+    };
+    std::vector<VectorIndexInfo> vector_indexes;
     for (auto index_info : indexes_) {
       if (index_info->is_primary_key_) {
         auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
@@ -195,6 +143,14 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
           primary_key_changed = true;
         }
         pk_indexes.push_back(PrimaryKeyInfo{index_info, old_key, new_key});
+      }
+      if (IsVectorIndex(index_info)) {
+        auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
+                                                   index_info->index_->GetKeyAttrs());
+        auto new_key = new_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
+                                              index_info->index_->GetKeyAttrs());
+        const bool key_changed = !IsTupleContentEqual(old_key, new_key);
+        vector_indexes.push_back(VectorIndexInfo{index_info, old_key, new_key, key_changed});
       }
     }
 
@@ -236,6 +192,18 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
       if (!update_success) {
         throw ExecutionException("UpdateExecutor::Next failed to update tuple.");
+      }
+
+      // 向量索引键变化时，把旧 entry 标成 stale，并插入同 RID 的新版本 entry。
+      for (const auto &vector_index : vector_indexes) {
+        if (!vector_index.key_changed_) {
+          continue;
+        }
+        vector_index.index_info_->index_->DeleteEntry(vector_index.old_key_, curr_old_rid, txn);
+        if (!vector_index.index_info_->index_->InsertEntry(vector_index.new_key_, curr_old_rid, txn)) {
+          txn->SetTainted();
+          throw ExecutionException("UpdateExecutor::Next failed due to vector index insertion failure.");
+        }
       }
 
       update_count++;
@@ -281,6 +249,9 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       throw ExecutionException("UpdateExecutor::Next failed to update tuple.");
     }
     txn->AppendWriteSet(table_info_->oid_, curr_old_rid);
+    for (const auto &vector_index : vector_indexes) {
+      vector_index.index_info_->index_->DeleteEntry(vector_index.old_key_, curr_old_rid, txn);
+    }
     deferred_inserts.push_back({new_tuple});
   }
 
@@ -293,6 +264,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     //再insert, 先做唯一性检查
     //如果索引已有条目且指向deleted RID，则尝试复用该RID
     bool reused_deleted_rid = false;
+    std::optional<RID> reused_rid;
     for (auto index_info : indexes_) {
       if (!index_info->is_primary_key_) {
         continue;
@@ -332,6 +304,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
             if (update_success) {
               txn->AppendWriteSet(table_info_->oid_, existing_rid);
               reused_deleted_rid = true;
+              reused_rid = existing_rid;
               break;
             }
           }
@@ -343,6 +316,17 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     }
 
     if (reused_deleted_rid) {
+      for (auto index_info : indexes_) {
+        if (!IsVectorIndex(index_info)) {
+          continue;
+        }
+        auto index_key = new_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
+                                                index_info->index_->GetKeyAttrs());
+        if (!index_info->index_->InsertEntry(index_key, *reused_rid, exec_ctx_->GetTransaction())) {
+          txn->SetTainted();
+          throw ExecutionException("UpdateExecutor::Next failed due to vector index insertion failure.");
+        }
+      }
       update_count++;
       continue;
     }

@@ -19,6 +19,25 @@
 
 namespace bustub {
 
+namespace {
+
+/** 作用：把子执行器输出按目标表 schema 重新物化，统一触发 VECTOR 维度校验。 */
+auto MaterializeTupleForSchema(const Tuple &tuple, const Schema &source_schema, const Schema &target_schema) -> Tuple {
+  std::vector<Value> values;
+  values.reserve(target_schema.GetColumnCount());
+  for (uint32_t col_idx = 0; col_idx < target_schema.GetColumnCount(); col_idx++) {
+    values.push_back(tuple.GetValue(&source_schema, col_idx));
+  }
+  return Tuple(values, &target_schema);
+}
+
+/** 作用：识别当前索引是否属于向量索引，便于只对该类索引执行阶段一维护逻辑。 */
+auto IsVectorIndex(const IndexInfo *index_info) -> bool {
+  return index_info->index_->GetVectorDistanceMetric().has_value();
+}
+
+}  // namespace
+
 InsertExecutor::InsertExecutor(ExecutorContext *exec_ctx, const InsertPlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
     : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {}
@@ -105,6 +124,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   }
   // 获取当前事务
   auto txn = exec_ctx_->GetTransaction();
+  const auto &child_output_schema = child_executor_->GetOutputSchema();
   // 获取事务的临时时间戳(一个事务内的所有操作被视为一个整体。
   // 在事务提交之前，该事务修改的所有行都打上相同的“临时标记”。)
   timestamp_t txn_ts = txn->GetTransactionTempTs();
@@ -119,7 +139,8 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   TupleMeta meta = {txn_ts, false};
 
   // 2. 执行插入操作
-  for (const auto &tuple_entry : tuples_to_insert) {
+  for (const auto &raw_tuple_entry : tuples_to_insert) {
+    auto tuple_entry = MaterializeTupleForSchema(raw_tuple_entry, child_output_schema, table_info_->schema_);
     // 主键唯一性检查(先查index)
     bool reused_deleted_rid = false;
     for (auto index_info : indexes_) {
@@ -160,6 +181,17 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
                   });
               if (update_success) {
                 txn->AppendWriteSet(table_info_->oid_, existing_rid);
+                for (auto maintained_index : indexes_) {
+                  if (!IsVectorIndex(maintained_index)) {
+                    continue;
+                  }
+                  Tuple index_key = tuple_entry.KeyFromTuple(table_info_->schema_, *maintained_index->index_->GetKeySchema(),
+                                                             maintained_index->index_->GetKeyAttrs());
+                  if (!maintained_index->index_->InsertEntry(index_key, existing_rid, exec_ctx_->GetTransaction())) {
+                    txn->SetTainted();
+                    throw ExecutionException("InsertExecutor::Next failed due to vector index insertion failure.");
+                  }
+                }
                 insert_count++;
                 reused_deleted_rid = true;
                 break;

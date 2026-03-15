@@ -26,6 +26,11 @@ void ExecuteStatement(BusTubInstance &instance, const std::string &sql) {
   ASSERT_TRUE(instance.ExecuteSql(sql, writer));
 }
 
+void ExecuteStatementExpectFailure(BusTubInstance &instance, const std::string &sql) {
+  NoopWriter writer;
+  EXPECT_THROW(instance.ExecuteSql(sql, writer), Exception);
+}
+
 auto QueryRows(BusTubInstance &instance, const std::string &sql) -> std::vector<std::vector<std::string>> {
   StringVectorWriter writer;
   EXPECT_TRUE(instance.ExecuteSql(sql, writer));
@@ -339,6 +344,121 @@ TEST(IVFFlatIndexTest, VectorIndexScanFilterCanReturnEmpty) {
   const auto plan = ExplainPlan(*bustub, sql);
   EXPECT_TRUE(StringUtil::Contains(plan, "VectorIndexScan")) << plan;
   EXPECT_TRUE(QueryRows(*bustub, sql).empty());
+}
+
+TEST(IVFFlatIndexTest, ValidatesVectorDimensionsOnWritePaths) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE dim_guard(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub, "INSERT INTO dim_guard VALUES (ARRAY [1.0, 0.0, 0.0], 1)");
+  ExecuteStatement(*bustub, "CREATE TABLE dim_src(v VECTOR(2), id INTEGER)");
+  ExecuteStatement(*bustub, "INSERT INTO dim_src VALUES (ARRAY [9.0, 9.0], 9)");
+
+  ExecuteStatementExpectFailure(*bustub, "INSERT INTO dim_guard VALUES (ARRAY [1.0, 2.0], 2)");
+  ExecuteStatementExpectFailure(*bustub, "UPDATE dim_guard SET v = ARRAY [1.0, 2.0] WHERE id = 1");
+  ExecuteStatementExpectFailure(*bustub, "INSERT INTO dim_guard SELECT v, id FROM dim_src");
+  ExecuteStatementExpectFailure(*bustub, "INSERT INTO dim_guard VALUES (NULL, 3)");
+}
+
+TEST(IVFFlatIndexTest, DeleteReturnsCorrectRowsAndSurfacesStaleCandidates) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE stale_delete(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub, "CREATE INDEX stale_delete_idx ON stale_delete USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO stale_delete VALUES "
+                   "(ARRAY [0.0, 0.0, 0.0], 1), "
+                   "(ARRAY [20.0, 0.0, 0.0], 2), "
+                   "(ARRAY [40.0, 0.0, 0.0], 3)");
+  ExecuteStatement(*bustub, "DELETE FROM stale_delete WHERE id = 1");
+
+  auto *index = GetIVFFlatIndex(*bustub, "stale_delete", "stale_delete_idx");
+  ASSERT_NE(index, nullptr);
+  EXPECT_EQ(index->GetStaleEntryCount(), 1U);
+  const auto stale_before = index->GetReturnedStaleCandidateCount();
+
+  const auto sql = "SELECT id FROM stale_delete ORDER BY l2_distance(v, ARRAY [1.0, 0.0, 0.0]) LIMIT 2";
+  EXPECT_EQ(QueryRows(*bustub, sql), (std::vector<std::vector<std::string>>{{"2"}, {"3"}}));
+  EXPECT_GT(index->GetReturnedStaleCandidateCount(), stale_before);
+}
+
+TEST(IVFFlatIndexTest, UpdateVectorMovesSearchHitToNewPosition) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE stale_update(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub, "CREATE INDEX stale_update_idx ON stale_update USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO stale_update VALUES "
+                   "(ARRAY [0.0, 0.0, 0.0], 1), "
+                   "(ARRAY [5.0, 0.0, 0.0], 2), "
+                   "(ARRAY [100.0, 0.0, 0.0], 3)");
+  ExecuteStatement(*bustub, "UPDATE stale_update SET v = ARRAY [90.0, 0.0, 0.0] WHERE id = 1");
+
+  auto *index = GetIVFFlatIndex(*bustub, "stale_update", "stale_update_idx");
+  ASSERT_NE(index, nullptr);
+  const auto stale_before = index->GetReturnedStaleCandidateCount();
+
+  EXPECT_EQ(QueryRows(*bustub,
+                      "SELECT id FROM stale_update ORDER BY l2_distance(v, ARRAY [0.0, 0.0, 0.0]) LIMIT 1"),
+            (std::vector<std::vector<std::string>>{{"2"}}));
+  EXPECT_EQ(QueryRows(*bustub,
+                      "SELECT id FROM stale_update ORDER BY l2_distance(v, ARRAY [95.0, 0.0, 0.0]) LIMIT 1"),
+            (std::vector<std::vector<std::string>>{{"1"}}));
+  EXPECT_GT(index->GetReturnedStaleCandidateCount(), stale_before);
+}
+
+TEST(IVFFlatIndexTest, RebuildCleansStaleEntriesWithoutChangingResults) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE rebuild_ivf(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub, "CREATE INDEX rebuild_ivf_idx ON rebuild_ivf USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO rebuild_ivf VALUES "
+                   "(ARRAY [0.0, 0.0, 0.0], 1), "
+                   "(ARRAY [10.0, 0.0, 0.0], 2), "
+                   "(ARRAY [20.0, 0.0, 0.0], 3), "
+                   "(ARRAY [30.0, 0.0, 0.0], 4), "
+                   "(ARRAY [40.0, 0.0, 0.0], 5), "
+                   "(ARRAY [50.0, 0.0, 0.0], 6)");
+  ExecuteStatement(*bustub, "DELETE FROM rebuild_ivf WHERE id <= 4");
+
+  auto *index = GetIVFFlatIndex(*bustub, "rebuild_ivf", "rebuild_ivf_idx");
+  ASSERT_NE(index, nullptr);
+  EXPECT_EQ(index->GetStaleEntryCount(), 4U);
+  EXPECT_EQ(index->GetRebuildCount(), 0U);
+
+  const auto sql = "SELECT id FROM rebuild_ivf ORDER BY l2_distance(v, ARRAY [45.0, 0.0, 0.0]) LIMIT 2";
+  const auto before_rows = QueryRows(*bustub, sql);
+  EXPECT_EQ(before_rows, (std::vector<std::vector<std::string>>{{"5"}, {"6"}}));
+  EXPECT_EQ(index->GetRebuildCount(), 1U);
+  EXPECT_EQ(index->GetStaleEntryCount(), 0U);
+
+  const auto after_rows = QueryRows(*bustub, sql);
+  EXPECT_EQ(before_rows, after_rows);
+}
+
+TEST(IVFFlatIndexTest, AnnSearchOptionsMapSearchBudgetToProbeCount) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  ExecuteStatement(*bustub, "CREATE TABLE ann_budget(v VECTOR(3), id INTEGER)");
+  ExecuteStatement(*bustub,
+                   "INSERT INTO ann_budget VALUES "
+                   "(ARRAY [0.0, 0.0, 0.0], 1), "
+                   "(ARRAY [40.0, 0.0, 0.0], 2), "
+                   "(ARRAY [100.0, 0.0, 0.0], 3)");
+  ExecuteStatement(*bustub, "CREATE INDEX ann_budget_idx ON ann_budget USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+
+  auto *index = GetIVFFlatIndex(*bustub, "ann_budget", "ann_budget_idx");
+  ASSERT_NE(index, nullptr);
+  auto table_info = bustub->catalog_->GetTable("ann_budget");
+  ASSERT_NE(table_info, nullptr);
+  const auto entries = CollectIndexedEntries(table_info.get(), index);
+
+  const auto query = MakeQueryTuple({30.0, 0.0, 0.0}, index);
+  std::vector<VectorIndexCandidate> budget1_result;
+  std::vector<VectorIndexCandidate> budget2_result;
+  index->SearchVector(query, AnnSearchOptions{1, 1, 1}, &budget1_result, nullptr);
+  index->SearchVector(query, AnnSearchOptions{1, 1, 2}, &budget2_result, nullptr);
+
+  ASSERT_EQ(budget1_result.size(), 1U);
+  ASSERT_EQ(budget2_result.size(), 1U);
+  EXPECT_EQ(budget1_result[0].rid_, FindRidById(entries, 1));
+  EXPECT_EQ(budget2_result[0].rid_, FindRidById(entries, 2));
 }
 
 }  // namespace bustub

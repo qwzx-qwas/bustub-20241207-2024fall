@@ -66,3 +66,43 @@ select id from t3 where id <> 1 order by l2_distance(v, ARRAY [30.0, 0.0, 0.0]) 
 query +ensure:vector_index_scan
 select id from t3 where id < 0 order by l2_distance(v, ARRAY [30.0, 0.0, 0.0]) limit 2;
 ----
+
+statement ok
+CREATE TABLE t4(v VECTOR(3), id INTEGER);
+
+statement ok
+CREATE INDEX t4v_idx ON t4 USING hnsw (v) WITH (m = 4, ef_construction = 16, ef_search = 8);
+
+statement ok
+INSERT INTO t4 VALUES
+  (ARRAY [0.0, 0.0, 0.0], 1),
+  (ARRAY [1.0, 0.0, 0.0], 2),
+  (ARRAY [2.0, 0.0, 0.0], 3),
+  (ARRAY [10.0, 0.0, 0.0], 4);
+
+query +ensure:vector_index_scan
+select id from t4 order by l2_distance(v, ARRAY [1.2, 0.0, 0.0]) limit 2;
+----
+2
+3
+
+statement ok
+CREATE TABLE t5(v VECTOR(3), id INTEGER);
+
+statement ok
+CREATE INDEX t5_hnsw_l2_idx ON t5 USING hnsw (v) WITH (metric = 'l2');
+
+statement ok
+CREATE INDEX t5_ivf_cos_idx ON t5 USING ivfflat (v) WITH (metric = 'cosine', nlist = 2, nprobe = 2);
+
+statement ok
+INSERT INTO t5 VALUES
+  (ARRAY [1.0, 0.0, 0.0], 1),
+  (ARRAY [1.0, 1.0, 0.0], 2),
+  (ARRAY [0.0, 1.0, 0.0], 3);
+
+query +ensure:vector_index_scan
+select id from t5 order by cosine_distance(v, ARRAY [1.0, 0.0, 0.0]) limit 2;
+----
+1
+2

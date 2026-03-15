@@ -12,6 +12,8 @@
 
 #include "execution/execution_common.h"
 
+#include <cstring>
+
 #include "catalog/catalog.h"
 #include "common/macros.h"
 #include "concurrency/transaction_manager.h"
@@ -20,6 +22,27 @@
 #include "type/value_factory.h"
 
 namespace bustub {
+
+namespace {
+
+/** 作用：为 undo-log 生成提供稳定的列值比较，并显式支持 VECTOR 按内容比对。 */
+auto ValuesExactlyEqual(const Value &lhs, const Value &rhs) -> bool {
+  if (lhs.GetTypeId() == TypeId::VECTOR || rhs.GetTypeId() == TypeId::VECTOR) {
+    if (lhs.IsNull() || rhs.IsNull()) {
+      return lhs.IsNull() && rhs.IsNull();
+    }
+    if (lhs.GetTypeId() != rhs.GetTypeId()) {
+      return false;
+    }
+    if (lhs.GetStorageSize() != rhs.GetStorageSize()) {
+      return false;
+    }
+    return std::memcmp(lhs.GetData(), rhs.GetData(), lhs.GetStorageSize()) == 0;
+  }
+  return lhs.CompareExactlyEquals(rhs);
+}
+
+}  // namespace
 
 TupleComparator::TupleComparator(std::vector<OrderBy> order_bys) : order_bys_(std::move(order_bys)) {}
 // 排序时比较两个元组的排序键，按照 order_bys_ 中指定的列和顺序进行比较
@@ -286,7 +309,7 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
     }
 
     Value new_value = target_tuple->GetValue(schema, i);
-    if (!old_value.CompareExactlyEquals(new_value)) {
+    if (!ValuesExactlyEqual(old_value, new_value)) {
       //该列被修改了
       modified_fields[i] = true;
       //记录对应的列索引和旧值
@@ -394,7 +417,7 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
 
     Value old_val = base_tuple->GetValue(schema, i);
     Value new_val = target_tuple->GetValue(schema, i);
-    currently_modified = (!old_val.CompareExactlyEquals(new_val));
+    currently_modified = (!ValuesExactlyEqual(old_val, new_val));
 
     //只要之前改了或现在改了，modified就算改了,计为true
     if (previously_modified || currently_modified) {

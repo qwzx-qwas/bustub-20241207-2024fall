@@ -17,13 +17,47 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "storage/table/tuple.h"
 
 namespace bustub {
 
+namespace {
+
+/** 作用：在所有写入路径统一校验 VECTOR 列的类型、NULL 与维度是否合法。 */
+void ValidateVectorColumns(const std::vector<Value> &values, const Schema *schema) {
+  for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+    const auto &column = schema->GetColumn(i);
+    if (column.GetType() != TypeId::VECTOR) {
+      continue;
+    }
+
+    const auto &value = values[i];
+    if (value.IsNull()) {
+      throw Exception("NULL VECTOR value is not supported");
+    }
+    if (value.GetTypeId() != TypeId::VECTOR) {
+      throw Exception("vector column expects VECTOR value");
+    }
+
+    const auto expected_dim = column.GetStorageSize() / sizeof(double);
+    const auto actual_size = value.GetStorageSize();
+    if (actual_size % sizeof(double) != 0) {
+      throw Exception("vector value storage is corrupted");
+    }
+    const auto actual_dim = actual_size / sizeof(double);
+    if (expected_dim != actual_dim) {
+      throw Exception("vector dimension mismatch");
+    }
+  }
+}
+
+}  // namespace
+
 // TODO(Amadou): It does not look like nulls are supported. Add a null bitmap?
 Tuple::Tuple(std::vector<Value> values, const Schema *schema) {
   assert(values.size() == schema->GetColumnCount());
+  ValidateVectorColumns(values, schema);
 
   // 1. Calculate the size of the tuple.
   uint32_t tuple_size = schema->GetInlinedStorageSize();

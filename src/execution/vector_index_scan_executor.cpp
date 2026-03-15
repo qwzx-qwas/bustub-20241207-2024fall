@@ -12,6 +12,18 @@
 
 namespace bustub {
 
+namespace {
+
+/** 作用：校验索引候选携带的键版本是否与当前事务可见 tuple 的索引键一致。 */
+auto CandidateMatchesVisibleTuple(const TableInfo *table_info, const IndexInfo *index_info, const Tuple &visible_tuple,
+                                  const VectorIndexCandidate &candidate) -> bool {
+  const auto visible_key =
+      visible_tuple.KeyFromTuple(table_info->schema_, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs());
+  return IsTupleContentEqual(visible_key, candidate.index_key_);
+}
+
+}  // namespace
+
 VectorIndexScanExecutor::VectorIndexScanExecutor(ExecutorContext *exec_ctx, const VectorIndexScanPlanNode *plan)
     : AbstractExecutor(exec_ctx), plan_(plan) {}
 
@@ -35,32 +47,33 @@ void VectorIndexScanExecutor::Init() {
   if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
     txn->AppendScanPredicate(plan_->GetTableOid(), plan_->GetFilterPredicate());
   }
-  // 解决补候选问题：
-  const auto default_probe_count = index_info_->index_->GetDefaultKnnProbeCount().value_or(1);
-  const auto max_probe_count = std::max(default_probe_count, index_info_->index_->GetMaxKnnProbeCount().value_or(default_probe_count));
-  // 当前探测多少个ivf列表，或者说多少个probe。
-  std::size_t probe_count = std::max<std::size_t>(1, default_probe_count);
-  // 当前从索引最多拿多少个候选项
-  std::size_t candidate_limit = std::max<std::size_t>(1, plan_->GetK());
-  // 防止重复处理同一个RID
-  std::unordered_set<RID> seen_rids;
+  // 作用：执行器只感知统一预算语义，不直接依赖 nprobe 这类索引私有术语。
+  auto search_options = index_info_->index_->GetDefaultAnnSearchOptions(plan_->GetK()).value_or(
+      AnnSearchOptions{plan_->GetK(), std::max<std::size_t>(1, plan_->GetK()), 1});
+  const auto max_search_budget = std::max(search_options.search_budget_,
+                                          index_info_->index_->GetMaxAnnSearchBudget().value_or(search_options.search_budget_));
+  std::unordered_set<std::uint64_t> seen_candidate_ids;
+  std::unordered_set<RID> accepted_rids;
   // 通过检查的候选
   std::vector<std::tuple<double, Tuple, RID>> accepted_candidates;
 
   while (true) {
-    std::vector<RID> round_rids;
-    // Ask the index for a progressively wider candidate set when earlier
-    // candidates disappear after MVCC reconstruction or filter evaluation.
-    index_info_->index_->SearchKnnWithProbe(query_tuple, candidate_limit, probe_count, &round_rids, txn);
+    std::vector<VectorIndexCandidate> round_candidates;
+    index_info_->index_->SearchVector(query_tuple, search_options, &round_candidates, txn);
 
-    for (const auto &candidate_rid : round_rids) {
-      if (!seen_rids.emplace(candidate_rid).second) {
+    for (const auto &candidate : round_candidates) {
+      if (!seen_candidate_ids.emplace(candidate.candidate_id_).second) {
         continue;
       }
 
       Tuple visible_tuple;
       // 做MVCC可见性检查和重建，如果不可见就跳过这个候选项。
-      if (!IsTupleVisible(table_info.get(), candidate_rid, &visible_tuple)) {
+      if (!IsTupleVisible(table_info.get(), candidate.rid_, &visible_tuple)) {
+        continue;
+      }
+
+      // 只有候选键版本与当前事务可见版本一致时，才认为它不是 stale 命中。
+      if (!CandidateMatchesVisibleTuple(table_info.get(), index_info_, visible_tuple, candidate)) {
         continue;
       }
 
@@ -68,33 +81,41 @@ void VectorIndexScanExecutor::Init() {
         continue;
       }
 
-      accepted_candidates.emplace_back(EvaluateDistance(table_info.get(), visible_tuple), visible_tuple, candidate_rid);
+      if (!accepted_rids.emplace(candidate.rid_).second) {
+        continue;
+      }
+
+      accepted_candidates.emplace_back(EvaluateDistance(table_info.get(), visible_tuple), visible_tuple, candidate.rid_);
     }
 
     if (accepted_candidates.size() >= plan_->GetK()) {
       break;
     }
 
-    const bool can_expand_probe = probe_count < max_probe_count;
-    const bool can_expand_limit = round_rids.size() >= candidate_limit;
-    if (!can_expand_probe && !can_expand_limit) {
+    const bool can_expand_search_budget = search_options.search_budget_ < max_search_budget;
+    const bool can_expand_candidate_budget = round_candidates.size() >= search_options.candidate_budget_;
+    if (!can_expand_search_budget && !can_expand_candidate_budget) {
       break;
     }
 
-    if (can_expand_probe) {
-      // IVFFlat recall usually improves by probing more lists first.
-      probe_count = std::min(max_probe_count, std::max(probe_count + 1, probe_count * 2));
+    if (can_expand_search_budget) {
+      search_options.search_budget_ =
+          std::min(max_search_budget, std::max(search_options.search_budget_ + 1, search_options.search_budget_ * 2));
     }
-    if (can_expand_limit) {
-      // Also over-fetch within the probed lists so filtering does not starve
-      // the final top-k result.
-      candidate_limit = std::max(candidate_limit + 1, candidate_limit * 2);
+    if (can_expand_candidate_budget) {
+      search_options.candidate_budget_ =
+          std::max(search_options.candidate_budget_ + 1, search_options.candidate_budget_ * 2);
     }
   }
 
   // Re-sort accepted tuples so executor output still matches ORDER BY distance.
   std::sort(accepted_candidates.begin(), accepted_candidates.end(),
-            [](const auto &a, const auto &b) { return std::get<0>(a) < std::get<0>(b); });
+            [](const auto &a, const auto &b) {
+              if (std::get<0>(a) != std::get<0>(b)) {
+                return std::get<0>(a) < std::get<0>(b);
+              }
+              return std::get<2>(a).Get() < std::get<2>(b).Get();
+            });
 
   const auto keep = std::min(plan_->GetK(), accepted_candidates.size());
   results_.reserve(keep);

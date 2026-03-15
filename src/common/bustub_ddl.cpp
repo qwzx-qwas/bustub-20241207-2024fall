@@ -121,6 +121,33 @@ auto BuildIVFFlatOptions(const IndexStatement &stmt) -> IVFFlatIndexOptions {
   return options;
 }
 
+/** 作用：把 CREATE INDEX ... USING hnsw 的 WITH 选项解析成 HNSW 构建参数。 */
+auto BuildHNSWOptions(const IndexStatement &stmt) -> HNSWIndexOptions {
+  HNSWIndexOptions options;
+  for (const auto &[raw_name, value] : stmt.options_) {
+    const auto name = StringUtil::Lower(raw_name);
+    if (name == "m") {
+      options.m_ = ParsePositiveIndexOption(value, "m");
+      continue;
+    }
+    if (name == "ef_construction") {
+      options.ef_construction_ = ParsePositiveIndexOption(value, "ef_construction");
+      continue;
+    }
+    if (name == "ef_search") {
+      options.ef_search_ = ParsePositiveIndexOption(value, "ef_search");
+      continue;
+    }
+    if (name == "metric") {
+      options.metric_ = ParseMetricOption(value);
+      continue;
+    }
+    throw bustub::Exception(fmt::format("unsupported hnsw option {}", raw_name));
+  }
+  options.ef_construction_ = std::max(options.ef_construction_, options.m_);
+  return options;
+}
+
 }  // namespace
 
 void BusTubInstance::HandleCreateStatement(Transaction *txn, const CreateStatement &stmt, ResultWriter &writer) {
@@ -168,11 +195,13 @@ void BusTubInstance::HandleCreateStatement(Transaction *txn, const CreateStateme
 
 void BusTubInstance::HandleIndexStatement(Transaction *txn, const IndexStatement &stmt, ResultWriter &writer) {
   std::vector<uint32_t> col_ids;
-  const auto is_ivfflat = stmt.index_type_ == "ivfflat";
+  const auto index_type = StringUtil::Lower(stmt.index_type_);
+  const auto is_ivfflat = index_type == "ivfflat";
+  const auto is_hnsw = index_type == "hnsw";
   for (const auto &col : stmt.cols_) {
     auto idx = stmt.table_->schema_.GetColIdx(col->col_name_.back());
     col_ids.push_back(idx);
-    if (!is_ivfflat && stmt.table_->schema_.GetColumn(idx).GetType() != TypeId::INTEGER) {
+    if (!(is_ivfflat || is_hnsw) && stmt.table_->schema_.GetColumn(idx).GetType() != TypeId::INTEGER) {
       throw NotImplementedException("only support creating index on integer column");
     }
   }
@@ -187,42 +216,46 @@ void BusTubInstance::HandleIndexStatement(Transaction *txn, const IndexStatement
     throw NotImplementedException("only support creating index with exactly one or two columns");
   }
 
-  if (is_ivfflat) {
+  if (is_ivfflat || is_hnsw) {
     if (col_ids.size() != 1) {
-      throw NotImplementedException("ivfflat only supports single-column index");
+      throw NotImplementedException(fmt::format("{} only supports single-column index", index_type));
     }
     if (key_schema.GetColumn(0).GetType() != TypeId::VECTOR) {
-      throw NotImplementedException("ivfflat only supports VECTOR column");
+      throw NotImplementedException(fmt::format("{} only supports VECTOR column", index_type));
     }
   }
 
   std::unique_lock<std::shared_mutex> l(catalog_lock_);
   std::shared_ptr<IndexInfo> info = nullptr;
   const auto ivfflat_options = is_ivfflat ? BuildIVFFlatOptions(stmt) : IVFFlatIndexOptions{};
+  const auto hnsw_options = is_hnsw ? BuildHNSWOptions(stmt) : HNSWIndexOptions{};
 
-  if (stmt.index_type_.empty()) {
+  if (index_type.empty()) {
     info = catalog_->CreateIndex<IntegerKeyType, IntegerValueType, IntegerComparatorType>(
         txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema, col_ids, TWO_INTEGER_SIZE,
         IntegerHashFunctionType{}, false);  // create default index
-  } else if (stmt.index_type_ == "hash") {
+  } else if (index_type == "hash") {
     info = catalog_->CreateIndex<IntegerKeyType, IntegerValueType, IntegerComparatorType>(
         txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema, col_ids, TWO_INTEGER_SIZE,
         IntegerHashFunctionType{}, false, IndexType::HashTableIndex);
-  } else if (stmt.index_type_ == "bplustree") {
+  } else if (index_type == "bplustree") {
     info = catalog_->CreateIndex<IntegerKeyType, IntegerValueType, IntegerComparatorType>(
         txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema, col_ids, TWO_INTEGER_SIZE,
         IntegerHashFunctionType{}, false, IndexType::BPlusTreeIndex);
-  } else if (stmt.index_type_ == "stl_ordered") {
+  } else if (index_type == "stl_ordered") {
     info = catalog_->CreateIndex<IntegerKeyType, IntegerValueType, IntegerComparatorType>(
         txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema, col_ids, TWO_INTEGER_SIZE,
         IntegerHashFunctionType{}, false, IndexType::STLOrderedIndex);
-  } else if (stmt.index_type_ == "stl_unordered") {
+  } else if (index_type == "stl_unordered") {
     info = catalog_->CreateIndex<IntegerKeyType, IntegerValueType, IntegerComparatorType>(
         txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema, col_ids, TWO_INTEGER_SIZE,
         IntegerHashFunctionType{}, false, IndexType::STLUnorderedIndex);
-  } else if (stmt.index_type_ == "ivfflat") {
+  } else if (index_type == "ivfflat") {
     info = catalog_->CreateIVFFlatIndex(txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema,
                                         col_ids, false, ivfflat_options);
+  } else if (index_type == "hnsw") {
+    info = catalog_->CreateHNSWIndex(txn, stmt.index_name_, stmt.table_->table_, stmt.table_->schema_, key_schema,
+                                     col_ids, false, hnsw_options);
   } else {
     UNIMPLEMENTED("unsupported index type " + stmt.index_type_);
   }

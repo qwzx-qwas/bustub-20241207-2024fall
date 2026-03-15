@@ -24,6 +24,7 @@
 #include "container/hash/hash_function.h"
 #include "storage/index/b_plus_tree_index.h"
 #include "storage/index/extendible_hash_table_index.h"
+#include "storage/index/hnsw_index.h"
 #include "storage/index/index.h"
 #include "storage/index/ivfflat_index.h"
 #include "storage/index/stl_ordered.h"
@@ -40,7 +41,7 @@ using table_oid_t = uint32_t;
 using column_oid_t = uint32_t;
 using index_oid_t = uint32_t;
 
-enum class IndexType { BPlusTreeIndex, HashTableIndex, STLOrderedIndex, STLUnorderedIndex, IVFFlatIndex };
+enum class IndexType { BPlusTreeIndex, HashTableIndex, STLOrderedIndex, STLUnorderedIndex, IVFFlatIndex, HNSWIndex };
 
 /**
  * The TableInfo class maintains metadata about a table.
@@ -308,6 +309,9 @@ class Catalog {
     std::vector<std::pair<Tuple, RID>> entries;
     for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
       auto [tuple_meta, tuple] = iter.GetTuple();
+      if (tuple_meta.is_deleted_) {
+        continue;
+      }
       entries.emplace_back(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid());
     }
     index->BuildFromEntries(entries);
@@ -316,6 +320,44 @@ class Catalog {
     auto index_info = std::make_shared<IndexInfo>(key_schema, index_name, std::move(index), index_oid, table_name,
                                                   key_schema.GetInlinedStorageSize(), is_primary_key,
                                                   IndexType::IVFFlatIndex);
+    indexes_.emplace(index_oid, index_info);
+    table_indexes.emplace(index_name, index_oid);
+    return index_info;
+  }
+
+  /** 作用：创建 HNSW 向量索引，并按表中当前可见条目顺序构建多层图。 */
+  auto CreateHNSWIndex(Transaction *txn, const std::string &index_name, const std::string &table_name,
+                       const Schema &schema, const Schema &key_schema, const std::vector<uint32_t> &key_attrs,
+                       bool is_primary_key = false, HNSWIndexOptions options = {}) -> std::shared_ptr<IndexInfo> {
+    if (table_names_.find(table_name) == table_names_.end()) {
+      return NULL_INDEX_INFO;
+    }
+    BUSTUB_ASSERT((index_names_.find(table_name) != index_names_.end()), "Broken Invariant");
+
+    auto &table_indexes = index_names_.find(table_name)->second;
+    if (table_indexes.find(index_name) != table_indexes.end()) {
+      return NULL_INDEX_INFO;
+    }
+
+    auto meta = std::make_unique<IndexMetadata>(index_name, table_name, &schema, key_attrs, is_primary_key);
+    auto index =
+        std::make_unique<HNSWIndex<Tuple, RID, IntComparator>>(std::move(meta), bpm_, HashFunction<Tuple>{}, options);
+
+    auto table_meta = GetTable(table_name);
+    std::vector<std::pair<Tuple, RID>> entries;
+    for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
+      auto [tuple_meta, tuple] = iter.GetTuple();
+      if (tuple_meta.is_deleted_) {
+        continue;
+      }
+      entries.emplace_back(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid());
+    }
+    index->BuildFromEntries(entries);
+
+    const auto index_oid = next_index_oid_.fetch_add(1);
+    auto index_info = std::make_shared<IndexInfo>(key_schema, index_name, std::move(index), index_oid, table_name,
+                                                  key_schema.GetInlinedStorageSize(), is_primary_key,
+                                                  IndexType::HNSWIndex);
     indexes_.emplace(index_oid, index_info);
     table_indexes.emplace(index_name, index_oid);
     return index_info;
@@ -458,6 +500,9 @@ struct fmt::formatter<bustub::IndexType> : formatter<string_view> {
         break;
       case bustub::IndexType::IVFFlatIndex:
         name = "IVFFlat";
+        break;
+      case bustub::IndexType::HNSWIndex:
+        name = "HNSW";
         break;
       default:
         name = "Unknown";

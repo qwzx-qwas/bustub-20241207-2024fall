@@ -59,3 +59,18 @@ select v2 from t2 order by l2_distance(v1, ARRAY [1.0, 1.0, 1.0]) limit 3;
 
 statement error
 select v2 from t1 order by l2_distance(v1, ARRAY [1.0, 1.0]) limit 1;
+
+statement error
+insert into t1 values (ARRAY [1.0, 1.0], 999);
+
+statement error
+update t1 set v1 = ARRAY [1.0, 1.0] where v2 = 232;
+
+statement ok
+CREATE TABLE t3(v1 VECTOR(2), v2 integer);
+
+statement ok
+INSERT INTO t3 VALUES (ARRAY [8.0, 8.0], 8);
+
+statement error
+INSERT INTO t1 SELECT v1, v2 FROM t3;

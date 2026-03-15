@@ -1,5 +1,7 @@
 #include "optimizer/optimizer.h"
 
+#include <limits>
+
 #include "catalog/catalog.h"
 #include "execution/expressions/column_value_expression.h"
 #include "execution/expressions/logic_expression.h"
@@ -22,6 +24,7 @@ auto IsVectorDistanceExpr(const AbstractExpressionRef &expr) -> bool {
 auto IsSupportedVectorIndexType(IndexType index_type) -> bool {
   switch (index_type) {
     case IndexType::IVFFlatIndex:
+    case IndexType::HNSWIndex:
       return true;
     default:
       return false;
@@ -105,8 +108,52 @@ auto GetCombinedFilterPredicate(const AbstractPlanNodeRef &plan) -> AbstractExpr
   return nullptr;
 }
 
+/** 作用：估算表的活跃行数，为向量索引路径选择提供最小可用的规模信号。 */
+auto EstimateLiveTupleCount(const TableInfo *table_info) -> std::size_t {
+  std::size_t count = 0;
+  for (auto iter = table_info->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
+    const auto [meta, tuple] = iter.GetTuple();
+    if (!meta.is_deleted_) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/** 作用：用简单启发式比较多个可用向量索引，优先选择更适合当前 top-k 的路径。 */
+auto ScoreVectorIndexChoice(const IndexInfo &index_info, std::size_t live_tuple_count, std::size_t top_k) -> int {
+  switch (index_info.index_type_) {
+    case IndexType::HNSWIndex: {
+      int score = 120;
+      if (live_tuple_count >= 128) {
+        score += 30;
+      }
+      if (top_k <= 10) {
+        score += 25;
+      } else if (top_k <= 50) {
+        score += 10;
+      } else {
+        score -= 25;
+      }
+      return score;
+    }
+    case IndexType::IVFFlatIndex: {
+      int score = 100;
+      if (live_tuple_count >= 128) {
+        score += 10;
+      }
+      if (top_k > 32) {
+        score += 20;
+      }
+      return score;
+    }
+    default:
+      return std::numeric_limits<int>::min();
+  }
+}
+
 auto FindMatchingVectorIndex(const Catalog &catalog, const SeqScanPlanNode &seq_scan,
-                             const AbstractExpressionRef &distance_expr) -> const IndexInfo * {
+                             const AbstractExpressionRef &distance_expr, std::size_t top_k) -> const IndexInfo * {
   auto vector_query = ExtractIndexedVectorQuery(distance_expr);
   if (!vector_query.has_value()) {
     return nullptr;
@@ -116,7 +163,10 @@ auto FindMatchingVectorIndex(const Catalog &catalog, const SeqScanPlanNode &seq_
   BUSTUB_ASSERT(distance != nullptr, "vector distance expression expected");
   const auto required_metric = GetVectorDistanceMetric(distance);
   auto table_info = catalog.GetTable(seq_scan.GetTableOid());
+  const auto live_tuple_count = EstimateLiveTupleCount(table_info.get());
   const auto indexes = catalog.GetTableIndexes(table_info->name_);
+  const IndexInfo *best_index = nullptr;
+  auto best_score = std::numeric_limits<int>::min();
   for (const auto &index_info : indexes) {
     if (!IsSupportedVectorIndexType(index_info->index_type_)) {
       continue;
@@ -124,11 +174,15 @@ auto FindMatchingVectorIndex(const Catalog &catalog, const SeqScanPlanNode &seq_
     const auto &key_attrs = index_info->index_->GetKeyAttrs();
     if (key_attrs.size() == 1 && key_attrs[0] == vector_query->first &&
         index_info->index_->GetVectorDistanceMetric() == required_metric) {
-      return index_info.get();
+      const auto score = ScoreVectorIndexChoice(*index_info, live_tuple_count, top_k);
+      if (score > best_score) {
+        best_score = score;
+        best_index = index_info.get();
+      }
     }
   }
 
-  return nullptr;
+  return best_index;
 }
 
 }  // namespace
@@ -166,7 +220,7 @@ auto Optimizer::OptimizeVectorKnnScan(const AbstractPlanNodeRef &plan) -> Abstra
     return optimized_plan;
   }
 
-  const auto *matching_index = FindMatchingVectorIndex(catalog_, *seq_scan, distance_expr);
+  const auto *matching_index = FindMatchingVectorIndex(catalog_, *seq_scan, distance_expr, limit_plan.GetLimit());
   if (matching_index != nullptr) {
     auto vector_query = ExtractIndexedVectorQuery(distance_expr);
     BUSTUB_ASSERT(vector_query.has_value(), "matching vector index requires an indexed vector query");
