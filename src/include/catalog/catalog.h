@@ -161,10 +161,10 @@ class Catalog {
       table = TableHeap::CreateEmptyHeap(create_table_heap);
     }
 
-    // Fetch the table OID for the new table
+    // Fetch the table OID for the new table 生成新的table_oid
     const auto table_oid = next_table_oid_.fetch_add(1);
 
-    // Construct the table information
+    // Construct the table information 构造table_info
     auto meta = std::make_shared<TableInfo>(schema, table_name, std::move(table), table_oid);
 
     // Update the internal tracking mechanisms
