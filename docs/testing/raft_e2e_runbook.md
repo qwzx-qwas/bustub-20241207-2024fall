@@ -1,4 +1,4 @@
-# Raft V1 E2E runbook
+# Raft M0-M8 E2E runbook
 
 ## Build outside the repository
 
@@ -14,7 +14,7 @@ cmake --build /tmp/bustub-raft-build-clang --target \
 ```
 
 Loopback sockets can be forbidden by a development sandbox even though the code is valid. Run TCP and process tests in
-an environment that permits only local `127.0.0.1` connections. Tests allocate unique temporary directories; the five
+an environment that permits only local `127.0.0.1` connections. Tests allocate unique temporary directories; the six
 shell timelines take an isolated low port base, so parallel invocations must use non-overlapping bases and every derived
 listener must remain below the host ephemeral-port range.
 
@@ -30,7 +30,7 @@ ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
   /tmp/bustub-raft-build-clang /tmp/bustub-raft-component-logs
 ```
 
-The runner executes the 26 M0-M7 binaries exactly once and writes one log plus the GoogleTest JSON report per binary
+The runner executes the 27 M0-M8 binaries exactly once and writes one log plus the GoogleTest JSON report per binary
 under the caller-owned external artifact root. Preserve them through result summarization/upload; then delete successful
 raw artifacts at the cleanup gate. Preserve failures only through diagnosis, handoff, or explicit external archival.
 Before starting, it reverse-scans every recovery/Raft/distributed test source and rejects an incomplete or stale binary
@@ -74,6 +74,9 @@ bash test/e2e/raft_m7_recovery_matrix.sh \
 
 bash test/e2e/raft_m0_m7_chain.sh \
   /tmp/bustub-raft-build-clang 25100 /tmp/bustub-raft-m0-m7-chain-current
+
+bash test/e2e/raft_m8_payload_binding.sh \
+  /tmp/bustub-raft-build-clang 26100 /tmp/bustub-raft-m8-payload-binding-current
 ```
 
 Keep every scenario's listener, client, proxy, and derived sub-scenario port below the host's ephemeral allocation
@@ -104,6 +107,17 @@ forward/drop formal frames or edit stopped test files; they add no production te
 logs and directories at the requested external artifact root. The cleanup gate removes successful raw state after
 summary/upload and removes failed state after diagnosis, handoff, or explicit archival; process/PID/port cleanup is
 mandatory at the end of every scenario.
+
+The independent M8 timeline uses one fresh homogeneous three-node state. It proves with fixed-endpoint one-shot client
+calls that a changed reuse of the latest request ID returns the exact stable rejection text without changing literal
+rows or the serving node's `LOG-MUTATIONS` size/SHA-256. It repeats that proof after a dropped response and Leader kill,
+after independently parsing a covering V1 `CURRENT` record, on a pre-request follower forced through a recorded
+InstallSnapshot and then elected Leader, and after all three directories cold-open. The threshold stays above the
+pre-snapshot rejection boundary; another client commits three real SQL writes to trigger compaction, so background log
+rewrites cannot race the earlier journal oracle. Two consecutive full three-node cold reopens repeat both the changed
+and exact retry checks. Exact retries must return the byte-identical cached `WriteResponseV1` and independently leave
+stable Raft fields, literal rows, and `LOG-MUTATIONS` size/SHA-256 unchanged. Only Leader discovery and status
+advancement may poll; none of the safety requests reroute or retry.
 
 Do not copy process helpers back into the scenario scripts. New process cases should be timeline functions or scripts
 that source the same harness; if a client receives `NOT_LEADER`, the shared retry path follows the advertised Leader or
@@ -165,14 +179,18 @@ TSAN_OPTIONS=halt_on_error=1:history_size=7 \
   setarch x86_64 -R /tmp/bustub-raft-build-tsan/test/raft_node_test --gtest_color=no
 
 TSAN_OPTIONS=halt_on_error=1:history_size=7 \
+  setarch x86_64 -R /tmp/bustub-raft-build-tsan/test/session_table_test --gtest_color=no
+
+TSAN_OPTIONS=halt_on_error=1:history_size=7 \
   setarch x86_64 -R /tmp/bustub-raft-build-tsan/test/bustub_state_machine_test --gtest_color=no
 
 TSAN_OPTIONS=halt_on_error=1:history_size=7 \
   setarch x86_64 -R /tmp/bustub-raft-build-tsan/test/distributed_node_test --gtest_color=no
 ```
 
-The TSan core label includes `distributed_node_test` because it exercises production tick, listener, client-worker,
-snapshot, restart, and `Stop()`/join concurrency that the deterministic single-threaded Raft harness does not create.
+The TSan core label includes `session_table_test` for M8 fingerprint/session locking and `distributed_node_test` because
+it exercises production tick, listener, client-worker, snapshot, restart, and `Stop()`/join concurrency that the
+deterministic single-threaded Raft harness does not create.
 
 Do not use this retry for a data-race report, assertion, timeout, or failure after a test starts. `setarch -R` changes
 only the child process personality; it does not change a system-wide kernel setting.
@@ -216,9 +234,12 @@ rg -n "test/include|gtest|InMemoryRaftTransport|ManualClock" src tools
 ```
 
 Remove only exact, reviewed test artifact roots and core files. Keep source, registered tests, reusable harnesses,
-protocol/operations documents, and explicit acceptance records. Generated-file scans must distinguish tracked files;
-do not delete legitimate names such as `core.h`, checked-in XML, or the tracked nested baseline merely because a broad
-pattern matches. Never recursively delete the repository root or a path resolved only through an unchecked variable/glob.
+protocol/operations documents, explicit acceptance records, and checked-in fixtures whose provenance is known.
+Generated-file scans must distinguish tracked files; do not delete legitimate names such as `core.h` or checked-in XML
+merely because a broad pattern matches. Conversely, tracked status alone is not proof that a file is a fixture: the M8
+provenance audit found an unreferenced obsolete nested source duplicate and four tracked root runtime/diagnostic outputs,
+which `2a1d2ce` removed after explicit scope approval. Never recursively delete the repository root or a path resolved
+only through an unchecked variable/glob.
 
 Before deletion, enumerate all task-owned candidates (for example, `find /tmp -maxdepth 1 -type d -name 'bustub*'`),
 resolve and review every printed path, and record its size. Delete only that explicit list; do not turn the enumeration

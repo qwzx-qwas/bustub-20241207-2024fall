@@ -1491,7 +1491,7 @@ test/e2e/*.sh               # 外部 harness/场景，启动正式二进制
 ## 最终门禁测试集
 
 1. 当前里程碑的 component manifest 全部通过，并单独运行仓库支持的 public-CI regression set；
-   不得用当前 26 个 Raft 组件二进制的结果冒充仓库全部 GTest。CI 还必须以独立 Release job
+   不得用当前 27 个 Raft 组件二进制的结果冒充仓库全部 GTest。CI 还必须以独立 Release job
    构建 `sqllogictest` 并运行所有已注册 `.slt`，不能由排除 SQLLogic 的 public GTest job 代替。
 2. M0–M2 全部恢复与掉电点测试通过。
 3. M3–M4 全部确定性 Raft safety/snapshot 测试通过。
@@ -1536,10 +1536,11 @@ test/e2e/*.sh               # 外部 harness/场景，启动正式二进制
 # 里程碑唯一执行顺序与门禁
 
 ```text
-M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7
+M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7 -> M8（写重试 payload 绑定）
 ```
 
-任何里程碑没有通过自己的退出门禁，不进入下一里程碑。各章只能细化本表，不得另行创建“第几阶段”的并行执行轴。
+任何里程碑没有通过自己的退出门禁，不进入下一里程碑。M8 是从非线性候选 DAG 中已完成准入的唯一分配，
+不代表其余候选已获得后续编号。各章只能细化本表，不得另行创建“第几阶段”的并行执行轴。
 
 ## 里程碑唯一归属表
 
@@ -1552,13 +1553,15 @@ M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7
 | M4 | B | SnapshotStore、压缩、分块 InstallSnapshot/ACK liveness、两次 stale guard、suffix 保留、compacted follower catch-up 与 durable restart | KV snapshot/命名崩溃组件矩阵 | SQL producer、正式三进程验收 |
 | M5 | C | raw SQL -> V1 单 statement canonical batch/`CommitSql` adapter、CommandBuilder/golden、显式 OID、SQL PK/secondary UNIQUE/unsupported 语义的无副作用准入；用完整 command-set/跨实例确定性/多行并发 oracle 累计复验 M2 consumer，实现 BusTub Raft snapshot hooks 与 `BeginReadAt` exact-timestamp primitive，累计重跑 M0–M2 真实 SQL 恢复链 | 独立 producer golden、真实非空 SQL、双实例 cumulative Apply、exact timestamp 单元、组件并发 oracle | M2 batch admission/consumer/Session 状态机、common latch/term-0 publisher、ReadIndex/majority/Leader response、TCP、新 Leader retry |
 | M6 | D | DistributedNode/正式 TCP/client、M1 NodeDirectory 上的 durable node/group/voters identity extension、single-write gate、NOT_LEADER hint、ReadIndex 到 M5 `BeginReadAt` 的 BusTub/stale-read 组装、正常链路、切主/响应丢失/AppendEntries 追赶 | 三进程 E2E-01/03/04/08/13；02/06/09/12 的低层 deterministic/TCP 前置 | 在线分区/恢复矩阵、快照故障补集与 final gate |
-| M7 | D + 横切 | 在线分区、InstallSnapshot 追赶、全停全启、快照崩溃/损坏/stale replay、E2E 补集、全量回归/sanitizer、M3–M7 分布式累计链与清理总门禁 | E2E-02/05/06/07/09/10/11/12/14/15 + component/public-CI/SLT/sanitizer/清理 | 任何未定义的 M8/V2 功能 |
+| M7 | D + 横切 | 在线分区、InstallSnapshot 追赶、全停全启、快照崩溃/损坏/stale replay、E2E 补集、全量回归/sanitizer、M3–M7 分布式累计链与清理总门禁 | E2E-02/05/06/07/09/10/11/12/14/15 + component/public-CI/SLT/sanitizer/清理 | 任何当时未定义的 M8/V2 功能 |
+| M8 | application-protocol hardening | 写重试 payload 绑定：在 SQL prepare 前生成稳定 fingerprint，随 CommandBatch 复制并随 Session/snapshot 持久化；同一身份的 changed payload fail-closed | 手写 SHA/intent/CommandBatchV2/SessionV2 golden，真实 SQL 组件 oracle，三正式进程的丢响应、切主、快照与 cold restart E2E | 认证/client 注册、并发 request window、多个 in-flight proposal、迁移/rolling upgrade 及其他候选节点 |
 
-## M7 后非线性路线图与准入：M8 仍未分配
+## M7 后非线性路线图与准入：M8 已唯一分配
 
 M0–M7 已经是“实验性 BusTub + 简单静态三节点 Raft”的完整可交付终点，后续阶段不是完成该项目的
-必经步骤。“允许继续执行”只授权进入已经定义的阶段，不会自动给 M8 分配功能。M7 后内容是带依赖关系的
-候选 DAG，不是 `M8 -> M9 -> ...` 的预排串行计划；一次里程碑只能选择一个前置已满足的候选节点
+必经步骤。2026-08-30 用户已明确授权沿方案继续，因而把唯一 ready node“写重试 payload 绑定”分配为 M8；
+这次分配不把其余候选转成默认待办。M7 后内容仍是带依赖关系的候选 DAG，不是 `M8 -> M9 -> ...` 的
+预排串行计划；一次里程碑只能选择一个前置已满足的候选节点
 （ready node），不能把它的未完成依赖闭包一起塞入该阶段。共享前置只能有一个 owner，不能在多个阶段
 重复实现 overlay、scheduler 或 migration。
 
@@ -1566,7 +1569,7 @@ M0–M7 已经是“实验性 BusTub + 简单静态三节点 Raft”的完整可
 
 | 分类 | 可单独分配的候选节点 | 依赖与明确边界 |
 | --- | --- | --- |
-| 定位内 application-protocol hardening | 写重试 payload 绑定 | 复用 V1 exact-once 身份；新增 request-entry fingerprint 及 CommandBatch/Session/snapshot 持久化，不包含认证、client 注册或并发 request window |
+| 定位内 application-protocol hardening（M8 已完成） | 写重试 payload 绑定（不再位于 ready frontier） | 复用 V1 exact-once 身份；新增 request-entry fingerprint 及 CommandBatch/Session/snapshot 持久化，不包含认证、client 注册或并发 request window |
 | 定位内 misuse hardening | durable mode/store-role marker | marker 必须先于任何 mode-owned 文件创建；非空且无 marker 的旧目录默认 fail-closed，只能经显式 offline adoption/migration 处理，禁止根据内容猜测后就地补写 marker |
 | 教学型 DB 语义 | 复合 `NOT NULL` primary key | 第一阶段只允许现有 V1 `INTEGER/BIGINT/VARCHAR` 分量，独立定义 tuple identity codec/comparator 与 Catalog 格式；nullable primary key 永久排除 |
 | 教学型 DB 语义 | 额外的确定性、非空标量 primary-key type | 每种 type 单独证明跨节点 stable encoding/equality/order；不与复合 key 捆绑 |
@@ -1585,7 +1588,7 @@ M0–M7 已经是“实验性 BusTub + 简单静态三节点 Raft”的完整可
 默认待办清单。若两个节点需要同一 net-mutation primitive，由先获分配的节点拥有通用最小实现，后续节点复用，
 不得复制一套 statement/batch 校验器。
 
-以下工作会改变当前项目定位，不进入普通 M8 候选：base backup + 连续 WAL、fuzzy/COW/低停顿快照、
+以下工作会改变当前项目定位，不进入普通后续候选：base backup + 连续 WAL、fuzzy/COW/低停顿快照、
 成熟 Raft 库迁移、动态成员/learner、认证和安全 client identity、通用路由/服务发现、rolling upgrade、
 分片、多 Raft Group 与跨组事务。只有用户明确改变项目定义后，才重新评估并建立新的顶层方案。
 
@@ -1622,9 +1625,12 @@ upgrade 项目，不属于本实验项目默认门禁。只给新目录写一个
 CMake/CI；不得只运行新写的 happy-path 测试。
 阶段结束后执行中间产物/进程/端口清理，完成该阶段即停止，不预执行下一候选。
 
-### 推荐但尚未分配的首个候选：写重试 payload 绑定
+### 已分配 M8：写重试 payload 绑定
 
-该候选最贴近已经存在的 exact-once 主线，但本段只是推荐，不代表 M8 已获分配或已经开始：
+M8 只加固已经存在的 exact-once 主线。其输入是已解码的非空 `ClientWriteRequestV1`、V1 的顺序
+`(client_id, request_id)` Session 身份、单 active proposal gate 和 fresh distributed directories；功能 owner 是
+`RequestFingerprintV1`、CommandBatchV2、SessionV2 及入口/Apply 的原子分类。它不改变 SQL producer/consumer
+语义，也不创建第二套 exact-once 或 snapshot owner。
 
 - 当 `request_id == last_request_id` 时，相同 `(client_id, request_id)` 与相同 fingerprint 在丢响应、切 Leader、
   重启和快照恢复后返回 byte-identical cached response；同一最近 ID 与不同 fingerprint 在已知 committed
@@ -1637,18 +1643,52 @@ CMake/CI；不得只运行新写的 happy-path 测试。
   tag 及 write-intent 中精确纳入/排除的字段，不能依赖 C++ 对象布局、节点本地配置、`std::hash` 或仅用 CRC
   承担 identity 判定；它在 non-Byzantine 模型下用于误用检测，不是认证。对本项目建议绑定长度分帧后的
   operation kind + 原始 write payload bytes，排除 routing metadata 与独立的 client/request identity；语义等价但
-  字节不同的 SQL 也视为 changed payload。mismatch 必须有稳定 wire error，是否因此改变 client wire 由格式矩阵决定。
+  字节不同的 SQL 也视为 changed payload。M8 冻结的 preimage 是 ASCII
+  `BUSTUB_RAFT_WRITE_INTENT`（不含 NUL）+ big-endian `u32 fingerprint_format=1` + big-endian
+  `u32 operation_kind=1 (WRITE_SQL)` + big-endian `u32 payload_length` + 已解码请求中的 exact SQL bytes；算法是
+  FIPS 180-4 SHA-256，结果为 32 raw bytes。`RequestFingerprintV1` 的持久化表示是 big-endian `u32 version=1`
+  加该 32 bytes。它不是认证、签名或抗 Byzantine 证明。mismatch 使用现有 client response V1 的
+  `REJECTED` 状态与稳定 UTF-8 payload `request payload does not match request identity`，不为错误文本升 client wire。
 - 本候选不做认证、client 注册/token、自动 ID 分配、同 client 并发、多个 in-flight proposal、group commit、
   rolling upgrade 或 term-0 迁移。分区两侧可能暂时各有同 ID 的不同未提交 entry；V1 模型只要求其中一个
   一旦提交，之后的冲突版本 fail-closed 且绝不产生第二次副作用，不声称有全局 precommit reservation。
-- 旧 V1 Session 没有原 payload，不能回填可信 fingerprint。若未来正式分配该候选，针对本实验项目优先选择
-  fresh-directory/homogeneous V2 cutover；若确有保留旧数据要求，再单独设计 `digest-unknown` 的 offline upgrade，
-  不能静默把未知值当作匹配。
+- 旧 V1 Session 没有原 payload，不能回填可信 fingerprint。M8 只选择 fresh-directory homogeneous cutover：
+  三节点使用同一 M8 executable 与三个空的新 distributed directories，CommandBatch/Session 只读写 V2，明确
+  不支持复用 M7 durable directory、V1/V2 dual-read、mixed binary 或 rolling upgrade。若以后确有保留旧数据要求，
+  再单独设计 `digest-unknown` 的 offline upgrade，不能静默把未知值当作匹配。
 - 专属 E2E 至少对最近一次 committed request 覆盖：同 payload byte-stable retry、普通路径 changed-payload 拒绝、
   响应丢失后切主拒绝、snapshot 后拒绝、三节点全停全启后拒绝。业务查询/计数独立证明无第二次业务副作用；
   pre/post durable last-log-index、日志字节或命名 storage-event oracle 另行证明没有第二次 append。组件格式测试
   使用手写 write-intent golden、标准 fingerprint vector 和 literal SessionV2 fixture 恢复后发送真实 raw request；
   禁止先调用 production `Fingerprint(A)` 填 fixture，再调用同一函数比较来形成自循环 oracle。
+
+#### M8 格式影响矩阵
+
+| 格式 | M8 决定 | 理由与拒绝边界 |
+| --- | --- | --- |
+| client request/response wire | 保持 V1 | 请求已携带 exact SQL bytes，响应已能表达稳定 `REJECTED` payload |
+| Raft RPC | 保持 V1 | CommandBatch 是 opaque entry payload；不声称 mixed binary 可用 |
+| CommandBatch/log payload | 只接受 V2 | 保持 family magic，在 `client_id/request_id` 后加入 fingerprint version + 32 raw bytes；V1/未知版拒绝 |
+| Catalog | 保持 V1 | fingerprint 不改变数据库 schema/state 表达 |
+| Session snapshot | 只接受 V2 | 每条 `(client_id,last_request_id)` 后加入 fingerprint version + digest；V1/未知版拒绝 |
+| BusTub snapshot bundle | outer 保持 V1 | `session.bin` 是自版本化 opaque member；outer V1 + inner SessionV2 合法，inner V1 fail-closed |
+| node-directory marker | 保持现状 | fresh-directory homogeneous deployment 是运维前置，本阶段不实现 capability/rolling marker |
+
+#### M8 测试与退出门禁
+
+1. SHA-256 使用标准 empty/`abc`/long-message known-answer；write intent 使用手写 preimage 与外部固定 digest。
+   CommandBatchV2 和 SessionV2 都用非空 literal fixture 验证 exact bytes、decoder、截断、CRC、未知/V1 拒绝；
+   关键 expected 不得由 production encoder/fingerprint helper 生成。
+2. 组件测试发送真实非空、非幂等 SQL。先提交最近请求，再让其他 client 推进数据库状态，随后用同一身份发送
+   在新状态下本可成功的 changed SQL；必须在 prepare/propose 前稳定拒绝。literal 行/计数/OID/Session 水位证明
+   无业务副作用，独立 pre/post durable last-log-index 或命名 storage event 证明没有 append，不能以其一代替另一项。
+3. 三个正式 `bustub-node` 的专属 E2E 覆盖正常 changed-payload、响应丢失后切 Leader、snapshot 发布/安装、
+   三节点全停全启；同 payload 的 cached response 必须 byte-identical，changed payload 必须精确 `REJECTED`，
+   并由 literal SQL 查询证明无第二次业务效果。组件层独立承担无法从 client status 推断的 durable no-append oracle。
+4. 新测试必须注册到 CMake/CI，重跑所有受影响的既有 component/process gate、定向 ASan/UBSan；ActiveWrite 与
+   Session 并发路径变更还须跑定向 TSan。源码静态检查不得新增系统 crypto 依赖、测试反向依赖或旧格式暗读。
+5. 退出前停止所有 node/client/proxy，清除 `/tmp` build/artifacts、源码树 build/cache/object/report/core；记录精确
+   测试证据和 commit。M8 全部门禁完成即停止，不选择或预执行下一候选。
 
 # 非规范执行与审计记录
 
@@ -1657,20 +1697,50 @@ CMake/CI；不得只运行新写的 happy-path 测试。
 
 ## 执行状态（基线与当前指针）
 
-M0–M7 的阶段实现已按上述顺序完成。已提交并推送的历史全量验收基线是
-`ec11bb0f9f15d1e5abaedb64ea44dee5c6606e66`；基线后的 recovery/owner/CI 维护源码提交是
-`1178cdf125bad28d3030ab78b37e641fa10c6158`。
-本次 M7 后路线图复审开始时该提交尚未推送，`main` 相对 `origin/main` ahead 1 且工作树干净。
-早期完整验收曾覆盖 ASan/UBSan 有效 GTest 60/60、Release SQLLogicTest 40/40、
-M0–M7 目标集 23/23 及 TSan 核心 7/7 + 4/4；这些数字属于当时修订，不能追溯性代表后续测试修正。
-`ec11bb0` 的历史全量验收见本节“最终修复收口复核（2026-08-30，历史 M0–M7 全量验收基线）”与
-`docs/testing/raft_test_matrix.md`；`1178cdf` 只有下文明确记录的 17 个二进制/108 个定向测试，未重跑
-122/122、40/40、正式 E2E 或 TSan。若要声称当前维护源码提交完成了新一轮完整 M7 acceptance，必须重跑
-这些全量门禁；历史证据不能追溯投射，但这不把阶段实现重新标成半执行，也不授权进入 M8。
-本次方案结构复审与小型一致性修正仍是 M7 后的规划/基线维护，不是 M8 功能实现。
+M0–M7 的历史全量验收基线是 `ec11bb0f9f15d1e5abaedb64ea44dee5c6606e66`；基线后的
+recovery/owner/CI 维护为 `1178cdf125bad28d3030ab78b37e641fa10c6158`，M7 后候选 DAG 与 M8 分配契约为
+`66cb1e94e5f7e71fcf3eedf668a268a6d522f495`。获准的过时嵌套源码副本和四个根目录运行/诊断产物由
+`2a1d2ce` 清除。唯一已分配的 M8“写重试 payload 绑定”已经实现并提交为 `958fc80`；本节后续的
+M0–M7 数字仍只证明其各自历史修订，M8 的当前证据以紧随其后的验收记录为准。
+
+当前没有半执行阶段。M8 完成后停止边界已经生效：不选择或预执行候选 DAG 中的下一节点，等待用户明确命令。
 
 以下所有带 2026-08-29 日期的数字均是对应历史修订的证据，不代表后来源码；
 证据以段落明确写出的 commit 为准，不再使用会随后续编辑失效的“当前工作树”指代。
+
+### M8 实现与最终验收（2026-08-30）
+
+`958fc80` 在 state-dependent SQL prepare 前对非空 exact raw SQL 计算 domain-separated FIPS SHA-256，
+把 versioned 32-byte fingerprint 随 CommandBatchV2 复制并随 SessionV2/snapshot 持久化。最近一次请求身份的
+相同 payload 返回原始 cached response；不同 payload 在 committed Session 或同节点 active proposal 边界
+fail-closed，使用稳定拒绝文本，且不进入 prepare、第二次 append 或 Apply。Apply 仍做最终一致性检查；
+Leader 变更后若同一身份的另一 payload 获胜，旧 active proposal 只在原日志槽已被覆盖后解除，不误报 fatal。
+CommandBatch 内层上限预留 20-byte versioned-frame overhead，使完整 encoded batch 始终能装入一个 64 MiB
+LogCodec payload；超限请求在 proposal 前按普通拒绝处理，而不是使节点 fail-stop。
+
+格式只升级 CommandBatch 和 Session snapshot；client/response wire、Raft RPC、Catalog、outer snapshot bundle
+和 node marker 保持原版本。V1/未知 CommandBatch 或 Session 使用真实 checksum-valid literal fixture 验证拒绝；
+部署边界仍是三个同代 executable + 三个全新目录，不声称 dual-read、mixed binary、rolling upgrade 或旧目录迁移。
+
+最终动态与静态证据如下；所有安全请求使用固定 serving endpoint 的 one-shot 调用，不依赖场景重跑：
+
+- Clang 14 Debug ASan+UBSan component gate：27/27 个二进制、146/146 项具体测试，0 failed/errors/disabled，
+  `process_retries=0`，sanitizer marker 为 0。
+- M8 专属 ASan+UBSan 与 Release 三进程链路各自 fresh、单次通过：6 个 changed-payload 阶段均保持
+  `LOG-MUTATIONS` size/SHA 与 literal rows 不变；4 个 exact retry 阶段返回同一 committed-index-4 response 且
+  无 append；覆盖丢响应切主、Snapshot@8、2 块 `65,536 + 4,627 = 70,163` bytes InstallSnapshot、由安装节点
+  当选 Leader，以及连续两次三节点 cold reopen。
+- TSan 正式 `raft-tsan-core`：TCP 4/4、RaftNode 31/31、SessionTable 7/7、BusTub FSM 5/5、
+  DistributedNode 9/9，合计 56/56，无 race/lock-order 报告。
+- Clang-format 29/29；全仓 cpplint 457/457；shell 3/3、Python AST 1/1、YAML 1/1、`git diff --check` 均通过。
+  CMake source discovery、Python runner 和 aggregate target 的组件清单均为 27 且完全一致；production→test、
+  旧 API/旧格式暗读、OpenSSL/libcrypto 外部依赖扫描均为 0。
+
+原有五条 M6/M7 正式进程链路也属于 CommandBatch/Session 格式的受影响回归；它们的最终 ASan+UBSan 与
+Release 单次结果记录在 `docs/testing/raft_test_matrix.md`。阶段结束时精确删除 28 个 M8 外部构建/日志/
+artifact 目录，共 5,057,640,577 bytes；复扫无 M8 `/tmp` 项、后台 node/client/proxy、源码树 ignored/generated
+产物或未解释的未跟踪文件。仓库来源审计另以 `2a1d2ce` 删除 1,347 个过时嵌套副本文件和四个根目录产物，
+共 44,467,543 bytes，并只对四个根路径加入 anchored ignore。M8 至此完成并停止。
 
 ### 方案结构复审与基线维护（2026-08-30）
 
@@ -1851,18 +1921,20 @@ Release、原生 Linux CI 或任何进入测试体后的失败，规则已写入
 2,676,096,997 bytes（2.492 GiB），均可按 runbook 重建。复扫 `/tmp` 任务前缀、后台 node/client/proxy、
 18,100–31,899 端口、源码树 ignored/generated 文件均为空。基线提交前的 208 项正式交付清单
 （103 个 tracked 修改、105 个新增、0 删除）已全部收入 `ec11bb0`，该数字不再是后续工作树状态。
-1,347 文件、36,074,734 bytes 的
-已跟踪嵌套课程基线不是中间产物，继续保留。
+当时把 1,347 文件、36,074,734 bytes 的已跟踪嵌套树判断为课程基线并保留；该判断后来被 M8 的路径来源
+审计推翻：它是顶层源码提升后遗留、无构建/测试/CI 引用的过时完整副本。经用户明确授权，`2a1d2ce` 删除
+该嵌套树，并同时删除四个被误跟踪的根目录运行/失败诊断产物 `test.bustub`、`test.log`、`expected.log`、
+`result.log`；四个根路径使用 anchored ignore 防止复发，嵌套目录不忽略，以便再次生成时立即可见。
 
 在 `ec11bb0` 验收结束时，当时的独立只读审查未发现 blocker；后续审查又发现真实 startup recovery、
 live InstallSnapshot preflight 和 owner/fixture 缺口，并由 `1178cdf` 修复。因此本段只能证明 `ec11bb0` 的历史
-全量验收，不能继续充当新提交的 “no blocker” 证书。`1178cdf` 的定向验证范围见前文维护段；若需要当前
-提交的完整 M7 acceptance，仍须重跑上列全量门禁。阶段实现保持完成且没有半执行功能；M8 仍须先按
-“M7 后非线性路线图与准入”选择一个 ready node，不能把多个候选自动捆绑执行。
+全量验收，不能继续充当新提交的 “no blocker” 证书。`1178cdf` 的定向验证范围见前文维护段。该历史时点
+尚未分配 M8；后续用户只选择了 payload binding，并由 `958fc80` 完成。其余候选仍未获分配，不能自动捆绑执行。
 
 # 合理性复审结论（2026-08-30）
 
-在“教学版 BusTub + 静态三节点 + crash-stop/非 Byzantine”定义下，当前 V1 主线合理，
+在“教学版 BusTub + 静态三节点 + crash-stop/非 Byzantine”定义下，当前 M0–M8 主线合理；client/Raft wire
+仍为 V1，CommandBatch/Session 已按 M8 升为 V2，
 不需要因本次复审重写 Raft 核心或替换成第三方库：
 
 - 先用 canonical full-state snapshot + committed suffix 建立单节点 BusTub consumer 恢复闭环，再以 KV FSM
@@ -1882,13 +1954,13 @@ live InstallSnapshot preflight 和 owner/fixture 缺口，并由 `1178cdf` 修�
 是为了简化重启恢复而有意采用的项目约定，不冒充 Raft 原论文的最小必需持久状态。
 
 复审后保留的主要债务均已变成显式边界，而不是阶段间隐式冲突：term-0 与 distributed
-物理 Store 不原地互通，且 V1 只以“集群使用全新目录”的部署前提隔离模式，没有 durable mode marker；
-V1 client 只提供 Leader hint 而非通用自动路由；Session ID 未持久化 payload fingerprint；
-不支持 DROP、secondary UNIQUE、多语句和并行 proposal。它们构成有共享前置的候选 DAG，而不是彼此
-独立或必须依次完成的 M8–M9；每次只分配一个 ready node。大库低停顿备份、安全认证、动态成员和成熟库迁移
-会改变本实验项目定位，已移出普通后续候选。M0–M7 本身是完整终点，M8 仍是可选且未分配。
+物理 Store 不原地互通，且当前只以“集群使用全新目录”的部署前提隔离模式，没有 durable mode marker；
+V1 client 只提供 Leader hint 而非通用自动路由；M8 已把最近 Session identity 持久化绑定到 exact payload
+fingerprint，但仍不支持 DROP、secondary UNIQUE、多语句或并行 proposal。剩余能力构成有共享前置的候选
+DAG，而不是彼此独立或必须顺序执行的 M9、M10；每次只能明确分配一个 ready node。大库低停顿备份、安全
+认证、动态成员和成熟库迁移会改变本实验项目定位，已移出普通后续候选。M0–M8 已完成，当前不分配下一节点。
 
-# V1 已决风险与设计取舍（不构成 M8 backlog）
+# 已决风险与设计取舍（不构成下一候选 backlog）
 
 ## 1. Catalog 恢复比复制协议更早暴露问题
 

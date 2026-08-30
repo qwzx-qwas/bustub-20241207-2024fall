@@ -1,4 +1,4 @@
-# Raft V1 requirement and test matrix
+# Raft M0-M8 requirement and test matrix
 
 ## Test layers
 
@@ -7,11 +7,27 @@
 | Unit | Pure codec, durable record, invariant, and power-loss decisions | `*_codec_test`, `stable_store_test`, `log_store_test`, `snapshot_store_test`, recovery tests |
 | Component | Multiple production modules with deterministic test-owned transport/storage | `raft_node_test`, `bustub_state_machine_test`, `raft_bustub_cluster_test` |
 | TCP integration | Three production `DistributedNode` assemblies, stable client/Raft frames, real loopback TCP, and real per-node directories | `distributed_node_test`, `tcp_transport_test` |
-| Process E2E | Formal `bustub-node` and `bustub-client` executables controlled only by one shared external process harness | `raft_process_harness.sh` + four focused fault timelines + `raft_m0_m7_chain.sh` |
+| Process E2E | Formal `bustub-node` and `bustub-client` executables controlled only by one shared external process harness | `raft_process_harness.sh` + four focused fault timelines + `raft_m0_m7_chain.sh` + `raft_m8_payload_binding.sh` |
 
 The TCP integration target is production-like but is not described as a three-process test: its three nodes share the
-GoogleTest process. The five shell timelines are the process boundary evidence. Low-cost algorithm combinations remain
+GoogleTest process. The six shell timelines are the process boundary evidence. Low-cost algorithm combinations remain
 in unit/component tests; process E2E is reserved for lifecycle, filesystem, signal, and formal CLI/protocol boundaries.
+
+## M8 completed gate: write-retry payload binding
+
+M8 changes only the CommandBatch and Session snapshot families to V2. The client/response wire, Raft RPC, Catalog,
+outer BusTub snapshot bundle, SnapshotStore and node-directory marker remain unchanged. Tests use fresh directories and
+one homogeneous executable generation; V1 durable directories, dual-read, migration and mixed-version clusters are out
+of scope.
+
+| Contract | Required independent evidence |
+| --- | --- |
+| Exact raw SQL bytes are hashed before state-dependent prepare with domain-separated SHA-256 | NIST known-answer vectors plus a hand-written 60-byte nonempty intent preimage and literal digest; whitespace/case variants differ |
+| CommandBatchV2 carries the accepted fingerprint | Hand-built nonempty V2 golden, exact encoder bytes, V1/unknown-version/truncation/corruption rejection; no production encoder builds the expected fixture |
+| SessionV2 persists identity + fingerprint + cached response | Literal SessionV2 frame restores and classifies a real same-payload retry; one-byte payload change is `PAYLOAD_MISMATCH`; outer snapshot V1 + inner SessionV2 cold reopens twice, inner V1 rejects |
+| Changed payload never reaches prepare/propose/apply | Real non-idempotent SQL after intervening database state change; literal rows/count/OID/Session prove no business mutation, while independent pre/post LogStore index/bytes or named storage event proves no append |
+| Same payload remains exact-once across lifecycle boundaries | Three formal node processes cover response loss + Leader change, forced snapshot installation, and two consecutive full cold restarts; cached response bytes match exactly, exact retries append nothing, and changed payload has exact stable `REJECTED` text |
+| Regression and hygiene | New tests are in CMake/CI; affected component/process gates, ASan/UBSan and concurrent-path TSan pass; no system crypto/test reverse dependency or leftover process/build/artifact |
 
 ## E2E-01 through E2E-15
 
@@ -41,10 +57,10 @@ in unit/component tests; process E2E is reserved for lifecycle, filesystem, sign
 | Term-0 physical authority never accepts distributed Raft terms: SnapshotManager/StateManifest reject every nonzero outer term and every nested Session response with nonzero term; CommandLog rejects a nonzero base/append, fails on a committed foreign term, and may truncate it only beyond durable commit | `StateManifestTest.V1CodecMatchesFixedGoldenBytes`, `StateManifestTest.LatestSessionWithNonzeroTermFallsBackToOlderGeneration`, `SnapshotManagerTest.LogicalCaptureWaitsForReaderBarrier`, `CommandLogTest.MultiEntryBatchBoundaryAlwaysReopens`, `CommandLogTest.TailRepairRespectsCommittedBoundary` |
 | Failed term persistence or local append cannot emit dependent RPC | `RaftNodeTest.FailedElectionTermPersistenceSendsNoVoteRequest`, `FailedHigherTermPersistenceSendsNoRpcResponseForEveryEntryPoint`, `FailedLocalProposalAppendSendsNothingAndCannotCommit` |
 | InstallSnapshot live handling and startup recovery use `E=max(H,S)`: retain/replay a suffix only with pre-install `TermAt(S)==T`; a fully validated image may destructively replace untrusted material only when `E==S`; `E>S` with a missing/mismatching boundary fails before Snapshot/CURRENT, HardState commit-index, LogStore, or FSM mutation. The only exception is the durable term transition independently required for a higher-term request. Inner KV/BusTub content is validated before those same authority changes. The recovery-helper matrix walks every observed HardState/rebuild/prune event and performs two cold reopens | `RaftNodeTest.LiveInstallSnapshotFailStopsBeforeAuthorityMutationOnCommittedBoundaryMismatch`, `LiveInstallSnapshotFailStopsBeforeAuthorityMutationWhenCommittedBoundaryIsMissing`, `LiveInstallSnapshotPreservesMatchingCommittedSuffixAndAppliesIt`, `LiveInstallSnapshotMayReplaceMismatchedUncommittedSuffixWhenSnapshotCoversCommit`, `LiveInstallSnapshotRejectsInvalidInnerStateBeforeExactCoverAuthorityMutation`, `InstallSnapshotCrashMatrixRecoversOnlyCompleteOldOrNewState`, `RecoverPersistentStateNamedPowerLossMatrixConvergesByCrossFileOracle`, `CoveringLatestSnapshotNormalizesMismatchedBridgeAfterNamedPruneCrash`, `CoveringLatestSnapshotPreservesMatchingRecoveryBridge`, `CoveringLatestPromotesMatchingBoundaryWhenPreviousBridgeDisagrees`, `CommitBeyondLatestPromotesMatchingBoundaryAndReplaysSuffix`, `CommitBeyondLatestFailsClosedForMismatchedOrMissingSuffix`, `MatchingSuffixStillRejectsInvalidInnerSnapshotBeforeAnyDurableRepair`, `CommitBeyondLatestReplaysOnlyAProvenMatchingSuffix` |
-| At most one unresolved SQL proposal exists per node; duplicates and unrelated clients share that gate across timeout, leadership loss, overwrite, retry at another index, and snapshot reconciliation | `RaftNodeTest.RejectsASecondProposalUntilTheFirstProposalIsResolved`, `DistributedNodeTest.ConcurrentWritesShareOneUnresolvedProposalGate`, `DistributedNodeTest.LiveOldLeaderClearsOverwrittenProposalAfterRetryCommitsElsewhere` |
+| At most one unresolved SQL proposal exists per node; duplicates and unrelated clients share that gate across timeout, leadership loss, overwrite, retry at another index, and snapshot reconciliation | `RaftNodeTest.RejectsASecondProposalUntilTheFirstProposalIsResolved`, `DistributedNodeTest.ConcurrentWritesShareOneUnresolvedProposalGate`, `DistributedNodeTest.LiveOldLeaderClearsOverwrittenProposalAfterDifferentPayloadCommitsElsewhere` |
 | Named `before_write / after_fsync / after_rename / after_dir_fsync` events share one injection vocabulary and must match literal kind/path/occurrence topology. A single Store mutation uses old-or-new; InstallSnapshot cross-file recovery uses its specialized `max(H,S)`/term/suffix oracle. Fsync of one directory cannot publish a sibling entry | `PowerLossStorageTest.DirectorySyncDoesNotPublishSiblingEntries`, `SnapshotManagerTest.PublicationPowerLossMatrix`, `StableStoreTest.NamedPowerLossMatrix`, `CommandLogTest.NamedPowerLossMatrix`, `LogStoreTest.ReplaceSuffixNamedPowerLossMatrix`, `LogStoreTest.InstallSnapshotBaseNamedPowerLossMatrix`, the RaftNode recovery tests above |
 | Shared versioned/checksummed framing rejects bad magic, version, length, truncation, payload corruption, and CRC without changing protocol-specific bytes | `VersionedFrameTest.*`, `CommandBatchCodecTest.*`, `ClientProtocolTest.*`, `RaftRpcCodecTest.*`, `CatalogSnapshotTest.*`, `StateManifestTest.*`, `StableStoreTest.*` |
-| Fixed V1 wire/disk layouts cannot drift through matching encoder/decoder bugs; the M2 CommandBatch consumer gate is hand-built and runs without M5 CommandBuilder | Independent golden frames in `LogCodecTest`, `CommandBatchCodecTest.FixedConsumerFrameRejectsMalformedInput`, `ClientProtocolTest`, `RaftRpcCodecTest`, `SessionTableTest`, `StableStoreTest`, `StateManifestTest`, and `CatalogSnapshotTest`; separate `CommandBuilderTest.CanonicalizesPermutationsAndRejectsDuplicateKeys` |
+| Fixed wire/disk layouts cannot drift through matching encoder/decoder bugs; the CommandBatchV2 consumer gate is hand-built and runs without the SQL producer | Independent golden frames in `LogCodecTest`, `CommandBatchCodecTest.V2LiteralConsumerFrameAndMalformedInput`, `ClientProtocolTest`, `RaftRpcCodecTest`, `SessionTableTest`, `StableStoreTest`, `StateManifestTest`, and `CatalogSnapshotTest`; separate `CommandBuilderTest.CanonicalizesPermutationsAndRejectsDuplicateKeys` |
 | Stable term/vote/commit generation is atomic | `StableStoreTest.*` |
 | Append/ReplaceSuffix/snapshot-base records reject corrupt or torn state | `LogStoreTest.*`, `CommandLogTest.*` |
 | A damaged committed replacement cannot revive an obsolete suffix; rebuilding the journal is allowed only from an independently verified snapshot boundary and uses the same atomic named-fault oracle | `LogStoreTest.CommittedReplacementDamageCannotReviveOldSuffix`, `LogStoreTest.VerifiedSnapshotRebuildIsExplicitAndStrict`, `LogStoreTest.VerifiedSnapshotRebuildNamedPowerLossRetryMatrix` |
@@ -65,8 +81,9 @@ in unit/component tests; process E2E is reserved for lifecycle, filesystem, sign
 | Raft core is application-agnostic: proposal validation is delegated through `RaftStateMachine`, and malformed/wrong-type payloads append nothing | `RaftNodeTest.ProposalPayloadAdmissionRejectsMalformedAndWrongTypeWithoutAppending`; production dependency scan requires no `distributed/*` include under `src/raft` |
 | Ordered index scans consume owned key/RID values rather than references to temporary leaf-page return values | compile-time contract in `b_plus_tree_insert_test`; exact `ORDER BY` results in `distributed_node_test`, M6, recovery matrix, and the distributed cumulative chain |
 | Independent database instances do not share WAL double-buffer state, and B+Tree root publication does not acquire a new parent while retaining child page latches | full `raft-tsan-core`; `DistributedNodeTest.ConcurrentReadsObserveOnlyWholeMultiRowBatch`; original `b_plus_tree_insert_test` |
-| Transport shutdown discards queued frames and joins workers instead of draining stale backlog; test proxies restore terminable SIGTERM behavior even when inherited as ignored | `TcpRaftTransportTest.StopDiscardsQueuedFramesInsteadOfDrainingStaleBacklog`; full `raft-tsan-core`; all five process timelines and cleanup-status scan |
+| Transport shutdown discards queued frames and joins workers instead of draining stale backlog; test proxies restore terminable SIGTERM behavior even when inherited as ignored | `TcpRaftTransportTest.StopDiscardsQueuedFramesInsteadOfDrainingStaleBacklog`; full `raft-tsan-core`; all six process timelines and cleanup-status scan |
 | One fresh distributed durable state spans M3–M7 assembly and cumulatively rechecks admission rejection, exact-once failover, snapshot + suffix, stale replay, identity rejection, full restart, and continued Catalog/index allocation; term-0 physical recovery remains an independent gate | Historically named `raft_m0_m7_chain.sh`; explicit `check-raft-process-chain` CMake target; M0–M2 recovery tests |
+| A retained request identity is bound to exact raw SQL across ordinary retry, lost response, Leader replacement, forced snapshot installation, leadership by the recovered follower, and two consecutive three-node cold restarts | `raft_m8_payload_binding.sh`; fixed-endpoint rejection text, literal ordered rows, independent mismatch/exact-retry `LOG-MUTATIONS` size/SHA-256, V1 `CURRENT` index, recorded InstallSnapshot frames, and cached-response-byte oracles |
 
 ## Gate commands
 
@@ -84,7 +101,7 @@ ctest --test-dir /tmp/bustub-raft-build-release \
   --output-on-failure --parallel 2 --timeout 900 -L sqllogic
 
 cmake --build /tmp/bustub-raft-build-tsan --target \
-  tcp_transport_test raft_node_test bustub_state_machine_test distributed_node_test -j2
+  tcp_transport_test raft_node_test session_table_test bustub_state_machine_test distributed_node_test -j2
 ctest --test-dir /tmp/bustub-raft-build-tsan --output-on-failure -L raft-tsan-core
 
 bash test/e2e/raft_m6_smoke.sh /tmp/bustub-raft-build-clang 18100 /tmp/raft-m6
@@ -92,6 +109,7 @@ bash test/e2e/raft_m7_snapshot_crash.sh /tmp/bustub-raft-build-clang 19100 /tmp/
 bash test/e2e/raft_m7_snapshot_transfer.sh /tmp/bustub-raft-build-clang 20100 /tmp/raft-m7-transfer
 bash test/e2e/raft_m7_recovery_matrix.sh /tmp/bustub-raft-build-clang 21100 /tmp/raft-m7-matrix
 bash test/e2e/raft_m0_m7_chain.sh /tmp/bustub-raft-build-clang 25100 /tmp/raft-m0-m7-chain
+bash test/e2e/raft_m8_payload_binding.sh /tmp/bustub-raft-build-clang 26100 /tmp/raft-m8-payload-binding
 
 cmake --build /tmp/bustub-raft-build-clang --target check-raft-process-chain
 ```
@@ -114,7 +132,7 @@ replay of the exact old InstallSnapshot frames. TSan passed `raft_node_test` 15/
 under the documented child-only ASLR workaround. The earlier Release SQLLogicTest 40/40 result was not rerun because
 this closure changes
 Raft/recovery tests, node identity, harnesses, client diagnostics, and CI only—not single-node SQL execution semantics.
-That revision of CI invoked the former retry-capable runner. The current runner executes all 26 binaries once, requires
+That revision of CI invoked the former retry-capable runner. The current runner executes all 27 binaries once, requires
 a nonempty GoogleTest JSON execution count, and treats every pre-main exit 139 as a failed gate.
 After recording the results, the 2.4 GiB out-of-tree builds, process artifacts, and logs were removed. At that revision,
 the source tree contained no generated build/cache/core file or running Raft process; all 164 remaining worktree entries were formal
@@ -248,7 +266,7 @@ The 26/102 result above was the **Release** result for that revision. At that ti
 been relabeled as a new full ASan/UBSan, TSan, or SQLLogic acceptance run; those sanitizer, TSan, and 40/40 SQLLogic
 numbers remain historical evidence only for their recorded revisions. CI builds the aggregate
 `build-raft-component-gates` target and runs
-all five timelines in both ASan/UBSan and Release jobs, so the newer revision will be revalidated there without a local
+all six timelines in both ASan/UBSan and Release jobs, so the newer revision will be revalidated there without a local
 retry exception. The separate `sqllogic-release` job registers and runs every checked-in `.slt`; `raft-tsan-core` also
 runs `distributed_node_test`, covering production tick/listener/client workers, snapshot/restart, and shutdown joins.
 
@@ -271,7 +289,7 @@ patterned business value and real staging/fsync/publication/FSM installation. It
 pre-stages two real chunks, drops the final COMPLETE ACK, exercises failure/restart/stale-complete convergence, verifies
 the independent value, and then applies a suffix. It is neither an empty fixture nor a same-codec round trip.
 
-| Final gate | Current one-shot result |
+| Final gate | One-shot result at `ec11bb0` |
 | --- | --- |
 | Clang 14 ASan/UBSan component manifest | 26/26 binaries, 122/122 concrete tests; 0 failed/errors/disabled/not-run; 26 nonempty parseable JSON reports and logs; `process_retries=0`; no sanitizer marker |
 | TSan core | `tcp_transport_test` 4/4, `raft_node_test` 17/17, `bustub_state_machine_test` 4/4, `distributed_node_test` 9/9; total 34/34; no race or lock-order report |
@@ -290,8 +308,10 @@ or any nonempty/test-body/sanitizer/assertion/timeout/bind/protocol failure; the
 The stage cleanup removed 21 reviewed external build/log/artifact targets totaling 2,676,096,997 bytes (2.492 GiB).
 The post-clean scan found no task-prefixed `/tmp` item, relevant process/listener, ignored source-tree artifact, or
 suspicious untracked generated file. The pre-commit delivery list had 208 formal entries: 103 tracked modifications,
-105 new source/test/tool/document files, and no deletions; all were committed in `ec11bb0`. The tracked nested
-1,347-file course baseline was retained.
+105 new source/test/tool/document files, and no deletions; all were committed in `ec11bb0`. At that time the tracked
+1,347-file nested tree was classified as a course baseline and retained. The M8 provenance audit later proved that it
+was an unreferenced obsolete source duplicate left after top-level promotion; `2a1d2ce` removes it, together with the
+four tracked root runtime/diagnostic outputs, under explicit user authorization.
 
 At the end of the `ec11bb0` acceptance no blocker was then known under the stated crash-stop, non-Byzantine V1 model.
 A later audit found real startup-recovery, live-InstallSnapshot-preflight, and ownership/fixture gaps; commit `1178cdf`
@@ -351,7 +371,36 @@ delta removed its exact 1,039,771,113-byte external ASan build and the prior zer
 found no `/tmp/bustub-*`, node/client/proxy process, generated/ignored source-tree file, or unexplained untracked file.
 
 The identified audit blockers are closed in `1178cdf`, but its 17-binary/108-test result is deliberately targeted and is
-not a replacement for the historical 122-test/40-SLT/formal-E2E/TSan acceptance. A new full-M7-acceptance claim for the
-maintenance source requires those full gates to run again. The implementation milestones remain closed with no partially
-executed feature, and the plan keeps M8 unallocated until exactly one ready node has a unique scope, format-impact matrix,
-upgrade policy, test gate, and stop boundary. Candidate tests are not current M0-M7 gates until that node is allocated.
+not a replacement for the historical 122-test/40-SLT/formal-E2E/TSan acceptance. This paragraph records the state before
+M8 implementation. The user later allocated only payload binding; `958fc80` implements it and the current evidence is
+recorded below. No other candidate is authorized.
+
+## Final M8 local acceptance (2026-08-30, implementation `958fc80`)
+
+This is the complete local gate for the M8-affected surface, not a claim that `958fc80` reran the unrelated full M7 or
+SQLLogic baselines. GitHub Actions is configured to run public regression as a build-job step; Release SQLLogic, the six
+ASan/UBSan timelines, the same six Release timelines, and TSan live in separate jobs. This records registration, not a
+claim that the remote workflow has already completed.
+
+| Gate | One-shot result on `958fc80` |
+| --- | --- |
+| Clang 14 ASan+UBSan components | 27/27 binaries, 146/146 concrete tests; 0 failed/errors/disabled, `process_retries=0`, no sanitizer marker |
+| Dedicated M8 ASan+UBSan + Release process E2E | Each build passed one fresh run. Six mismatch phases preserved literal rows, stable Raft fields, and `LOG-MUTATIONS` size/SHA; four exact retries returned the same response at commit 4 with no append |
+| Dedicated M8 recovery evidence | Request@4 was covered by Snapshot@8; the pre-request follower installed 2 chunks (`65,536 + 4,627 = 70,163` bytes), became Leader, and enforced the same binding; both builds passed two consecutive all-node cold reopens |
+| Existing five ASan+UBSan process regressions | 5/5 fresh, single runs: M6 response-loss exact-once; M7 capture crash; Snapshot@4 transfer/stale replay; partition/restart/corruption/1,600-row atomicity matrix; cumulative chain. A 273-file artifact scan found no sanitizer/runtime marker |
+| Existing five Release process regressions | 5/5 fresh, single runs with the same business/session/recovery oracles; no process, port, protocol, or runtime-error residue |
+| Cross-build M7 snapshot evidence after V2 | Focused transfer: 3 chunks, 135,521 bytes, Snapshot@4 + suffix@5; cumulative chain: 5 chunks, 266,809 bytes, Snapshot@12 + stale replay to index 14, then all nodes reached Snapshot@16 |
+| TSan | `tcp_transport_test` 4/4, `raft_node_test` 31/31, `session_table_test` 7/7, `bustub_state_machine_test` 5/5, `distributed_node_test` 9/9; total 56/56, no race/lock-order report |
+| Static and registration gates | Clang-format 29/29; repository cpplint 457/457; shell 3/3, Python AST 1/1, YAML 1/1, `git diff --check`; source/Python/CMake component manifests all equal 27; production-to-test, legacy-read/API and external-crypto scans all zero |
+
+Normal cases use nonempty CREATE/INSERT/UPDATE/DELETE SQL. Empty input appears only in explicit hash/decoder/rejection
+boundaries or a legal zero-row DML case paired with a real predicate. SHA/write-intent/CommandBatchV2/SessionV2 and
+checksum-valid legacy rejection use NIST or hand-written literal bytes rather than producer-generated expectations.
+Business-state and durability evidence are independent: literal rows/OIDs/Session/watermarks and complete file-tree
+images are separate from LogStore indices, stable Raft fields, storage events and system-SHA journal bytes.
+
+The cleanup gate removed 28 reviewed M8 external build/log/artifact directories totaling 5,057,640,577 bytes. The final
+scan found no M8 `/tmp` item, relevant process/listener, ignored/generated source-tree artifact, or unexplained untracked
+file. Separately, authorized commit `2a1d2ce` removed the obsolete 1,347-file nested source duplicate and four tracked
+root runtime/diagnostic outputs (44,467,543 bytes), adding root-anchored ignores only for the four runtime paths. M8 is
+complete and stopped; no next DAG node is selected or pre-executed.

@@ -4,17 +4,64 @@
 
 ## 当前状态与停止边界
 
-- `raft_implementation_plan.md` 的 M0–M7 已全部执行完成，已提交/推送基线为
-  `ec11bb0f9f15d1e5abaedb64ea44dee5c6606e66`；当前没有半执行的功能阶段。
-- 基线后的 recovery/owner/CI 维护已提交为 `1178cdf125bad28d3030ab78b37e641fa10c6158`；本次 M7 后
-  路线图复审开始时该提交尚未 push，`main` 相对 `origin/main` ahead 1 且工作树干净。17 个二进制/108 个
-  定向测试证据绑定 `1178cdf`；它不是新的 122/122、40/40、正式 E2E/TSan 全量 M7 验收。
-- 本次只审查并修订 M7 后方案、交接和测试证据归属，没有开始 M8 源码实现。M8 仍未分配；M0–M7
-  对当前实验项目定位已经是完整终点，后续必须先从候选 DAG 中冻结一个前置已满足的候选节点（ready node）。
+- M0–M7 历史全量验收基线为 `ec11bb0`；recovery/owner/CI 维护为 `1178cdf`，M7 后候选 DAG 与 M8 分配
+  契约为 `66cb1e9`。获准的过时嵌套副本和四个根目录运行/诊断产物由 `2a1d2ce` 清除。
+- 唯一分配的 M8“写重试 payload 绑定”已经实现并提交为 `958fc80`。CommandBatch/Session 采用 V2，其他格式
+  保持冻结；完整测试与清理证据见下一节。当前没有半执行的功能阶段。
+- 停止边界已到达：停在 M8，不选择、设计或预执行候选 DAG 中的下一节点，等待用户明确命令。
 - 若后续会话恢复，先阅读本文件、`raft_implementation_plan.md` 与
   `docs/testing/raft_test_matrix.md`，并核对 `git status`；基线验收数字不得自动为后续源码改动背书。
 
-## M7 后路线图复审（2026-08-30）
+## M8 已完成契约与结果（2026-08-30）
+
+- fingerprint 在 state-dependent SQL prepare 前按 exact raw SQL bytes 计算。固定 preimage 为
+  `BUSTUB_RAFT_WRITE_INTENT` + big-endian `u32 version=1` + big-endian `u32 WRITE_SQL=1` +
+  big-endian `u32 payload_length` + payload；SHA-256 固定输出 32 raw bytes。client/request identity 不进入
+  digest，而由 Session key 独立绑定。
+- 只升级 CommandBatch 与 Session snapshot 到 V2，并保存 `u32 fingerprint_version + 32 bytes`；client wire、
+  WriteResponse、Raft RPC、Catalog、outer BusTub snapshot bundle 与 node marker 保持原版本。部署只支持同版本
+  三节点和全新目录，不读 M7 durable directory，不做 dual-read、迁移、mixed binary 或 rolling upgrade。
+- 同一最近 ID + 同 fingerprint 返回原 cached response；同一最近 ID + 不同 fingerprint 用现有 V1 response 的
+  `REJECTED` 和精确文本 `request payload does not match request identity` fail-closed。更老 ID 仍是 `TOO_OLD`；
+  本阶段不引入 request window、并发 proposal、client 注册/认证或全局 precommit reservation。
+- 测试必须把业务无副作用与 durable no-append 分开证明：literal SQL 行/计数/OID/Session 是业务 oracle，
+  pre/post LogStore index/bytes 或命名 storage event 是日志 oracle。格式使用手写非空 fixture 和标准 hash vector，
+  禁止 production encode/fingerprint 生成自己的 expected。还须覆盖响应丢失切主、snapshot、三节点 cold restart，
+  注册 CMake/CI，并跑受影响回归、定向 ASan/UBSan 与并发路径 TSan。
+- M8 全部门禁与清理完成后立即停止，不选择下一候选。
+
+实现由 `958fc80` 固定：自包含 FIPS SHA-256 先于 SQL prepare 绑定 exact raw payload；CommandBatchV2 和
+SessionV2 持久化 `version + 32-byte digest`；committed/active identity 的 changed payload 使用精确文本
+`request payload does not match request identity` 拒绝。Apply 再次验证 fingerprint，CommandBatch 完整 frame
+上限与 64 MiB LogCodec payload 相等，超限在 proposal 前拒绝。没有引入认证、client 注册、并发 request
+window、多个 in-flight proposal、迁移或 rolling upgrade。
+
+## M8 最终验收与清理（2026-08-30）
+
+- Clang 14 ASan+UBSan component gate：27 个二进制、146 项具体测试全部通过；0 failed/error/disabled，
+  `process_retries=0`，sanitizer marker 为 0。默认沙箱预检只在 TCP bind 前被 loopback 权限拒绝，不计作测试
+  尝试；有效 gate 以整个父进程在允许回环的环境中 fresh、单次执行。
+- M8 专属 ASan+UBSan 与 Release 正式三进程链路各单次通过。6 个 mismatch 阶段均验证精确拒绝文本、literal
+  rows、稳定 Raft 字段及 `LOG-MUTATIONS` size/SHA 不变；4 个 exact retry 阶段返回 byte-identical、
+  committed-index-4 response 且无 append。链路覆盖丢响应切主、Snapshot@8、2 块共 70,163 bytes 的
+  InstallSnapshot、安装节点当选 Leader 和连续两次三节点 cold reopen。
+- 原有五条 M6/M7 正式进程链路按受影响回归分别在 ASan+UBSan 与 Release 当前 M8 executable 上 fresh、
+  单次执行并全部通过；精确结果记录在测试矩阵，不以旧 `ec11bb0` 的历史结果代替。
+- TSan `raft-tsan-core`：TCP 4/4、RaftNode 31/31、SessionTable 7/7、BusTub FSM 5/5、
+  DistributedNode 9/9，共 56/56，无 data race/lock-order 报告。
+- 静态门禁：Clang-format 29/29、全仓 cpplint 457/457、shell 3/3、Python AST 1/1、YAML 1/1、
+  `git diff --check` 均通过；三个组件清单均为 27，production→test、旧 API/格式暗读和外部 crypto 依赖为 0。
+- `2a1d2ce` 删除 1,347 个嵌套旧副本文件及 `test.bustub`、`test.log`、`expected.log`、`result.log`，合计
+  1,351 个文件、44,467,543 bytes；另加入四条根路径 anchored ignore。删除经用户明确授权、可从 Git 历史
+  恢复；嵌套目录不忽略，以便复发时暴露。
+- 最终精确删除 28 个 M8 `/tmp` 构建/组件日志/E2E 现场，共 5,057,640,577 bytes。复扫无 M8 临时项、
+  node/client/proxy 进程、源码树 ignored/generated 文件或未解释的 untracked 文件。
+- 本地结论限定为“M8 受影响门禁完成”，不冒充 `958fc80` 已重跑完整 M7 acceptance。普通 BusTub
+  binder/planner/executor/storage 路径未变，因此本地不重复耗时的 Release SQLLogic 40/40；public regression、
+  SQLLogic、六条 ASan/UBSan 与六条 Release 进程链及 TSan 均已配置进 GitHub Actions：public regression 是
+  build job 内的 step，其余四组是分立 jobs；这里不声称远端 workflow 已运行完成。
+
+## M7 后路线图复审（2026-08-30，M8 分配前历史记录）
 
 - 原候选表把所有项目称为“互相独立”，实际混合了 safety hardening、DB 语义、性能依赖链、离线迁移和
   会改变项目定位的系统工程。方案现改为非线性候选 DAG：一次里程碑只选择一个 ready node，不能捆入它
@@ -48,6 +95,8 @@
   或迁移；只对 `request_id == last_request_id` 重放 cached response，更老 ID 仍为 `TOO_OLD`。V1 Session 无原
   payload，不能回填 digest，实验项目优先考虑 fresh-directory homogeneous deployment。测试必须用手写 intent、
   标准 fingerprint vector、literal Session fixture 和真实 raw request，不能调用 production fingerprint 生成期望值。
+
+以上只记录 M8 分配前的路线图状态；后续用户已经明确选择该候选，并由 `958fc80` 完成。
 
 ## 基线后方案复审维护（2026-08-30）
 
@@ -97,6 +146,8 @@
   原有字节布局。正式快照已改为文件切片和有界分块，不再把数据库 bundle 整体装入 128 MiB vector。
 - 在验收中补齐单机兼容缺口：二级索引更新和历史键可见性、B+Tree 非唯一全扫描去重、窗口函数、
   `lower`/`upper`、只读 `\d`、多表连接优化 fixed point、Trie/ORSet/Watermark/类型对齐等回归修复。
+- 完成 M8 exact payload binding：原始 SQL 的 versioned SHA-256、CommandBatchV2、SessionV2、active/committed
+  mismatch fail-closed，以及第六条正式三进程时间线；不扩展为认证、并发 proposal 或升级工程。
 
 ## 历史完整验收证据（旧修订）
 
@@ -184,7 +235,8 @@
 - 最终删除了本轮可再生成的 ASan/UBSan、Release、TSan 外部构建树（约 3.8 GiB）、所有 GTest/SQL 日志、
   M6/M7 成功与 pre-main 失败 artifact、临时数据库，以及仓库根部 32 KiB CMake 缓存。它们未保留副本，
   可按 runbook 重建。
-- 已从 HEAD 精确恢复测试误删的 `test.bustub`（8,392,704 字节）和 `test.log`（0 字节）。
+- 当时曾从 HEAD 恢复 `test.bustub`（8,392,704 字节）和 `test.log`（0 字节）；M8 来源审计后来证明它们
+  是本地运行产物而非 fixture，该历史动作已由 `2a1d2ce` 的删除与根路径 ignore 取代。
 - 选举超时补强使用的 `/tmp/bustub-raft-random-timeout-build`（约 1.1 GiB）在针对性验证完成后已清理；
   恢复执行时再次确认该目录不存在，源码树仍为 155 项正式改动。
 - 持久化边界补强使用的 `/tmp/bustub-raft-durable-boundary-build`（约 811 MiB）在针对性验证和静态检查
@@ -203,17 +255,18 @@
 - 实验快照范围收敛使用的 `/tmp/bustub-raft-experimental-snapshot-build`（956 MiB）与 M7 artifact（1.4 MiB）
   已在验证后精确删除；`/tmp/bustub-*`、源码树 CMake/对象/XML/profraw/core 和后台 node/client/test 进程均为空。
   工作树仍为 157 项正式交付（61 个已跟踪修改、96 个新增文件、0 个删除），仓库占用仍约 556 MiB。
-- 已跟踪的嵌套目录 `bustub-20241207-2024fall/` 是原始基线树，不是临时复制，已保留且未改动。
+- 当时把已跟踪嵌套目录 `bustub-20241207-2024fall/` 判断为原始基线；M8 来源审计后来证明它是顶层源码
+  提升后遗留且无人引用的过时副本，该历史判断已由 `2a1d2ce` 取代。
 - 测试缺口回补最终精确删除 2.4 GiB 的 ASan/UBSan、TSan 构建树、成功/失败进程现场和组件日志；
   `/tmp/bustub-raft-m7-*`、`/tmp/bustub-raft-gap-*` 与后台 node/client/proxy 进程均为空。源码树没有 ignored
   build/cache/core 或未跟踪运行产物，仍为 556 MiB。最终工作树是 164 项正式交付：61 个已跟踪修改、
   103 个新增文件、0 个删除；新增项为 src 57、test 36、tools 4、docs 4、方案/交接 2，其中新增的严格
   component gate、三个外部故障工具和四条时间线均为可复用正式测试资产。
 
-## 下一步
+## 下一步（M7 完成时的历史停止点；已由后续 M8 授权取代）
 
-无自动下一步。M7 已完成，保持当前工作树并等待用户命令；如果未来需要重新验收，所有构建必须继续放在
-`/tmp/bustub-raft-build-*` 或其他源码树外目录，并在结束后执行同一清理门禁。
+该历史时点无自动下一步并停在 M7；用户后来明确分配且只分配 M8，现已由 `958fc80` 完成。构建继续只能
+放在源码树外目录，并在每个明确里程碑结束后执行同一清理门禁。
 
 ## 测试缺口回补（2026-08-29，历史修订）
 
@@ -285,15 +338,16 @@ ASan/UBSan 与 Release job 中都运行全部五条时间线。
 （64 个已跟踪修改、105 个新增、0 删除）；当时源码树无 build/Ninja/对象/XML/profraw/core/pycache 等生成物，
 production 源码无测试反向依赖，`/tmp` 的 `bustub*` 候选与后台 node/client/proxy/场景脚本均为空。
 
-停止边界不变：M7 完成后无自动下一步，不进入 M8/V2；等待用户新命令。
+该历史停止边界随后被用户对 M8 payload binding 的明确授权取代；它不授权 M8 之后的任何候选。
 
 ## 最终修复收口交接（2026-08-30，历史 M0–M7 全量验收基线）
 
-### `ec11bb0` 当时的执行位置
+### `ec11bb0` 当时的执行位置（已由后续 M8 授权取代）
 
 `ec11bb0` 当时已按方案完成 M0–M7 且没有半执行阶段，恢复执行时没有跳到 M8/V2。后续源码确已由
 `1178cdf` 修改，因此“源码不变则无需重验”的条件已经不成立；阶段实现没有重新打开，但若要声称当前维护
-提交通过完整 M7 acceptance，必须重跑 122/122、40/40、正式 E2E 与 TSan。下一功能步骤仍是等待用户明确命令。
+提交通过完整 M7 acceptance，必须重跑 122/122、40/40、正式 E2E 与 TSan。当时下一功能步骤仍等待用户；
+后来用户只授权 M8 payload binding，当前完成状态以文首为准。
 
 ### 本次最终修复
 
@@ -333,12 +387,12 @@ sanitizer/assertion/timeout/protocol 失败。
 
 基线提交前 `git status --short --untracked-files=all` 的 208 项正式交付（103 个 tracked 修改、
 105 个新增文件、0 删除）已全部收入 `ec11bb0`；该数字不再表示后续工作树状态。仓库当时占用 570,615,493
-bytes。`bustub-20241207-2024fall/` 的 1,347 个文件均已跟踪，占 36,074,734 bytes，是课程基线而非临时复制，
-已保留。
+bytes。当时把 `bustub-20241207-2024fall/` 的 1,347 个已跟踪文件（36,074,734 bytes）认作课程基线而保留；
+M8 来源审计证明它是顶层源码提升后的过时副本，且无构建、测试、脚本或 CI 引用。经用户明确授权，
+`2a1d2ce` 已删除该目录和四个根目录运行/诊断产物；这是普通 Git 历史中的可恢复删除，不是历史改写。
 
-### 下一次恢复
+### 下一次恢复（M7 基线时的历史指引；已由 M8 完成记录取代）
 
-无自动下一功能步骤。先读本节、方案的“M7 后非线性路线图与准入”和测试矩阵，再核对 `git status`；
-若用户决定继续，只从候选 DAG 选择一个 ready node 并冻结格式/升级/测试门禁，不能把“推荐候选”当成已分配 M8。
-任何后续源码改动都需按影响范围重新验证，
-构建仍放到源码树外并执行同一清理门禁。
+该指引描述 `ec11bb0` 的 M7 停止点。用户后来明确选择 M8 payload binding，并由 `958fc80` 完成；当前恢复
+应读取文首“M8 已完成契约与结果”，不得把本历史段误读成 M8 未分配。任何未来源码改动仍需先明确选择一个
+ready node、冻结格式/升级/测试门禁，构建放到源码树外，并执行同一清理门禁。
