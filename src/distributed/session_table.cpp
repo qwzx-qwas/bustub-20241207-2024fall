@@ -53,12 +53,15 @@ auto WriteResponseCodec::Decode(const std::vector<std::byte> &bytes) -> WriteRes
   return response;
 }
 
-auto SessionTable::Classify(uint64_t client_id, uint64_t request_id) const -> RequestDisposition {
+auto SessionTable::Classify(uint64_t client_id, uint64_t request_id,
+                            const RequestFingerprintV1 &request_fingerprint) const -> RequestDisposition {
+  request_fingerprint.Validate();
   std::shared_lock lock(mutex_);
   const auto iterator = sessions_.find(client_id);
   const uint64_t last_request_id = iterator == sessions_.end() ? 0 : iterator->second.last_request_id_;
   if (request_id == last_request_id && request_id != 0) {
-    return RequestDisposition::RETRY_LAST;
+    return iterator->second.request_fingerprint_ == request_fingerprint ? RequestDisposition::RETRY_LAST
+                                                                        : RequestDisposition::PAYLOAD_MISMATCH;
   }
   if (request_id <= last_request_id) {
     return RequestDisposition::TOO_OLD;
@@ -79,7 +82,9 @@ auto SessionTable::GetLastResponse(uint64_t client_id) const -> std::optional<st
 }
 
 void SessionTable::RecordCommitted(uint64_t client_id, uint64_t request_id,
+                                   const RequestFingerprintV1 &request_fingerprint,
                                    const std::vector<std::byte> &encoded_response) {
+  request_fingerprint.Validate();
   const auto response = WriteResponseCodec::Decode(encoded_response);
   if (client_id == 0 || request_id == 0 || response.request_id_ != request_id) {
     throw std::runtime_error("committed response does not match its session request");
@@ -88,6 +93,9 @@ void SessionTable::RecordCommitted(uint64_t client_id, uint64_t request_id,
   const auto iterator = sessions_.find(client_id);
   const uint64_t last_request_id = iterator == sessions_.end() ? 0 : iterator->second.last_request_id_;
   if (request_id == last_request_id && request_id != 0) {
+    if (!(iterator->second.request_fingerprint_ == request_fingerprint)) {
+      throw std::runtime_error("retry payload fingerprint differs from the committed request");
+    }
     if (iterator->second.encoded_response_ != encoded_response) {
       throw std::runtime_error("retry response bytes differ from the committed response");
     }
@@ -96,13 +104,14 @@ void SessionTable::RecordCommitted(uint64_t client_id, uint64_t request_id,
   if (request_id != last_request_id + 1) {
     throw std::runtime_error("session request sequence has a gap");
   }
-  sessions_.insert_or_assign(client_id, SessionRecord{request_id, encoded_response});
+  sessions_.insert_or_assign(client_id, SessionRecord{request_id, request_fingerprint, encoded_response});
 }
 
 void SessionTable::ValidateSnapshotBoundary(uint64_t last_included_index,
                                             std::optional<uint64_t> required_response_term) const {
   std::shared_lock lock(mutex_);
   for (const auto &[client_id, record] : sessions_) {
+    record.request_fingerprint_.Validate();
     const auto response = WriteResponseCodec::Decode(record.encoded_response_);
     if (client_id == 0 || record.last_request_id_ == 0 || response.request_id_ != record.last_request_id_ ||
         response.commit_index_ > last_included_index ||
@@ -119,6 +128,7 @@ auto SessionTable::SnapshotRecords() const -> std::map<uint64_t, SessionRecord> 
 
 void SessionTable::RestoreRecords(std::map<uint64_t, SessionRecord> records) {
   for (const auto &[client_id, record] : records) {
+    record.request_fingerprint_.Validate();
     if (client_id == 0 || record.last_request_id_ == 0 ||
         WriteResponseCodec::Decode(record.encoded_response_).request_id_ != record.last_request_id_) {
       throw std::runtime_error("invalid session snapshot record");
@@ -135,11 +145,12 @@ auto SessionSnapshotCodec::Encode(const SessionTable &sessions) -> std::vector<s
   for (const auto &[client_id, record] : records) {
     payload.PutU64(client_id);
     payload.PutU64(record.last_request_id_);
+    payload.PutBytes(RequestFingerprintCodec::Encode(record.request_fingerprint_));
     payload.PutU32(static_cast<uint32_t>(record.encoded_response_.size()));
     payload.PutBytes(record.encoded_response_);
   }
   if (payload.Data().size() > MAX_SESSION_SNAPSHOT_BYTES) {
-    throw std::runtime_error("session snapshot exceeds the V1 size limit");
+    throw std::runtime_error("session snapshot exceeds the V2 size limit");
   }
   return EncodeVersionedFrame(
       {SESSION_MAGIC.data(), SESSION_MAGIC.size(), FORMAT_VERSION, MAX_SESSION_SNAPSHOT_BYTES, "session snapshot"},
@@ -160,11 +171,13 @@ void SessionSnapshotCodec::DecodeInto(const std::vector<std::byte> &bytes, Sessi
   for (uint32_t i = 0; i < count; i++) {
     const auto client_id = body.ReadU64();
     const auto request_id = body.ReadU64();
+    const auto request_fingerprint =
+        RequestFingerprintCodec::Decode(body.ReadBytes(RequestFingerprintCodec::ENCODED_BYTES));
     const auto response_size = body.ReadU32();
     if (response_size > body.Remaining() || !records.emplace(client_id, SessionRecord{}).second) {
       throw std::runtime_error("invalid or duplicate session snapshot record");
     }
-    records[client_id] = {request_id, body.ReadBytes(response_size)};
+    records[client_id] = {request_id, request_fingerprint, body.ReadBytes(response_size)};
   }
   if (!body.Empty()) {
     throw std::runtime_error("session snapshot has trailing bytes");

@@ -130,7 +130,7 @@ jobs:
         run: >-
           cmake --build ${{runner.temp}}/bustub-raft-asan --target
           build-raft-component-gates bustub-node bustub-client -j2
-      - name: Run M0-M7 component gates
+      - name: Run M0-M8 component gates
         env:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: halt_on_error=1
@@ -148,6 +148,7 @@ jobs:
           bash test/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-asan 20100 ${{runner.temp}}/m7-transfer-artifacts
           bash test/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-asan 21100 ${{runner.temp}}/m7-matrix-artifacts
           bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-asan 25100 ${{runner.temp}}/m0-m7-chain-artifacts
+          bash test/e2e/raft_m8_payload_binding.sh ${{runner.temp}}/bustub-raft-asan 26100 ${{runner.temp}}/m8-payload-binding-artifacts
       - name: Upload process diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -160,6 +161,7 @@ jobs:
             ${{runner.temp}}/m7-transfer-artifacts
             ${{runner.temp}}/m7-matrix-artifacts
             ${{runner.temp}}/m0-m7-chain-artifacts
+            ${{runner.temp}}/m8-payload-binding-artifacts
 
   raft-process-release:
     name: Raft production-process acceptance (Release, no retry)
@@ -186,6 +188,7 @@ jobs:
           bash test/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-release 20100 ${{runner.temp}}/release-m7-transfer
           bash test/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-release 21100 ${{runner.temp}}/release-m7-matrix
           bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-release 25100 ${{runner.temp}}/release-m0-m7-chain
+          bash test/e2e/raft_m8_payload_binding.sh ${{runner.temp}}/bustub-raft-release 26100 ${{runner.temp}}/release-m8-payload-binding
       - name: Upload process diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -197,6 +200,7 @@ jobs:
             ${{runner.temp}}/release-m7-transfer
             ${{runner.temp}}/release-m7-matrix
             ${{runner.temp}}/release-m0-m7-chain
+            ${{runner.temp}}/release-m8-payload-binding
 
   raft-tsan-core:
     name: Raft and DistributedNode TSan core
@@ -216,7 +220,7 @@ jobs:
       - name: Build concurrency gates
         run: >-
           cmake --build ${{runner.temp}}/bustub-raft-tsan --target
-          tcp_transport_test raft_node_test bustub_state_machine_test distributed_node_test -j2
+          tcp_transport_test raft_node_test session_table_test bustub_state_machine_test distributed_node_test -j2
       - name: Run concurrency gates
         env:
           TSAN_OPTIONS: halt_on_error=1:history_size=7

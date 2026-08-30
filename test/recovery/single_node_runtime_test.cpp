@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "distributed/command.h"
 #include "gtest/gtest.h"
@@ -35,10 +36,13 @@ auto AccountKey(int32_t id) -> EncodedPrimaryKeyV1 {
   return PrimaryKeyCodecV1::Encode(ValueFactory::GetIntegerValue(id));
 }
 
+auto Fingerprint(std::string_view sql) -> RequestFingerprintV1 { return ComputeWriteIntentFingerprintV1(sql); }
+
 auto CreateAccounts(uint64_t request_id) -> TransactionCommandBatch {
-  return {1,
+  return {2,
           41,
           request_id,
+          Fingerprint("CREATE TABLE accounts(id int PRIMARY KEY, name varchar(32));"),
           0,
           {CreateTableCommand{0,
                               0,
@@ -64,14 +68,16 @@ TEST(SingleNodeCommandRuntimeTest, SnapshotSuffixReplayAndCorruptCurrentFallback
   EXPECT_EQ(WriteResponseCodec::Decode(runtime->Commit(CreateAccounts(1))).commit_index_, 1);
   const auto schema = AccountsSchema();
   const auto original = AccountTuple(1, "alice");
-  TransactionCommandBatch insert_one{
-      1, 41, 2, 1, {InsertRowCommand{0, AccountKey(1), TupleCodecV1::Encode(original, schema)}}};
+  TransactionCommandBatch insert_one{2, 41,
+                                     2, Fingerprint("INSERT INTO accounts VALUES (1, 'alice');"),
+                                     1, {InsertRowCommand{0, AccountKey(1), TupleCodecV1::Encode(original, schema)}}};
   EXPECT_EQ(WriteResponseCodec::Decode(runtime->Commit(insert_one)).commit_index_, 2);
 
   TransactionCommandBatch secondary{
-      1,
+      2,
       41,
       3,
+      Fingerprint("CREATE INDEX accounts_name ON accounts(name);"),
       1,
       {CreateIndexCommand{
           1, 0, "accounts_name", {1}, IndexType::BPlusTreeIndex, IndexConstraintKind::NON_UNIQUE_SECONDARY}}};
@@ -81,9 +87,10 @@ TEST(SingleNodeCommandRuntimeTest, SnapshotSuffixReplayAndCorruptCurrentFallback
   EXPECT_EQ(fallback_manifest.last_included_index_, 3);
 
   const auto replacement = AccountTuple(1, "alice-updated");
-  TransactionCommandBatch update{1,
+  TransactionCommandBatch update{2,
                                  41,
                                  4,
+                                 Fingerprint("UPDATE accounts SET name = 'alice-updated' WHERE id = 1;"),
                                  2,
                                  {UpdateRowCommand{0, AccountKey(1), 2, TupleCodecV1::Encode(original, schema),
                                                    TupleCodecV1::Encode(replacement, schema)}}};
@@ -93,8 +100,9 @@ TEST(SingleNodeCommandRuntimeTest, SnapshotSuffixReplayAndCorruptCurrentFallback
   EXPECT_EQ(current_manifest.last_included_index_, 4);
 
   const auto second = AccountTuple(2, "bob");
-  TransactionCommandBatch insert_two{
-      1, 41, 5, 2, {InsertRowCommand{0, AccountKey(2), TupleCodecV1::Encode(second, schema)}}};
+  TransactionCommandBatch insert_two{2, 41,
+                                     5, Fingerprint("INSERT INTO accounts VALUES (2, 'bob');"),
+                                     2, {InsertRowCommand{0, AccountKey(2), TupleCodecV1::Encode(second, schema)}}};
   const auto response_five = runtime->Commit(insert_two);
   EXPECT_EQ(WriteResponseCodec::Decode(response_five).commit_index_, 5);
   runtime.reset();
@@ -142,11 +150,25 @@ TEST(SingleNodeCommandRuntimeTest, SnapshotSuffixReplayAndCorruptCurrentFallback
   EXPECT_EQ(runtime->LastLogIndex(), 5);
   EXPECT_EQ(runtime->GetRow(0, AccountKey(2))->first.ts_, 5);
 
+  // A changed payload under the retained latest identity is rejected by Session before validation or append.
+  // Its command would create a visible row if it reached the state machine, so the row and log are independent oracles.
+  const auto conflicting = AccountTuple(3, "must-not-appear");
+  TransactionCommandBatch conflicting_retry{
+      2, 41,
+      5, Fingerprint("INSERT INTO accounts VALUES (3, 'must-not-appear');"),
+      2, {InsertRowCommand{0, AccountKey(3), TupleCodecV1::Encode(conflicting, schema)}}};
+  EXPECT_THROW(runtime->Commit(conflicting_retry), std::runtime_error);
+  EXPECT_EQ(runtime->LastLogIndex(), 5);
+  EXPECT_EQ(runtime->CommitIndex(), 5);
+  EXPECT_FALSE(runtime->GetRow(0, AccountKey(3)).has_value());
+  EXPECT_EQ(runtime->Commit(insert_two), response_five);
+
   const auto invalid_replacement = AccountTuple(1, "must-not-commit");
   TransactionCommandBatch stale_update{
-      1,
+      2,
       41,
       6,
+      Fingerprint("UPDATE accounts SET name = 'must-not-commit' WHERE id = 1;"),
       2,
       {UpdateRowCommand{0, AccountKey(1), 999, TupleCodecV1::Encode(replacement, schema),
                         TupleCodecV1::Encode(invalid_replacement, schema)}}};

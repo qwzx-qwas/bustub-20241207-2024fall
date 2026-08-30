@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "catalog/catalog.h"
+#include "distributed/request_fingerprint.h"
 #include "storage/table/tuple.h"
 #include "type/value.h"
 
@@ -127,31 +128,36 @@ using ReplicatedCommand =
     std::variant<CreateTableCommand, CreateIndexCommand, InsertRowCommand, UpdateRowCommand, DeleteRowCommand>;
 
 struct TransactionCommandBatch {
-  uint32_t format_version_{1};
+  uint32_t format_version_{2};
   uint64_t client_id_{0};
   uint64_t request_id_{0};
+  RequestFingerprintV1 request_fingerprint_{};
   uint64_t expected_start_schema_epoch_{0};
   std::vector<ReplicatedCommand> commands_;
 
   friend auto operator==(const TransactionCommandBatch &lhs, const TransactionCommandBatch &rhs) -> bool {
     return lhs.format_version_ == rhs.format_version_ && lhs.client_id_ == rhs.client_id_ &&
-           lhs.request_id_ == rhs.request_id_ && lhs.expected_start_schema_epoch_ == rhs.expected_start_schema_epoch_ &&
-           lhs.commands_ == rhs.commands_;
+           lhs.request_id_ == rhs.request_id_ && lhs.request_fingerprint_ == rhs.request_fingerprint_ &&
+           lhs.expected_start_schema_epoch_ == rhs.expected_start_schema_epoch_ && lhs.commands_ == rhs.commands_;
   }
 };
 
 class CommandBatchCodec {
  public:
-  static constexpr uint32_t FORMAT_VERSION = 1;
-  static constexpr size_t MAX_BATCH_BYTES = 64U * 1024U * 1024U;
+  static constexpr uint32_t FORMAT_VERSION = 2;
+  /** The complete versioned CommandBatch frame must fit one replicated log-entry payload. */
+  static constexpr size_t FRAME_OVERHEAD_BYTES = 8U + sizeof(uint32_t) * 3U;
+  static constexpr size_t MAX_ENCODED_BATCH_BYTES = 64U * 1024U * 1024U;
+  static constexpr size_t MAX_BATCH_BYTES = MAX_ENCODED_BATCH_BYTES - FRAME_OVERHEAD_BYTES;
   static auto Encode(const TransactionCommandBatch &batch) -> std::vector<std::byte>;
   static auto Decode(const std::vector<std::byte> &bytes) -> TransactionCommandBatch;
 };
 
 class CommandBuilder {
  public:
-  static auto Build(uint64_t client_id, uint64_t request_id, uint64_t expected_start_schema_epoch,
-                    std::vector<ReplicatedCommand> commands) -> TransactionCommandBatch;
+  static auto Build(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint,
+                    uint64_t expected_start_schema_epoch, std::vector<ReplicatedCommand> commands)
+      -> TransactionCommandBatch;
 };
 
 }  // namespace bustub

@@ -24,6 +24,7 @@ namespace {
 
 constexpr std::array<std::byte, 8> BATCH_MAGIC{std::byte{'B'}, std::byte{'C'}, std::byte{'M'}, std::byte{'D'},
                                                std::byte{'B'}, std::byte{'A'}, std::byte{'T'}, std::byte{'1'}};
+static_assert(BATCH_MAGIC.size() + sizeof(uint32_t) * 3U == CommandBatchCodec::FRAME_OVERHEAD_BYTES);
 constexpr uint32_t MAX_COMMANDS = 1000000;
 constexpr uint32_t MAX_COLUMNS = 65536;
 
@@ -230,7 +231,7 @@ void ValidateCanonicalCommandOrder(const std::vector<ReplicatedCommand> &command
   for (size_t index = 0; index < commands.size(); index++) {
     const auto current = DmlIdentity(commands[index]);
     if (!current.has_value()) {
-      throw std::runtime_error("cannot mix DDL and DML in a V1 batch");
+      throw std::runtime_error("cannot mix DDL and DML in a replicated batch");
     }
     if (index == 0) {
       continue;
@@ -549,10 +550,12 @@ auto CommandBatchCodec::Encode(const TransactionCommandBatch &batch) -> std::vec
       batch.commands_.size() > MAX_COMMANDS) {
     throw std::runtime_error("invalid TransactionCommandBatch");
   }
+  batch.request_fingerprint_.Validate();
   ValidateCanonicalCommandOrder(batch.commands_);
   ByteWriter payload;
   payload.PutU64(batch.client_id_);
   payload.PutU64(batch.request_id_);
+  payload.PutBytes(RequestFingerprintCodec::Encode(batch.request_fingerprint_));
   payload.PutU64(batch.expected_start_schema_epoch_);
   payload.PutU32(static_cast<uint32_t>(batch.commands_.size()));
   for (const auto &command : batch.commands_) {
@@ -561,7 +564,7 @@ auto CommandBatchCodec::Encode(const TransactionCommandBatch &batch) -> std::vec
     PutBlob(&payload, body);
   }
   if (payload.Data().size() > MAX_BATCH_BYTES) {
-    throw std::runtime_error("TransactionCommandBatch exceeds V1 size limit");
+    throw std::runtime_error("TransactionCommandBatch exceeds V2 size limit");
   }
   return EncodeVersionedFrame(
       {BATCH_MAGIC.data(), BATCH_MAGIC.size(), FORMAT_VERSION, MAX_BATCH_BYTES, "TransactionCommandBatch"},
@@ -576,6 +579,7 @@ auto CommandBatchCodec::Decode(const std::vector<std::byte> &bytes) -> Transacti
   batch.format_version_ = FORMAT_VERSION;
   batch.client_id_ = body.ReadU64();
   batch.request_id_ = body.ReadU64();
+  batch.request_fingerprint_ = RequestFingerprintCodec::Decode(body.ReadBytes(RequestFingerprintCodec::ENCODED_BYTES));
   batch.expected_start_schema_epoch_ = body.ReadU64();
   const auto command_count = body.ReadU32();
   if (command_count > MAX_COMMANDS) {
@@ -593,10 +597,12 @@ auto CommandBatchCodec::Decode(const std::vector<std::byte> &bytes) -> Transacti
   return batch;
 }
 
-auto CommandBuilder::Build(uint64_t client_id, uint64_t request_id, uint64_t expected_start_schema_epoch,
-                           std::vector<ReplicatedCommand> commands) -> TransactionCommandBatch {
+auto CommandBuilder::Build(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint,
+                           uint64_t expected_start_schema_epoch, std::vector<ReplicatedCommand> commands)
+    -> TransactionCommandBatch {
   if (commands.empty()) {
-    TransactionCommandBatch batch{1, client_id, request_id, expected_start_schema_epoch, {}};
+    TransactionCommandBatch batch{CommandBatchCodec::FORMAT_VERSION, client_id, request_id, request_fingerprint,
+                                  expected_start_schema_epoch,       {}};
     static_cast<void>(CommandBatchCodec::Encode(batch));
     return batch;
   }
@@ -604,7 +610,7 @@ auto CommandBuilder::Build(uint64_t client_id, uint64_t request_id, uint64_t exp
       !std::holds_alternative<CreateIndexCommand>(commands.front())) {
     for (const auto &command : commands) {
       if (!DmlIdentity(command).has_value()) {
-        throw std::runtime_error("cannot mix DDL and DML in a V1 batch");
+        throw std::runtime_error("cannot mix DDL and DML in a replicated batch");
       }
     }
     std::sort(commands.begin(), commands.end(), [](const auto &lhs, const auto &rhs) {
@@ -617,7 +623,8 @@ auto CommandBuilder::Build(uint64_t client_id, uint64_t request_id, uint64_t exp
     });
   }
   ValidateCanonicalCommandOrder(commands);
-  TransactionCommandBatch batch{1, client_id, request_id, expected_start_schema_epoch, std::move(commands)};
+  TransactionCommandBatch batch{CommandBatchCodec::FORMAT_VERSION, client_id,          request_id, request_fingerprint,
+                                expected_start_schema_epoch,       std::move(commands)};
   static_cast<void>(CommandBatchCodec::Encode(batch));
   return batch;
 }

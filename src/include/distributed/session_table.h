@@ -15,6 +15,8 @@
 #include <shared_mutex>
 #include <vector>
 
+#include "distributed/request_fingerprint.h"
+
 namespace bustub {
 
 enum class WriteStatus : uint32_t { COMMITTED = 1 };
@@ -38,23 +40,27 @@ class WriteResponseCodec {
   static auto Decode(const std::vector<std::byte> &bytes) -> WriteResponseV1;
 };
 
-enum class RequestDisposition { NEW_REQUEST, RETRY_LAST, TOO_OLD, GAP };
+enum class RequestDisposition { NEW_REQUEST, RETRY_LAST, PAYLOAD_MISMATCH, TOO_OLD, GAP };
 
 struct SessionRecord {
   uint64_t last_request_id_{0};
+  RequestFingerprintV1 request_fingerprint_{};
   std::vector<std::byte> encoded_response_;
 
   friend auto operator==(const SessionRecord &lhs, const SessionRecord &rhs) -> bool {
-    return lhs.last_request_id_ == rhs.last_request_id_ && lhs.encoded_response_ == rhs.encoded_response_;
+    return lhs.last_request_id_ == rhs.last_request_id_ && lhs.request_fingerprint_ == rhs.request_fingerprint_ &&
+           lhs.encoded_response_ == rhs.encoded_response_;
   }
 };
 
 /** Replicated exactly-once response state. Visibility is additionally guarded by the FSM state latch. */
 class SessionTable {
  public:
-  auto Classify(uint64_t client_id, uint64_t request_id) const -> RequestDisposition;
+  auto Classify(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint) const
+      -> RequestDisposition;
   auto GetLastResponse(uint64_t client_id) const -> std::optional<std::vector<std::byte>>;
-  void RecordCommitted(uint64_t client_id, uint64_t request_id, const std::vector<std::byte> &encoded_response);
+  void RecordCommitted(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint,
+                       const std::vector<std::byte> &encoded_response);
 
   /**
    * Fail closed if any cached response describes a commit beyond Snapshot@last_included_index. A mode-specific
@@ -74,7 +80,7 @@ class SessionTable {
 
 class SessionSnapshotCodec {
  public:
-  static constexpr uint32_t FORMAT_VERSION = 1;
+  static constexpr uint32_t FORMAT_VERSION = 2;
   static auto Encode(const SessionTable &sessions) -> std::vector<std::byte>;
   static void DecodeInto(const std::vector<std::byte> &bytes, SessionTable *sessions);
 };

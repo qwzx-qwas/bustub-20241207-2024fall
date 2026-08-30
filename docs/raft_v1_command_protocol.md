@@ -1,4 +1,4 @@
-# BusTub Raft V1 command protocol
+# BusTub Raft command protocol (CommandBatch V2)
 
 This document describes the committed-byte contract implemented by `src/distributed`. It is deliberately narrower than
 the SQL surface: a leader prepares one autocommit write statement against committed state, records a canonical logical
@@ -13,21 +13,30 @@ A `TransactionCommandBatch` frame is:
 
 ```text
 8 bytes  magic = "BCMDBAT1"
-u32      format_version = 1
+u32      format_version = 2
 u32      payload_size
 bytes    payload
 u32      CRC32C(payload)
 ```
 
-The payload is `client_id:u64`, `request_id:u64`, `expected_start_schema_epoch:u64`, `command_count:u32`, then repeated
-`command_type:u32`, `command_body_size:u32`, `command_body`. The maximum payload is 64 MiB and the maximum count is
-1,000,000. V1 rejects an unknown frame version, command tag, enum value, trailing bytes, non-canonical encoding, length
-mismatch, or checksum mismatch; it does not attempt a best-effort downgrade. A future format therefore needs a new
-version and an explicit cluster upgrade gate before any node can propose it.
+The payload is `client_id:u64`, `request_id:u64`, `fingerprint_version:u32 = 1`, `fingerprint:32 raw bytes`,
+`expected_start_schema_epoch:u64`, `command_count:u32`, then repeated `command_type:u32`,
+`command_body_size:u32`, `command_body`. The complete frame is at most 64 MiB so it fits one `LogCodec` payload; the
+inner payload limit reserves the 20-byte frame overhead. The maximum command count is 1,000,000. V2 rejects
+V1 and unknown frame versions, unknown command tags and enum values, trailing bytes, non-canonical encoding, length
+mismatch, or checksum mismatch; it does not attempt a best-effort downgrade. M8 is a fresh-directory homogeneous
+cutover, not an on-disk migration or mixed-binary protocol. A future format needs its own explicit upgrade gate before
+any node can propose it.
+
+The 32-byte request fingerprint is SHA-256 over the exact byte sequence
+`"BUSTUB_RAFT_WRITE_INTENT" || be32(1) || be32(WRITE_SQL=1) || be32(sql_size) || raw_sql_bytes`. It is computed at the
+write-request boundary before state-dependent SQL prepare. Client/request identity, routing, term, schema state,
+prepared command bytes, outer framing, and CRC are deliberately excluded. This is a non-Byzantine misuse detector,
+not authentication: byte-different SQL is a different payload even when it is semantically equivalent.
 
 Command tags are fixed as `CREATE_TABLE=1`, `CREATE_INDEX=2`, `INSERT_ROW=3`, `UPDATE_ROW=4`, and `DELETE_ROW=5`.
 `CREATE_TABLE` carries both `table_oid` and `primary_index_oid`; `CREATE_INDEX` carries `index_oid` and `table_oid`.
-Followers never allocate replacement OIDs. A V1 batch contains either one DDL command, a canonical DML list, or zero
+Followers never allocate replacement OIDs. A V2 batch contains either one DDL command, a canonical DML list, or zero
 DML commands for a committed zero-row statement. DDL and DML cannot be mixed.
 
 ## Logical row identity and tuple bytes
@@ -56,8 +65,9 @@ timestamp. UPDATE additionally carries the complete replacement tuple.
 
 Only one statement is accepted per request. INSERT is limited to a private VALUES source; UPDATE and DELETE are limited
 to one base table and a deterministic filter. A zero-row DML still commits an empty batch so request deduplication has a
-stable result. V2 must define a transaction-wide read set, write set, schema/OID allocation rules, and one atomic
-publication boundary before enabling multi-statement transactions or DDL followed by DML in one batch.
+stable result. Any future multi-statement format must define a transaction-wide read set, write set, schema/OID
+allocation rules, and one atomic publication boundary before enabling multi-statement transactions or DDL followed by
+DML in one batch; CommandBatchV2 does not add those semantics.
 
 ## Apply, visibility, and responses
 
@@ -77,9 +87,11 @@ entry_term:u64
 commit_index:u64
 ```
 
-For each nonzero `client_id`, request IDs start at 1 and exactly increment by one. Repeating the latest request returns
-the byte-identical cached response (including its original term and index); an older request or a gap is rejected. The
-SessionTable and complete response bytes are part of every canonical snapshot.
+For each nonzero `client_id`, request IDs start at 1 and exactly increment by one. Repeating the latest identity with
+the same fingerprint returns the byte-identical cached response (including its original term and index). Reusing that
+identity with a different payload is rejected with `request payload does not match request identity` before a second
+append or business mutation; an older request or a gap is rejected by the existing sequence rule. Session snapshot V2
+stores the latest request ID, fingerprint, and complete response bytes inside every canonical snapshot bundle.
 
 ## Proposal-time rejection list
 
@@ -90,7 +102,8 @@ The following conditions must not append a Raft entry, advance a public OID, cha
 - `CREATE UNIQUE INDEX`, secondary UNIQUE constraints, or a recovered V1 Catalog containing them;
 - missing tables/columns, duplicate object names, unsupported index types/options, or an index key larger than the V1
   64-byte scalar-key adapter limit;
-- primary-key collision, request gaps/old IDs, schema epoch mismatch, or explicit OID mismatch;
+- primary-key collision, request gaps/old IDs, latest-ID payload mismatch, schema epoch mismatch, or explicit OID
+  mismatch;
 - primary-key UPDATE, an UPDATE/DELETE old tuple or old commit timestamp mismatch, and duplicate logical keys in one
   batch;
 - unsupported INSERT sources, multi-table mutations, and values that cannot be represented by the stable tuple codec.

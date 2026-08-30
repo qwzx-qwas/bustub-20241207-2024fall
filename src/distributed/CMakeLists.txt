@@ -7,6 +7,7 @@ add_library(
   command_codec.cpp
   node.cpp
   raft_state_machine.cpp
+  request_fingerprint.cpp
   single_node_sql_runtime.cpp
   sql_command_preparer.cpp
   session_table.cpp)

@@ -8,10 +8,14 @@
 
 #include <unistd.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -51,6 +55,28 @@ auto Hex(std::string_view text) -> std::vector<std::byte> {
     result.push_back(static_cast<std::byte>((nibble(text[offset]) << 4U) | nibble(text[offset + 1])));
   }
   return result;
+}
+
+using FileTreeImage = std::pair<std::vector<std::string>, std::map<std::string, std::vector<std::byte>>>;
+
+auto CaptureFileTree(const std::filesystem::path &root, DurableStorage *storage) -> FileTreeImage {
+  if (storage == nullptr) {
+    throw std::runtime_error("test storage is null");
+  }
+  FileTreeImage image;
+  if (!std::filesystem::exists(root)) {
+    return image;
+  }
+  for (const auto &entry : std::filesystem::recursive_directory_iterator(root)) {
+    const auto relative = std::filesystem::relative(entry.path(), root).generic_string();
+    image.first.push_back(entry.is_directory() ? relative + "/" : relative);
+    if (entry.is_regular_file()) {
+      const auto size = storage->FileSize(entry.path());
+      image.second.emplace(relative, storage->ReadFile(entry.path(), static_cast<size_t>(size)));
+    }
+  }
+  std::sort(image.first.begin(), image.first.end());
+  return image;
 }
 
 class ScopedStorageRoot {
@@ -140,10 +166,14 @@ TEST(BusTubRaftStateMachineTest, CanonicalPayloadInstallAndSuffixApply) {
   auto left = BusTubRaftStateMachine::Open(left_directory.get(), storage, 64);
   auto right = BusTubRaftStateMachine::Open(right_directory.get(), storage, 64);
 
-  const auto create = left->PrepareSql("CREATE TABLE accounts(id int PRIMARY KEY, name varchar(32));", 44, 1);
+  const std::string create_sql = "CREATE TABLE accounts(id int PRIMARY KEY, name varchar(32));";
+  const auto create_fingerprint = ComputeWriteIntentFingerprintV1(create_sql);
+  const auto create = left->PrepareSql(create_sql, 44, 1, create_fingerprint);
   left->ValidateProposal(create);
   left->Apply({1, 1, 3, EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(create)});
-  const auto insert = left->PrepareSql("INSERT INTO accounts VALUES (1, 'before');", 44, 2);
+  const std::string insert_sql = "INSERT INTO accounts VALUES (1, 'before');";
+  const auto insert_fingerprint = ComputeWriteIntentFingerprintV1(insert_sql);
+  const auto insert = left->PrepareSql(insert_sql, 44, 2, insert_fingerprint);
   left->ValidateProposal(insert);
   left->Apply({1, 2, 3, EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(insert)});
 
@@ -167,7 +197,10 @@ TEST(BusTubRaftStateMachineTest, CanonicalPayloadInstallAndSuffixApply) {
   EXPECT_EQ(snapshot_catalog.tables_[0].table_name_, "accounts");
   SessionTable snapshot_sessions;
   SessionSnapshotCodec::DecodeInto(compatibility_bundle.sessions_, &snapshot_sessions);
-  EXPECT_EQ(snapshot_sessions.Classify(44, 2), RequestDisposition::RETRY_LAST);
+  EXPECT_EQ(snapshot_sessions.Classify(44, 2, insert_fingerprint), RequestDisposition::RETRY_LAST);
+  EXPECT_EQ(
+      snapshot_sessions.Classify(44, 2, ComputeWriteIntentFingerprintV1("INSERT INTO accounts VALUES (1, 'changed');")),
+      RequestDisposition::PAYLOAD_MISMATCH);
   EXPECT_EQ(snapshot_sessions.GetLastResponse(44), left->GetLastResponse(44));
   const auto right_runtime = right_directory->WorkingDirectory() / "bustub-raft-fsm";
   const auto right_entries_before_validation = storage->ListDirectory(right_runtime);
@@ -178,8 +211,13 @@ TEST(BusTubRaftStateMachineTest, CanonicalPayloadInstallAndSuffixApply) {
   right->InstallSnapshotFile(payload, 2);
   ASSERT_TRUE(right->GetRow(0, Key(1)).has_value());
   EXPECT_EQ(right->GetRow(0, Key(1))->first.ts_, 2);
+  EXPECT_EQ(right->ClassifyRequest(44, 2, insert_fingerprint), RequestDisposition::RETRY_LAST);
+  EXPECT_EQ(
+      right->ClassifyRequest(44, 2, ComputeWriteIntentFingerprintV1("INSERT INTO accounts VALUES (1, 'changed');")),
+      RequestDisposition::PAYLOAD_MISMATCH);
 
-  const auto update = right->PrepareSql("UPDATE accounts SET name = 'after' WHERE id = 1;", 44, 3);
+  const std::string update_sql = "UPDATE accounts SET name = 'after' WHERE id = 1;";
+  const auto update = right->PrepareSql(update_sql, 44, 3, ComputeWriteIntentFingerprintV1(update_sql));
   right->ValidateProposal(update);
   right->Apply({1, 3, 4, EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(update)});
   const auto updated = right->GetRow(0, Key(1));
@@ -233,7 +271,39 @@ TEST(BusTubRaftStateMachineTest, InstallRejectsSessionCommittedPastBundleBoundar
   auto source = BusTubRaftStateMachine::Open(source_directory.get(), storage, 32);
   auto target = BusTubRaftStateMachine::Open(target_directory.get(), storage, 32);
 
-  const auto create = source->PrepareSql("CREATE TABLE accounts(id int PRIMARY KEY, balance int);", 81, 1);
+  const std::string sentinel_create_sql = "CREATE TABLE sentinel(id int PRIMARY KEY, note varchar(32));";
+  const auto sentinel_create_fingerprint = ComputeWriteIntentFingerprintV1(sentinel_create_sql);
+  const auto sentinel_create = target->PrepareSql(sentinel_create_sql, 91, 1, sentinel_create_fingerprint);
+  target->ValidateProposal(sentinel_create);
+  target->Apply({1, 1, 9, EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(sentinel_create)});
+  const std::string sentinel_insert_sql = "INSERT INTO sentinel VALUES (9, 'target-must-survive');";
+  const auto sentinel_insert_fingerprint = ComputeWriteIntentFingerprintV1(sentinel_insert_sql);
+  const auto sentinel_insert = target->PrepareSql(sentinel_insert_sql, 91, 2, sentinel_insert_fingerprint);
+  target->ValidateProposal(sentinel_insert);
+  target->Apply({1, 2, 9, EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(sentinel_insert)});
+
+  const auto target_runtime = target_directory->WorkingDirectory() / "bustub-raft-fsm";
+  const auto target_files_before = CaptureFileTree(target_runtime, storage.get());
+  const auto target_response_before = target->GetLastResponse(91);
+  ASSERT_TRUE(target_response_before.has_value());
+  const auto assert_target_unchanged = [&] {
+    EXPECT_EQ(target->PublishedAppliedIndex(), 2);
+    const auto target_catalog = target->CatalogSnapshotForRead();
+    ASSERT_EQ(target_catalog.tables_.size(), 1);
+    EXPECT_EQ(target_catalog.tables_[0].table_name_, "sentinel");
+    const auto sentinel_row = target->GetRow(0, Key(9));
+    ASSERT_TRUE(sentinel_row.has_value());
+    EXPECT_EQ(sentinel_row->first.ts_, 2);
+    EXPECT_EQ(sentinel_row->second.GetValue(&target_catalog.tables_[0].schema_, 1).ToString(), "target-must-survive");
+    EXPECT_EQ(target->ClassifyRequest(91, 2, sentinel_insert_fingerprint), RequestDisposition::RETRY_LAST);
+    EXPECT_EQ(target->GetLastResponse(91), target_response_before);
+    EXPECT_EQ(CaptureFileTree(target_runtime, storage.get()), target_files_before);
+  };
+  assert_target_unchanged();
+
+  const std::string create_sql = "CREATE TABLE accounts(id int PRIMARY KEY, balance int);";
+  const auto create_fingerprint = ComputeWriteIntentFingerprintV1(create_sql);
+  const auto create = source->PrepareSql(create_sql, 81, 1, create_fingerprint);
   source->ValidateProposal(create);
   source->Apply({1, 1, 3, EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(create)});
   const auto valid_path = source_root / "snapshot-at-one.bundle";
@@ -243,24 +313,36 @@ TEST(BusTubRaftStateMachineTest, InstallRejectsSessionCommittedPastBundleBoundar
   ASSERT_EQ(bundle.last_included_index_, 1);
   SessionTable sessions;
   SessionSnapshotCodec::DecodeInto(bundle.sessions_, &sessions);
-  ASSERT_EQ(sessions.Classify(81, 1), RequestDisposition::RETRY_LAST);
+  ASSERT_EQ(sessions.Classify(81, 1, create_fingerprint), RequestDisposition::RETRY_LAST);
   const auto session_response = sessions.GetLastResponse(81);
   ASSERT_TRUE(session_response.has_value());
   ASSERT_EQ(WriteResponseCodec::Decode(*session_response).commit_index_, 1);
+  EXPECT_EQ(*session_response, Hex("0000000100000001000000000000000100000000000000030000000000000001"));
+
+  auto legacy_session_bundle = bundle;
+  // Hand-authored valid SessionV1 frame for client 81/request 1/term 3/index 1. The literal CRC32C is 0x68f064ac;
+  // no production framing or Session codec constructs the old-format rejection fixture.
+  legacy_session_bundle.sessions_ =
+      Hex("425354534553303100000001000000380000000100000000000000510000000000000001000000200000000100000001"
+          "00000000000000010000000000000003000000000000000168f064ac");
+  const auto legacy_session_bytes = BusTubSnapshotBundleCodec::Encode(legacy_session_bundle);
+  const auto legacy_session_path = source_root / "snapshot-with-session-v1.bundle";
+  storage->WriteFile(legacy_session_path, legacy_session_bytes);
+  EXPECT_THROW(target->ValidateSnapshotFile({legacy_session_path, 0, legacy_session_bytes.size()}, 1),
+               std::runtime_error);
+  assert_target_unchanged();
+  EXPECT_THROW(target->InstallSnapshotFile({legacy_session_path, 0, legacy_session_bytes.size()}, 1),
+               std::runtime_error);
+  assert_target_unchanged();
 
   bundle.last_included_index_ = 0;
   const auto invalid_bytes = BusTubSnapshotBundleCodec::Encode(bundle);
   const auto invalid_path = source_root / "snapshot-with-future-session.bundle";
   storage->WriteFile(invalid_path, invalid_bytes);
-  const auto target_runtime = target_directory->WorkingDirectory() / "bustub-raft-fsm";
-  const auto target_entries_before_validation = storage->ListDirectory(target_runtime);
   EXPECT_THROW(target->ValidateSnapshotFile({invalid_path, 0, invalid_bytes.size()}, 0), std::runtime_error);
-  EXPECT_EQ(target->PublishedAppliedIndex(), 0);
-  EXPECT_TRUE(target->CatalogSnapshotForRead().tables_.empty());
-  EXPECT_EQ(storage->ListDirectory(target_runtime), target_entries_before_validation);
+  assert_target_unchanged();
   EXPECT_THROW(target->InstallSnapshotFile({invalid_path, 0, invalid_bytes.size()}, 0), std::runtime_error);
-  EXPECT_EQ(target->PublishedAppliedIndex(), 0);
-  EXPECT_TRUE(target->CatalogSnapshotForRead().tables_.empty());
+  assert_target_unchanged();
 
   target.reset();
   source.reset();

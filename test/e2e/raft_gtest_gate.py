@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Run every M0-M7 component binary once and prove that it executed tests."""
+"""Run every M0-M8 component binary once and prove that it executed tests."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ TEST_BINARIES = (
     "tcp_transport_test",
     "client_protocol_test",
     "node_config_test",
+    "request_fingerprint_test",
     "command_codec_test",
     "session_table_test",
     "rpc_codec_test",

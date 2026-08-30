@@ -455,17 +455,20 @@ void BusTubRaftStateMachine::InstallSnapshotFile(const DurableFileSlice &payload
   }
 }
 
-auto BusTubRaftStateMachine::PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id) const
+auto BusTubRaftStateMachine::PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id,
+                                        const RequestFingerprintV1 &request_fingerprint) const
     -> TransactionCommandBatch {
   std::lock_guard lifecycle(lifecycle_mutex_);
   auto shared = visibility_.LockShared();
-  return SqlCommandPreparer(state_->catalog_.get()).Prepare(sql, client_id, request_id);
+  return SqlCommandPreparer(state_->catalog_.get()).Prepare(sql, client_id, request_id, request_fingerprint);
 }
 
-auto BusTubRaftStateMachine::ClassifyRequest(uint64_t client_id, uint64_t request_id) const -> RequestDisposition {
+auto BusTubRaftStateMachine::ClassifyRequest(uint64_t client_id, uint64_t request_id,
+                                             const RequestFingerprintV1 &request_fingerprint) const
+    -> RequestDisposition {
   std::lock_guard lifecycle(lifecycle_mutex_);
   auto shared = visibility_.LockShared();
-  return state_->sessions_->Classify(client_id, request_id);
+  return state_->sessions_->Classify(client_id, request_id, request_fingerprint);
 }
 
 void BusTubRaftStateMachine::ValidateProposal(const TransactionCommandBatch &batch) const {

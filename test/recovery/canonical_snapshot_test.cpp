@@ -46,10 +46,11 @@ TEST(CanonicalSnapshotTest, MaterializesSelfContainedCommittedState) {
   source.AdvanceSchemaEpoch();
 
   SessionTable sessions;
+  const auto request_fingerprint = ComputeWriteIntentFingerprintV1("INSERT INTO items VALUES (2, 'live');");
   const auto encoded_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 11});
   // M0/M1 fixture: restore a pre-existing persisted record without exercising
   // the M2 exact-once transition API.
-  sessions.RestoreRecords({{99, SessionRecord{1, encoded_response}}});
+  sessions.RestoreRecords({{99, SessionRecord{1, request_fingerprint, encoded_response}}});
 
   PosixDurableStorage storage;
   const auto root = std::filesystem::temp_directory_path() / ("bustub-canonical-snapshot-" + std::to_string(getpid()));
@@ -83,6 +84,10 @@ TEST(CanonicalSnapshotTest, MaterializesSelfContainedCommittedState) {
   SessionSnapshotCodec::DecodeInto(storage.ReadFile(paths.session_file_, 1024 * 1024), &restored_sessions);
   ASSERT_TRUE(restored_sessions.GetLastResponse(99).has_value());
   EXPECT_EQ(*restored_sessions.GetLastResponse(99), encoded_response);
+  EXPECT_EQ(restored_sessions.Classify(99, 1, request_fingerprint), RequestDisposition::RETRY_LAST);
+  EXPECT_EQ(
+      restored_sessions.Classify(99, 1, ComputeWriteIntentFingerprintV1("INSERT INTO items VALUES (2, 'changed');")),
+      RequestDisposition::PAYLOAD_MISMATCH);
   restored_disk.ShutDown();
   storage.RemoveTree(root);
 }

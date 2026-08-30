@@ -26,18 +26,6 @@ do
     "${artifact_root}/proxy-${node_id}"
 done
 
-# Read the V1 CURRENT record independently of production code. Client status
-# reports the oldest retained recovery base, which intentionally trails the
-# latest image while two generations are retained and therefore cannot prove
-# that a snapshot was taken at the quiescent head.
-raft_current_snapshot_index() {
-  python3 -c 'import pathlib, struct, sys
-data = pathlib.Path(sys.argv[1]).read_bytes()
-if len(data) < 28 or data[:8] != b"BRCURR01" or struct.unpack(">I", data[8:12])[0] != 1:
-    raise SystemExit("invalid V1 Raft CURRENT record")
-print(struct.unpack(">Q", data[20:28])[0])' "$1"
-}
-
 raft_timeline_step "Cumulative prerequisites: start fresh distributed state and validate admission has no Catalog side effects"
 raft_start_all_nodes
 leader=$(raft_find_leader)

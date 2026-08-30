@@ -95,6 +95,7 @@ TEST(SnapshotManagerTest, PublishPruneAndRecover) {
   StateVisibilityLatch latch;
   SnapshotManager snapshots(node_directory.get(), storage);
   std::vector<std::byte> final_response;
+  RequestFingerprintV1 final_fingerprint;
 
   for (uint64_t generation = 1; generation <= 3; generation++) {
     Tuple tuple({ValueFactory::GetIntegerValue(static_cast<int32_t>(generation)),
@@ -102,7 +103,10 @@ TEST(SnapshotManagerTest, PublishPruneAndRecover) {
                 &schema);
     ASSERT_TRUE(table->table_->InsertTuple({static_cast<timestamp_t>(generation * 10), false}, tuple).has_value());
     final_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, generation, 0, generation * 10});
-    sessions.RestoreRecords({{700, SessionRecord{generation, final_response}}});
+    const auto sql =
+        "INSERT INTO items VALUES (" + std::to_string(generation) + ", " + std::to_string(generation * 10) + ");";
+    final_fingerprint = ComputeWriteIntentFingerprintV1(sql);
+    sessions.RestoreRecords({{700, SessionRecord{generation, final_fingerprint, final_response}}});
     snapshots.CreateSnapshot(source, sessions, &latch, generation, generation * 10, 0);
   }
 
@@ -166,7 +170,9 @@ TEST(SnapshotManagerTest, PublishPruneAndRecover) {
   }
   ASSERT_TRUE(recovered->sessions_->GetLastResponse(700).has_value());
   EXPECT_EQ(*recovered->sessions_->GetLastResponse(700), final_response);
-  EXPECT_EQ(recovered->sessions_->Classify(700, 3), RequestDisposition::RETRY_LAST);
+  EXPECT_EQ(recovered->sessions_->Classify(700, 3, final_fingerprint), RequestDisposition::RETRY_LAST);
+  EXPECT_EQ(recovered->sessions_->Classify(700, 3, ComputeWriteIntentFingerprintV1("DELETE FROM items WHERE id = 3;")),
+            RequestDisposition::PAYLOAD_MISMATCH);
   const auto table_tail = recovered_table->table_->GetLastPageId();
   EXPECT_GT(recovered->buffer_pool_manager_->NewPage(), table_tail);
 
@@ -212,7 +218,9 @@ TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
     SessionTable sessions;
     const auto old_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 1});
     const auto new_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 0, 2});
-    sessions.RestoreRecords({{91, SessionRecord{1, old_response}}});
+    const auto old_fingerprint = ComputeWriteIntentFingerprintV1("INSERT INTO t VALUES (1, 100);");
+    const auto new_fingerprint = ComputeWriteIntentFingerprintV1("INSERT INTO t VALUES (2, 900);");
+    sessions.RestoreRecords({{91, SessionRecord{1, old_fingerprint, old_response}}});
     StateVisibilityLatch latch;
 
     auto node_directory = NodeDirectory::Open(root, storage);
@@ -224,7 +232,7 @@ TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
              .has_value()) {
       throw std::runtime_error("test source generation-two tuple insertion failed");
     }
-    sessions.RestoreRecords({{91, SessionRecord{2, new_response}}});
+    sessions.RestoreRecords({{91, SessionRecord{2, new_fingerprint, new_response}}});
     storage->ResetEventHistory();
     if (fault.has_value()) {
       storage->FailAt(*fault);
@@ -285,6 +293,13 @@ TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
         (generation == 2 && (rows != new_rows || *response != new_response)) || (generation != 1 && generation != 2)) {
       throw std::runtime_error("power-loss recovery produced a mixed database/Catalog/Session generation");
     }
+    const auto &expected_fingerprint = generation == 1 ? old_fingerprint : new_fingerprint;
+    if (recovered->sessions_->Classify(91, generation, expected_fingerprint) != RequestDisposition::RETRY_LAST ||
+        recovered->sessions_->Classify(91, generation,
+                                       ComputeWriteIntentFingerprintV1("DELETE FROM t WHERE id = 1;")) !=
+            RequestDisposition::PAYLOAD_MISMATCH) {
+      throw std::runtime_error("power-loss recovery lost the request payload binding");
+    }
     recovered.reset();
     node_directory.reset();
     storage->RemoveTree(root);
@@ -341,8 +356,9 @@ TEST(SnapshotManagerTest, LogicalCaptureWaitsForReaderBarrier) {
   ASSERT_NE(primary_index, nullptr);
   source.AdvanceSchemaEpoch();
   SessionTable sessions;
+  const auto request_fingerprint = ComputeWriteIntentFingerprintV1("INSERT INTO barrier_items VALUES (7, 70);");
   const auto response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 4});
-  sessions.RestoreRecords({{42, SessionRecord{1, response}}});
+  sessions.RestoreRecords({{42, SessionRecord{1, request_fingerprint, response}}});
   StateVisibilityLatch latch;
   SnapshotManager snapshots(node_directory.get(), storage);
 
@@ -370,6 +386,7 @@ TEST(SnapshotManagerTest, LogicalCaptureWaitsForReaderBarrier) {
   EXPECT_TRUE(iterator.IsEnd());
   ASSERT_TRUE(recovered->sessions_->GetLastResponse(42).has_value());
   EXPECT_EQ(*recovered->sessions_->GetLastResponse(42), response);
+  EXPECT_EQ(recovered->sessions_->Classify(42, 1, request_fingerprint), RequestDisposition::RETRY_LAST);
 
   // SnapshotManager is the term-0 publisher. Distributed snapshots and their
   // nonzero Raft terms belong to SnapshotStore and must not enter this format.
@@ -378,13 +395,14 @@ TEST(SnapshotManagerTest, LogicalCaptureWaitsForReaderBarrier) {
   EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002.tmp"));
 
   const auto nonzero_term_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 3, 4});
-  sessions.RestoreRecords({{42, SessionRecord{2, nonzero_term_response}}});
+  const auto update_fingerprint = ComputeWriteIntentFingerprintV1("UPDATE barrier_items SET value = 71 WHERE id = 7;");
+  sessions.RestoreRecords({{42, SessionRecord{2, update_fingerprint, nonzero_term_response}}});
   EXPECT_THROW(snapshots.CreateSnapshot(source, sessions, &latch, 2, 4, 0), std::runtime_error);
   EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002"));
   EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002.tmp"));
 
   const auto future_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 0, 5});
-  sessions.RestoreRecords({{42, SessionRecord{2, future_response}}});
+  sessions.RestoreRecords({{42, SessionRecord{2, update_fingerprint, future_response}}});
   EXPECT_THROW(snapshots.CreateSnapshot(source, sessions, &latch, 2, 4, 0), std::runtime_error);
   EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002"));
   EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002.tmp"));

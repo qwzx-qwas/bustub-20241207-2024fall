@@ -574,6 +574,23 @@ raft_status_field() {
   return 1
 }
 
+# Read the fixed index field of a V1 Raft CURRENT record independently of the
+# production decoder. Status exposes the oldest retained recovery base, not
+# necessarily the latest published image, so snapshot-boundary tests need this
+# narrow read-only oracle.
+raft_current_snapshot_index() {
+  if [[ $# -ne 1 ]]
+  then
+    echo "raft_current_snapshot_index requires a CURRENT path" >&2
+    return 1
+  fi
+  python3 -c 'import pathlib, struct, sys
+data = pathlib.Path(sys.argv[1]).read_bytes()
+if len(data) < 28 or data[:8] != b"BRCURR01" or struct.unpack(">I", data[8:12])[0] != 1:
+    raise SystemExit("invalid V1 Raft CURRENT record")
+print(struct.unpack(">Q", data[20:28])[0])' "$1"
+}
+
 # Compare the complete ordered logical result (header and every row), mirroring
 # BusTub's SQLLogicTest literal-result oracle. The volatile status line is
 # checked for success and excluded from the comparison.

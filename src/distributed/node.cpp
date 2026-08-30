@@ -25,10 +25,15 @@
 #include <type_traits>
 #include <utility>
 
+#include "distributed/request_fingerprint.h"
 #include "raft/persistent_state.h"
+#include "recovery/log_codec.h"
 
 namespace bustub {
 namespace {
+
+static_assert(CommandBatchCodec::MAX_ENCODED_BATCH_BYTES == LogCodec::MAX_PAYLOAD_BYTES,
+              "an encoded CommandBatch must fit one LogCodec payload");
 
 class SocketGuard {
  public:
@@ -290,7 +295,8 @@ void DistributedNode::ReconcileActiveWrite() {
   // potentially multi-megabyte CommandBatch on every tick.
   const bool original_slot_remains =
       raft_node_->Log().TermAt(active.proposal_index_) == std::optional<uint64_t>{active.proposal_term_};
-  const auto disposition = state_machine_->ClassifyRequest(active.client_id_, active.request_id_);
+  const auto disposition =
+      state_machine_->ClassifyRequest(active.client_id_, active.request_id_, active.request_fingerprint_);
   if (disposition == RequestDisposition::RETRY_LAST) {
     const auto response = state_machine_->GetLastResponse(active.client_id_);
     if (!response.has_value()) {
@@ -315,6 +321,14 @@ void DistributedNode::ReconcileActiveWrite() {
     // The ordered SessionTable has advanced beyond this request. This also
     // covers a new Leader inheriting and committing the original slot, followed
     // by a later request whose response replaces V1's single cached response.
+    active_write_.reset();
+    state_changed_.notify_all();
+    return;
+  }
+  if (disposition == RequestDisposition::PAYLOAD_MISMATCH) {
+    if (original_slot_remains) {
+      throw std::runtime_error("active proposal remains in the log after a conflicting payload committed");
+    }
     active_write_.reset();
     state_changed_.notify_all();
     return;
@@ -457,6 +471,13 @@ auto DistributedNode::HandleStatus(const ClientStatusRequestV1 &request) -> Clie
 }
 
 auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> ClientResponseV1 {
+  RequestFingerprintV1 request_fingerprint;
+  try {
+    request_fingerprint = ComputeWriteIntentFingerprintV1(request.sql_);
+  } catch (const std::exception &error) {
+    std::lock_guard lock(mutex_);
+    return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED, ErrorPayload(error.what()));
+  }
   std::unique_lock lock(mutex_);
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.client_timeout_ms_);
   while (true) {
@@ -475,7 +496,8 @@ auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> Client
       return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
     }
 
-    const auto disposition = state_machine_->ClassifyRequest(request.client_id_, request.request_id_);
+    const auto disposition =
+        state_machine_->ClassifyRequest(request.client_id_, request.request_id_, request_fingerprint);
     if (disposition == RequestDisposition::RETRY_LAST) {
       const auto response = state_machine_->GetLastResponse(request.client_id_);
       if (!response.has_value()) {
@@ -496,9 +518,20 @@ auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> Client
       }
       return MakeResponse(request.request_id_, ClientResponseStatus::COMMITTED, *response);
     }
+    if (disposition == RequestDisposition::PAYLOAD_MISMATCH) {
+      return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
+                          ErrorPayload("request payload does not match request identity"));
+    }
     if (disposition != RequestDisposition::NEW_REQUEST) {
       return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
                           ErrorPayload("request ID is old or contains a sequence gap"));
+    }
+
+    if (active_write_.has_value() && active_write_->client_id_ == request.client_id_ &&
+        active_write_->request_id_ == request.request_id_ &&
+        !(active_write_->request_fingerprint_ == request_fingerprint)) {
+      return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
+                          ErrorPayload("request payload does not match request identity"));
     }
 
     if (!active_write_.has_value()) {
@@ -513,7 +546,8 @@ auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> Client
 
       std::vector<std::byte> encoded_batch;
       try {
-        const auto batch = state_machine_->PrepareSql(request.sql_, request.client_id_, request.request_id_);
+        const auto batch =
+            state_machine_->PrepareSql(request.sql_, request.client_id_, request.request_id_, request_fingerprint);
         state_machine_->ValidateProposal(batch);
         encoded_batch = CommandBatchCodec::Encode(batch);
       } catch (const std::exception &error) {
@@ -526,7 +560,8 @@ auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> Client
         if (!proposed.has_value()) {
           return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
         }
-        active_write_ = ActiveWrite{request.client_id_, request.request_id_, *proposed, proposal_term};
+        active_write_ =
+            ActiveWrite{request.client_id_, request.request_id_, request_fingerprint, *proposed, proposal_term};
       } catch (...) {
         // Durable mutation failures are ambiguous: the journal may contain the
         // entry even though in-memory publication failed. Never report these as

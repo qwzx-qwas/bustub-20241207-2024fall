@@ -88,7 +88,8 @@ class ThreeNodeBusTubCluster {
 
   auto Submit(NodeId leader, const std::string &sql, uint64_t client_id, uint64_t request_id)
       -> std::vector<std::byte> {
-    const auto batch = Machine(leader).PrepareSql(sql, client_id, request_id);
+    const auto request_fingerprint = ComputeWriteIntentFingerprintV1(sql);
+    const auto batch = Machine(leader).PrepareSql(sql, client_id, request_id, request_fingerprint);
     Machine(leader).ValidateProposal(batch);
     const auto index = Node(leader).Propose(EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(batch));
     if (!index.has_value()) {
@@ -156,18 +157,25 @@ TEST(RaftBusTubClusterTest, NormalReplicationLeaderChangeAndByteExactRetry) {
   cluster.Elect(1, 100);
 
   const auto initial_last_index = cluster.Node(1).Log().LastLogIndex();
-  EXPECT_THROW(cluster.Machine(1).PrepareSql("CREATE TABLE missing_pk(value int);", 700, 1), std::runtime_error);
+  const std::string missing_primary_key_sql = "CREATE TABLE missing_pk(value int);";
+  EXPECT_THROW(cluster.Machine(1).PrepareSql(missing_primary_key_sql, 700, 1,
+                                             ComputeWriteIntentFingerprintV1(missing_primary_key_sql)),
+               std::runtime_error);
   EXPECT_EQ(cluster.Node(1).Log().LastLogIndex(), initial_last_index);
 
   cluster.Submit(1, "CREATE TABLE accounts(id int PRIMARY KEY, name varchar(32));", 700, 1);
   const auto before_unique = cluster.Node(1).Log().LastLogIndex();
-  EXPECT_THROW(cluster.Machine(1).PrepareSql("CREATE UNIQUE INDEX invalid_unique ON accounts(name);", 700, 2),
+  const std::string unsupported_unique_sql = "CREATE UNIQUE INDEX invalid_unique ON accounts(name);";
+  EXPECT_THROW(cluster.Machine(1).PrepareSql(unsupported_unique_sql, 700, 2,
+                                             ComputeWriteIntentFingerprintV1(unsupported_unique_sql)),
                std::runtime_error);
   EXPECT_EQ(cluster.Node(1).Log().LastLogIndex(), before_unique);
 
   cluster.Submit(1, "INSERT INTO accounts VALUES (2, 'two'), (1, 'one');", 700, 2);
   cluster.Submit(1, "CREATE INDEX accounts_name ON accounts(name);", 700, 3);
-  const auto uncertain = cluster.Submit(1, "UPDATE accounts SET name = 'updated' WHERE id <= 2;", 700, 4);
+  const std::string update_sql = "UPDATE accounts SET name = 'updated' WHERE id <= 2;";
+  const auto update_fingerprint = ComputeWriteIntentFingerprintV1(update_sql);
+  const auto uncertain = cluster.Submit(1, update_sql, 700, 4);
   EXPECT_EQ(WriteResponseCodec::Decode(uncertain), (WriteResponseV1{1, WriteStatus::COMMITTED, 4, 1, 5}));
   for (NodeId id = 1; id <= 3; id++) {
     EXPECT_EQ(cluster.Machine(id).GetLastResponse(700), uncertain);
@@ -179,8 +187,13 @@ TEST(RaftBusTubClusterTest, NormalReplicationLeaderChangeAndByteExactRetry) {
   cluster.Elect(2, 200);
   ASSERT_EQ(cluster.Node(2).CurrentTerm(), 2);
   ASSERT_EQ(cluster.Node(2).CommitIndex(), 6);
-  EXPECT_EQ(cluster.Machine(2).ClassifyRequest(700, 4), RequestDisposition::RETRY_LAST);
+  const auto before_retry = cluster.Node(2).Log().LastLogIndex();
+  EXPECT_EQ(cluster.Machine(2).ClassifyRequest(700, 4, update_fingerprint), RequestDisposition::RETRY_LAST);
+  EXPECT_EQ(cluster.Machine(2).ClassifyRequest(
+                700, 4, ComputeWriteIntentFingerprintV1("UPDATE accounts SET name = 'changed' WHERE id <= 2;")),
+            RequestDisposition::PAYLOAD_MISMATCH);
   EXPECT_EQ(cluster.Machine(2).GetLastResponse(700), uncertain);
+  EXPECT_EQ(cluster.Node(2).Log().LastLogIndex(), before_retry);
 
   const auto after_switch = cluster.Submit(2, "DELETE FROM accounts WHERE id = 1;", 700, 5);
   EXPECT_EQ(WriteResponseCodec::Decode(after_switch), (WriteResponseV1{1, WriteStatus::COMMITTED, 5, 2, 7}));
@@ -208,18 +221,21 @@ TEST(RaftBusTubClusterTest, AmbiguousCommitNotificationLossStillRestoresExactOnc
 
   cluster.Transport().SetLinkEnabled(1, 3, false);
   cluster.Transport().SetLinkEnabled(3, 1, false);
-  const auto update_batch =
-      cluster.Machine(1).PrepareSql("UPDATE counters SET balance = balance + 7 WHERE id = 1;", 901, 3);
+  const std::string original_sql = "UPDATE counters SET balance = balance + 7 WHERE id = 1;";
+  const auto original_fingerprint = ComputeWriteIntentFingerprintV1(original_sql);
+  const auto update_batch = cluster.Machine(1).PrepareSql(original_sql, 901, 3, original_fingerprint);
   ASSERT_EQ(cluster.ProposeWithoutPumping(1, update_batch), 4);
 
   // AppendEntries(1 -> 2), followed by its acknowledgement (2 -> 1). The latter commits and applies index 4 on the
-  // Leader, but its queued leader_commit=4 notification is deliberately lost with the old Leader.
+  // Leader, but its queued leader_commit=4 notification is deliberately lost with the old Leader. The modeled
+  // client also receives no response; the test-only server-cache observation below is not returned through a client
+  // channel.
   ASSERT_TRUE(cluster.Transport().DeliverOne());
   ASSERT_TRUE(cluster.Transport().DeliverOne());
   ASSERT_EQ(cluster.Node(1).CommitIndex(), 4);
   ASSERT_EQ(cluster.Node(1).LastApplied(), 4);
   ASSERT_EQ(cluster.Node(2).CommitIndex(), 3);
-  ASSERT_EQ(cluster.Machine(2).ClassifyRequest(901, 3), RequestDisposition::NEW_REQUEST);
+  ASSERT_EQ(cluster.Machine(2).ClassifyRequest(901, 3, original_fingerprint), RequestDisposition::NEW_REQUEST);
   const auto original = cluster.Machine(1).GetLastResponse(901);
   ASSERT_TRUE(original.has_value());
   EXPECT_EQ(WriteResponseCodec::Decode(*original), (WriteResponseV1{1, WriteStatus::COMMITTED, 3, 1, 4}));
@@ -230,11 +246,18 @@ TEST(RaftBusTubClusterTest, AmbiguousCommitNotificationLossStillRestoresExactOnc
   ASSERT_EQ(cluster.Node(2).CurrentTerm(), 2);
   ASSERT_EQ(cluster.Node(2).CommitIndex(), 5);
   ASSERT_EQ(cluster.Node(2).LastApplied(), 5);
-  EXPECT_EQ(cluster.Machine(2).ClassifyRequest(901, 3), RequestDisposition::RETRY_LAST);
+  const auto before_retry = cluster.Node(2).Log().LastLogIndex();
+  EXPECT_EQ(cluster.Machine(2).ClassifyRequest(901, 3, original_fingerprint), RequestDisposition::RETRY_LAST);
   const auto recovered = cluster.Machine(2).GetLastResponse(901);
   ASSERT_TRUE(recovered.has_value());
   EXPECT_EQ(WriteResponseCodec::Decode(*recovered), (WriteResponseV1{1, WriteStatus::COMMITTED, 3, 1, 4}));
   EXPECT_EQ(*recovered, *original);
+
+  const std::string changed_sql = "UPDATE counters SET balance = balance + 70 WHERE id = 1;";
+  EXPECT_EQ(cluster.Machine(2).ClassifyRequest(901, 3, ComputeWriteIntentFingerprintV1(changed_sql)),
+            RequestDisposition::PAYLOAD_MISMATCH);
+  EXPECT_EQ(cluster.Machine(2).GetLastResponse(901), recovered);
+  EXPECT_EQ(cluster.Node(2).Log().LastLogIndex(), before_retry);
 
   const auto catalog = cluster.Machine(2).CatalogSnapshotForRead();
   ASSERT_EQ(catalog.tables_.size(), 1);

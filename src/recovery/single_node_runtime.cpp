@@ -155,13 +155,17 @@ auto SingleNodeCommandRuntime::Commit(const TransactionCommandBatch &batch) -> s
 auto SingleNodeCommandRuntime::CommitLocked(const TransactionCommandBatch &batch) -> std::vector<std::byte> {
   {
     auto visible = visibility_.LockShared();
-    const auto disposition = recovered_->sessions_->Classify(batch.client_id_, batch.request_id_);
+    const auto disposition =
+        recovered_->sessions_->Classify(batch.client_id_, batch.request_id_, batch.request_fingerprint_);
     if (disposition == RequestDisposition::RETRY_LAST) {
       const auto response = recovered_->sessions_->GetLastResponse(batch.client_id_);
       if (!response.has_value()) {
         throw std::runtime_error("retry session has no committed response");
       }
       return *response;
+    }
+    if (disposition == RequestDisposition::PAYLOAD_MISMATCH) {
+      throw std::runtime_error("request payload does not match request identity");
     }
     if (disposition == RequestDisposition::TOO_OLD) {
       throw std::runtime_error("request id is older than the retained session response");

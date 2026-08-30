@@ -125,7 +125,8 @@ auto IndexTypeFromName(const std::string &raw_name) -> IndexType {
 }
 
 auto PrepareCreateTable(const CreateStatement &statement, Catalog *catalog, uint64_t client_id, uint64_t request_id,
-                        uint64_t schema_epoch) -> TransactionCommandBatch {
+                        const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch)
+    -> TransactionCommandBatch {
   if (catalog->GetTable(statement.table_) != nullptr) {
     throw std::runtime_error("CREATE TABLE name already exists");
   }
@@ -156,11 +157,12 @@ auto PrepareCreateTable(const CreateStatement &statement, Catalog *catalog, uint
                              statement.table_,
                              std::move(columns),
                              {primary_column, primary_type, PrimaryKeyCodecV1::FORMAT_VERSION}};
-  return CommandBuilder::Build(client_id, request_id, schema_epoch, {std::move(command)});
+  return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, {std::move(command)});
 }
 
 auto PrepareCreateIndex(const IndexStatement &statement, Catalog *catalog, uint64_t client_id, uint64_t request_id,
-                        uint64_t schema_epoch) -> TransactionCommandBatch {
+                        const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch)
+    -> TransactionCommandBatch {
   if (statement.is_unique_) {
     throw std::runtime_error("UNSUPPORTED_DEFERRED_UNIQUE_CONSTRAINT");
   }
@@ -184,11 +186,11 @@ auto PrepareCreateIndex(const IndexStatement &statement, Catalog *catalog, uint6
   ValidateReplicatedIndexV1({command.index_oid_, command.table_oid_, command.index_name_, command.key_columns_,
                              command.index_type_, command.constraint_kind_},
                             table->schema_);
-  return CommandBuilder::Build(client_id, request_id, schema_epoch, {std::move(command)});
+  return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, {std::move(command)});
 }
 
 auto PrepareInsert(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t client_id, uint64_t request_id,
-                   uint64_t schema_epoch) -> TransactionCommandBatch {
+                   const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch) -> TransactionCommandBatch {
   const auto insert = std::dynamic_pointer_cast<const InsertPlanNode>(plan);
   const auto table = catalog->GetTable(insert->GetTableOid());
   const auto primary = PrimaryIndex(*catalog, table);
@@ -199,7 +201,7 @@ auto PrepareInsert(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t c
     RejectExistingKey(table, primary, key);
     commands.push_back(InsertRowCommand{table->oid_, key, TupleCodecV1::Encode(tuple, table->schema_)});
   }
-  return CommandBuilder::Build(client_id, request_id, schema_epoch, std::move(commands));
+  return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, std::move(commands));
 }
 
 auto MutationFilter(const AbstractPlanNodeRef &child) -> std::shared_ptr<const FilterPlanNode> {
@@ -214,7 +216,7 @@ auto MutationFilter(const AbstractPlanNodeRef &child) -> std::shared_ptr<const F
 }
 
 auto PrepareDelete(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t client_id, uint64_t request_id,
-                   uint64_t schema_epoch) -> TransactionCommandBatch {
+                   const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch) -> TransactionCommandBatch {
   const auto deletion = std::dynamic_pointer_cast<const DeletePlanNode>(plan);
   const auto table = catalog->GetTable(deletion->GetTableOid());
   static_cast<void>(PrimaryIndex(*catalog, table));
@@ -231,11 +233,11 @@ auto PrepareDelete(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t c
     commands.push_back(DeleteRowCommand{table->oid_, key, static_cast<uint64_t>(meta.ts_),
                                         TupleCodecV1::Encode(tuple, table->schema_)});
   }
-  return CommandBuilder::Build(client_id, request_id, schema_epoch, std::move(commands));
+  return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, std::move(commands));
 }
 
 auto PrepareUpdate(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t client_id, uint64_t request_id,
-                   uint64_t schema_epoch) -> TransactionCommandBatch {
+                   const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch) -> TransactionCommandBatch {
   const auto update = std::dynamic_pointer_cast<const UpdatePlanNode>(plan);
   const auto table = catalog->GetTable(update->GetTableOid());
   static_cast<void>(PrimaryIndex(*catalog, table));
@@ -263,16 +265,17 @@ auto PrepareUpdate(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t c
                                         TupleCodecV1::Encode(tuple, table->schema_),
                                         TupleCodecV1::Encode(replacement, table->schema_)});
   }
-  return CommandBuilder::Build(client_id, request_id, schema_epoch, std::move(commands));
+  return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, std::move(commands));
 }
 
 }  // namespace
 
-auto SqlCommandPreparer::Prepare(const std::string &sql, uint64_t client_id, uint64_t request_id) const
-    -> TransactionCommandBatch {
+auto SqlCommandPreparer::Prepare(const std::string &sql, uint64_t client_id, uint64_t request_id,
+                                 const RequestFingerprintV1 &request_fingerprint) const -> TransactionCommandBatch {
   if (catalog_ == nullptr || sql.empty()) {
     throw std::runtime_error("invalid distributed SQL prepare request");
   }
+  request_fingerprint.Validate();
   Binder binder(*catalog_);
   binder.ParseAndSave(sql);
   if (binder.statement_nodes_.size() != 1) {
@@ -282,25 +285,25 @@ auto SqlCommandPreparer::Prepare(const std::string &sql, uint64_t client_id, uin
   const auto schema_epoch = catalog_->GetSchemaEpoch();
   if (statement->type_ == StatementType::CREATE_STATEMENT) {
     return PrepareCreateTable(dynamic_cast<const CreateStatement &>(*statement), catalog_, client_id, request_id,
-                              schema_epoch);
+                              request_fingerprint, schema_epoch);
   }
   if (statement->type_ == StatementType::INDEX_STATEMENT) {
     return PrepareCreateIndex(dynamic_cast<const IndexStatement &>(*statement), catalog_, client_id, request_id,
-                              schema_epoch);
+                              request_fingerprint, schema_epoch);
   }
 
   Planner planner(*catalog_);
   planner.PlanQuery(*statement);
   if (statement->type_ == StatementType::INSERT_STATEMENT) {
-    return PrepareInsert(planner.plan_, catalog_, client_id, request_id, schema_epoch);
+    return PrepareInsert(planner.plan_, catalog_, client_id, request_id, request_fingerprint, schema_epoch);
   }
   if (statement->type_ == StatementType::DELETE_STATEMENT) {
-    return PrepareDelete(planner.plan_, catalog_, client_id, request_id, schema_epoch);
+    return PrepareDelete(planner.plan_, catalog_, client_id, request_id, request_fingerprint, schema_epoch);
   }
   if (statement->type_ == StatementType::UPDATE_STATEMENT) {
-    return PrepareUpdate(planner.plan_, catalog_, client_id, request_id, schema_epoch);
+    return PrepareUpdate(planner.plan_, catalog_, client_id, request_id, request_fingerprint, schema_epoch);
   }
-  throw std::runtime_error("distributed V1 SQL prepare only accepts write statements");
+  throw std::runtime_error("distributed SQL prepare only accepts write statements");
 }
 
 }  // namespace bustub

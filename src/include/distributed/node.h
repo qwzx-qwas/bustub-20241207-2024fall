@@ -96,6 +96,7 @@ class DistributedNode {
   struct ActiveWrite {
     uint64_t client_id_;
     uint64_t request_id_;
+    RequestFingerprintV1 request_fingerprint_;
     uint64_t proposal_index_;
     uint64_t proposal_term_;
   };

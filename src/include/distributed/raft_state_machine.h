@@ -71,8 +71,10 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
   void InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
 
-  auto PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id) const -> TransactionCommandBatch;
-  auto ClassifyRequest(uint64_t client_id, uint64_t request_id) const -> RequestDisposition;
+  auto PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id,
+                  const RequestFingerprintV1 &request_fingerprint) const -> TransactionCommandBatch;
+  auto ClassifyRequest(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint) const
+      -> RequestDisposition;
   void ValidateProposal(const TransactionCommandBatch &batch) const;
   auto GetRow(table_oid_t table_oid, const EncodedPrimaryKeyV1 &primary_key) const
       -> std::optional<std::pair<TupleMeta, Tuple>>;

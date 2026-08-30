@@ -39,6 +39,7 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
     endif ()
     if (bustub_test_name STREQUAL "tcp_transport_test" OR
             bustub_test_name STREQUAL "raft_node_test" OR
+            bustub_test_name STREQUAL "session_table_test" OR
             bustub_test_name STREQUAL "bustub_state_machine_test" OR
             bustub_test_name STREQUAL "distributed_node_test")
         list(APPEND bustub_test_labels "raft-tsan-core")
@@ -72,7 +73,7 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
             )
 endforeach ()
 
-# Keep the process-strict M0-M7 component set buildable from a clean tree with
+# Keep the process-strict M0-M8 component set buildable from a clean tree with
 # one documented target. raft_gtest_gate.py independently reverse-scans the
 # corresponding source set and rejects a stale execution manifest.
 set(RAFT_COMPONENT_GATE_TARGETS
@@ -89,6 +90,7 @@ set(RAFT_COMPONENT_GATE_TARGETS
         tcp_transport_test
         client_protocol_test
         node_config_test
+        request_fingerprint_test
         command_codec_test
         session_table_test
         rpc_codec_test
@@ -149,6 +151,19 @@ set_tests_properties(
         LABELS "raft;distributed-e2e;raft-process-chain"
         RUN_SERIAL TRUE
         TIMEOUT 900)
+
+# M8 is an independent fresh-directory process timeline. It binds one retained
+# request identity to the exact raw SQL across ordinary retry, response loss,
+# Leader replacement, snapshot publication, and a full three-node cold reopen.
+add_test(
+        NAME RaftM8PayloadBinding
+        COMMAND bash "${PROJECT_SOURCE_DIR}/test/e2e/raft_m8_payload_binding.sh" "${CMAKE_BINARY_DIR}" 26100)
+set_tests_properties(
+        RaftM8PayloadBinding
+        PROPERTIES
+        LABELS "raft;distributed-e2e;raft-process-chain;raft-m8"
+        RUN_SERIAL TRUE
+        TIMEOUT 600)
 add_custom_target(
         check-raft-process-chain
         COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -L raft-process-chain)

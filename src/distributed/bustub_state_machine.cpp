@@ -36,7 +36,11 @@ void BusTubStateMachine::ValidateProposal(const TransactionCommandBatch &batch) 
   if (stopped_) {
     throw std::runtime_error("BusTub state machine is fail-stopped");
   }
-  if (sessions_->Classify(batch.client_id_, batch.request_id_) != RequestDisposition::NEW_REQUEST) {
+  const auto disposition = sessions_->Classify(batch.client_id_, batch.request_id_, batch.request_fingerprint_);
+  if (disposition == RequestDisposition::PAYLOAD_MISMATCH) {
+    throw std::runtime_error("proposal payload does not match request identity");
+  }
+  if (disposition != RequestDisposition::NEW_REQUEST) {
     throw std::runtime_error("proposal session request is not the next new request");
   }
   if (catalog_->GetSchemaEpoch() != batch.expected_start_schema_epoch_) {
@@ -135,9 +139,12 @@ void BusTubStateMachine::Apply(const ReplicatedLogEntry &entry) {
 }
 
 void BusTubStateMachine::ApplyBatch(const ReplicatedLogEntry &entry, const TransactionCommandBatch &batch) {
-  const auto disposition = sessions_->Classify(batch.client_id_, batch.request_id_);
+  const auto disposition = sessions_->Classify(batch.client_id_, batch.request_id_, batch.request_fingerprint_);
   if (disposition == RequestDisposition::RETRY_LAST) {
     return;
+  }
+  if (disposition == RequestDisposition::PAYLOAD_MISMATCH) {
+    throw std::runtime_error("committed payload does not match request identity");
   }
   if (disposition != RequestDisposition::NEW_REQUEST) {
     throw std::runtime_error("committed SessionTable request is old or contains a sequence gap");
@@ -150,7 +157,7 @@ void BusTubStateMachine::ApplyBatch(const ReplicatedLogEntry &entry, const Trans
   }
   const auto response =
       WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, batch.request_id_, entry.term_, entry.index_});
-  sessions_->RecordCommitted(batch.client_id_, batch.request_id_, response);
+  sessions_->RecordCommitted(batch.client_id_, batch.request_id_, batch.request_fingerprint_, response);
 }
 
 void BusTubStateMachine::ApplyCommand(const ReplicatedLogEntry &entry, const ReplicatedCommand &command) {

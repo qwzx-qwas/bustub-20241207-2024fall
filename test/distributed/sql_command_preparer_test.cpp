@@ -106,6 +106,49 @@ TEST(SqlCommandPreparerTest, AutocommitSqlToCanonicalBatchAndRestart) {
   EXPECT_EQ(runtime->CommitSql("INSERT INTO accounts VALUES (3, 'carol');", 88, 7), request_seven);
   EXPECT_EQ(runtime->LastLogIndex(), 7);
 
+  // Advance the database through another real client. The changed retry below is valid SQL against this newer state;
+  // it must still be rejected from the retained identity/fingerprint before state-dependent prepare or log append.
+  const auto advanced = runtime->CommitSql("UPDATE accounts SET name = 'advanced' WHERE id = 1;", 99, 1);
+  EXPECT_EQ(WriteResponseCodec::Decode(advanced).commit_index_, 8);
+  ASSERT_TRUE(runtime->GetRow(0, Key(1)).has_value());
+  EXPECT_EQ(runtime->GetRow(0, Key(1))->second.GetValue(&runtime->CatalogForRead()->GetTable(0)->schema_, 1).ToString(),
+            "advanced");
+
+  const auto expect_changed_payload_rejected = [&] {
+    const auto log_before = runtime->LastLogIndex();
+    const auto commit_before = runtime->CommitIndex();
+    const auto expect_exact_mismatch = [&](const std::string &changed_sql) {
+      try {
+        static_cast<void>(runtime->CommitSql(changed_sql, 88, 7));
+        FAIL() << "changed payload unexpectedly reused a committed request identity";
+      } catch (const std::runtime_error &error) {
+        EXPECT_STREQ(error.what(), "request payload does not match request identity");
+      }
+    };
+    expect_exact_mismatch("UPDATE accounts SET name = 'must-not-appear' WHERE id = 1;");
+    // This is valid, nonempty SQL but its state-dependent prepare would fail because accounts already exists. The
+    // stable mismatch error therefore proves identity classification happens before Binder/Catalog preparation.
+    expect_exact_mismatch("CREATE TABLE accounts(id int PRIMARY KEY, shadow varchar(32));");
+    EXPECT_EQ(runtime->LastLogIndex(), log_before);
+    EXPECT_EQ(runtime->CommitIndex(), commit_before);
+    EXPECT_EQ(runtime->CatalogForRead()->GetNextTableOid(), 1);
+    EXPECT_EQ(runtime->CatalogForRead()->GetNextIndexOid(), 2);
+    ASSERT_TRUE(runtime->GetRow(0, Key(1)).has_value());
+    EXPECT_EQ(
+        runtime->GetRow(0, Key(1))->second.GetValue(&runtime->CatalogForRead()->GetTable(0)->schema_, 1).ToString(),
+        "advanced");
+    EXPECT_EQ(runtime->CommitSql("INSERT INTO accounts VALUES (3, 'carol');", 88, 7), request_seven);
+  };
+  expect_changed_payload_rejected();
+
+  runtime->CreateSnapshot();
+  runtime.reset();
+  runtime = SingleNodeCommandRuntime::Open(root, storage);
+  expect_changed_payload_rejected();
+  runtime.reset();
+  runtime = SingleNodeCommandRuntime::Open(root, storage);
+  expect_changed_payload_rejected();
+
   runtime.reset();
   storage->RemoveTree(root);
 }

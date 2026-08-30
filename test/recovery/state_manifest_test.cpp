@@ -97,7 +97,9 @@ auto PublishDistinctManifestGenerations(const std::filesystem::path &state_direc
   }
   source.AdvanceSchemaEpoch();
   SessionTable sessions;
-  sessions.RestoreRecords({{51, SessionRecord{1, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 5})}}});
+  sessions.RestoreRecords(
+      {{51, SessionRecord{1, ComputeWriteIntentFingerprintV1("INSERT INTO versions VALUES (1, 100);"),
+                          WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 5})}}});
   if (!table->table_
            ->InsertTuple({5, false},
                          Tuple({ValueFactory::GetIntegerValue(1), ValueFactory::GetIntegerValue(100)}, &schema))
@@ -115,7 +117,9 @@ auto PublishDistinctManifestGenerations(const std::filesystem::path &state_direc
   const auto manifest1 = MakeManifest(1, 5, snapshot1_name, snapshot1, storage.get(), state_directory);
   store.Publish(manifest1);
 
-  sessions.RestoreRecords({{51, SessionRecord{2, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 0, 9})}}});
+  sessions.RestoreRecords(
+      {{51, SessionRecord{2, ComputeWriteIntentFingerprintV1("INSERT INTO versions VALUES (2, 900);"),
+                          WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 0, 9})}}});
   if (!table->table_
            ->InsertTuple({9, false},
                          Tuple({ValueFactory::GetIntegerValue(2), ValueFactory::GetIntegerValue(900)}, &schema))
@@ -363,7 +367,8 @@ TEST(StateManifestTest, LatestSessionWithNonzeroTermFallsBackToOlderGeneration) 
 
   SessionTable foreign_sessions;
   foreign_sessions.RestoreRecords(
-      {{51, SessionRecord{2, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 7, 9})}}});
+      {{51, SessionRecord{2, ComputeWriteIntentFingerprintV1("INSERT INTO versions VALUES (2, 900);"),
+                          WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 7, 9})}}});
   const auto session_path = state_directory / manifest2.session_file_;
   storage->WriteFile(session_path, SessionSnapshotCodec::Encode(foreign_sessions));
   storage->SyncFile(session_path);

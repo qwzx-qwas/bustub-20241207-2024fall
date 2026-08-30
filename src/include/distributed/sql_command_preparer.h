@@ -22,7 +22,8 @@ class SqlCommandPreparer {
  public:
   explicit SqlCommandPreparer(Catalog *catalog) : catalog_(catalog) {}
 
-  auto Prepare(const std::string &sql, uint64_t client_id, uint64_t request_id) const -> TransactionCommandBatch;
+  auto Prepare(const std::string &sql, uint64_t client_id, uint64_t request_id,
+               const RequestFingerprintV1 &request_fingerprint) const -> TransactionCommandBatch;
 
  private:
   Catalog *catalog_;

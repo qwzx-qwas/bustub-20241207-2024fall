@@ -5,6 +5,7 @@ add_library(
   bustub_ddl.cpp
   byte_codec.cpp
   config.cpp
+  sha256.cpp
   util/string_util.cpp)
 
 set(ALL_OBJECT_FILES

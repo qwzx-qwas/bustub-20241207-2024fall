@@ -383,6 +383,20 @@ TEST(DistributedNodeTest, TcpWriteReadLeaderChangeRetryAndReopenCatchup) {
   EXPECT_EQ(retry.status_, ClientResponseStatus::COMMITTED);
   EXPECT_EQ(retry.payload_, uncertain.payload_);
 
+  const auto journal_before_mismatch = cluster.LogJournalSize(second_leader);
+  const auto changed_retry =
+      cluster.Send(second_leader, ClientWriteRequestV1{900, 4, "UPDATE accounts SET balance = 999 WHERE id <= 2;"});
+  EXPECT_EQ(changed_retry.status_, ClientResponseStatus::REJECTED);
+  EXPECT_EQ(std::string(reinterpret_cast<const char *>(changed_retry.payload_.data()), changed_retry.payload_.size()),
+            "request payload does not match request identity");
+  EXPECT_EQ(cluster.LogJournalSize(second_leader), journal_before_mismatch);
+  const auto unchanged = cluster.Send(
+      second_leader,
+      ClientReadRequestV1{250, ClientReadConsistency::LINEARIZABLE, "SELECT id, balance FROM accounts ORDER BY id;"});
+  ASSERT_EQ(unchanged.status_, ClientResponseStatus::OK);
+  EXPECT_EQ(ClientQueryResultCodec::Decode(unchanged.payload_).rows_,
+            (std::vector<std::vector<std::string>>{{"1", "17"}, {"2", "27"}}));
+
   const auto after_switch =
       cluster.Send(second_leader, ClientWriteRequestV1{900, 5, "DELETE FROM accounts WHERE id = 1;"});
   ASSERT_EQ(after_switch.status_, ClientResponseStatus::COMMITTED);
@@ -706,6 +720,16 @@ TEST(DistributedNodeTest, ConcurrentWritesShareOneUnresolvedProposalGate) {
   });
   const auto journal_after_first = cluster.AwaitLogJournalGrowth(leader, journal_before);
 
+  const auto changed_active = cluster.Send(
+      leader, ClientWriteRequestV1{906, 1, "CREATE TABLE changed_gate(id int PRIMARY KEY, note varchar(32));"});
+  EXPECT_EQ(changed_active.status_, ClientResponseStatus::REJECTED);
+  EXPECT_EQ(std::string(reinterpret_cast<const char *>(changed_active.payload_.data()), changed_active.payload_.size()),
+            "request payload does not match request identity");
+  EXPECT_EQ(cluster.LogJournalSize(leader), journal_after_first);
+  const auto changed_table_probe =
+      cluster.Send(leader, ClientReadRequestV1{1199, ClientReadConsistency::STALE, "SELECT * FROM changed_gate;"});
+  EXPECT_EQ(changed_table_probe.status_, ClientResponseStatus::REJECTED);
+
   std::thread duplicate([&] {
     try {
       duplicate_response = cluster.Send(
@@ -773,8 +797,9 @@ TEST(DistributedNodeTest, ConcurrentWritesShareOneUnresolvedProposalGate) {
 }
 
 // Keep the old process object alive so its in-memory ActiveWrite must reconcile
-// a retry that a later-term Leader committed at a different log index.
-TEST(DistributedNodeTest, LiveOldLeaderClearsOverwrittenProposalAfterRetryCommitsElsewhere) {
+// an overwritten proposal after a later-term Leader commits the same request
+// identity with a different valid payload.
+TEST(DistributedNodeTest, LiveOldLeaderClearsOverwrittenProposalAfterDifferentPayloadCommitsElsewhere) {
   ThreeNodeInProcessCluster cluster;
   const auto old_leader = cluster.AwaitLeader();
   ASSERT_EQ(cluster
@@ -802,8 +827,8 @@ TEST(DistributedNodeTest, LiveOldLeaderClearsOverwrittenProposalAfterRetryCommit
   cluster.Restart(majority.back());
   const auto new_leader = cluster.AwaitLeader(old_leader);
   ASSERT_NE(new_leader, old_leader);
-  const auto committed_elsewhere = cluster.Send(
-      new_leader, ClientWriteRequestV1{908, 2, "INSERT INTO live_heal VALUES (7, 'committed-after-heal');"});
+  const std::string winning_sql = "INSERT INTO live_heal VALUES (7, 'winner-after-heal');";
+  const auto committed_elsewhere = cluster.Send(new_leader, ClientWriteRequestV1{908, 2, winning_sql});
   ASSERT_EQ(committed_elsewhere.status_, ClientResponseStatus::COMMITTED);
   ASSERT_EQ(WriteResponseCodec::Decode(committed_elsewhere.payload_).commit_index_, 4);
 
@@ -817,11 +842,24 @@ TEST(DistributedNodeTest, LiveOldLeaderClearsOverwrittenProposalAfterRetryCommit
   const auto old_status = cluster.Send(old_leader, ClientStatusRequestV1{1300});
   EXPECT_EQ(old_status.status_, ClientResponseStatus::OK);
   EXPECT_GE(old_status.published_applied_index_, 4);
+
+  const auto journal_before_reject = cluster.LogJournalSize(new_leader);
+  const auto rejected_original = cluster.Send(
+      new_leader, ClientWriteRequestV1{908, 2, "INSERT INTO live_heal VALUES (7, 'committed-after-heal');"});
+  ASSERT_EQ(rejected_original.status_, ClientResponseStatus::REJECTED);
+  EXPECT_EQ(
+      std::string(reinterpret_cast<const char *>(rejected_original.payload_.data()), rejected_original.payload_.size()),
+      "request payload does not match request identity");
+  EXPECT_EQ(cluster.LogJournalSize(new_leader), journal_before_reject);
+  const auto winning_retry = cluster.Send(new_leader, ClientWriteRequestV1{908, 2, winning_sql});
+  EXPECT_EQ(winning_retry.payload_, committed_elsewhere.payload_);
+  EXPECT_EQ(cluster.LogJournalSize(new_leader), journal_before_reject);
+
   const auto healed = cluster.Send(old_leader, ClientReadRequestV1{1301, ClientReadConsistency::STALE,
                                                                    "SELECT id, note FROM live_heal ORDER BY id;"});
   ASSERT_EQ(healed.status_, ClientResponseStatus::OK);
   EXPECT_EQ(ClientQueryResultCodec::Decode(healed.payload_).rows_,
-            (std::vector<std::vector<std::string>>{{"7", "committed-after-heal"}}));
+            (std::vector<std::vector<std::string>>{{"7", "winner-after-heal"}}));
 }
 
 // E2E-12 TCP prerequisite: real TCP reads racing a large Apply observe only the complete old or new batch.
