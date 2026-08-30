@@ -59,7 +59,7 @@ class ThreeNodeKvCluster {
         transport_(std::make_shared<InMemoryRaftTransport>()) {
     storage_->RemoveTree(root_);
     for (size_t offset = 0; offset < nodes_.size(); offset++) {
-      const auto id = static_cast<NodeId>(offset + 1);
+      const auto id = static_cast<NodeId>(offset) + NodeId{1};
       const auto raft_directory = root_ / ("node-" + std::to_string(id)) / "raft";
       machines_[offset] = std::make_shared<KvStateMachine>();
       auto stable = StableStore::Open(raft_directory, storage_);
@@ -70,7 +70,7 @@ class ThreeNodeKvCluster {
           transport_, std::move(stable), std::move(log), machines_[offset], std::move(snapshots));
     }
     for (size_t offset = 0; offset < nodes_.size(); offset++) {
-      const auto id = static_cast<NodeId>(offset + 1);
+      const auto id = static_cast<NodeId>(offset) + NodeId{1};
       transport_->Register(
           id, [this, offset](NodeId from, const RaftMessage &message) { nodes_[offset]->Receive(from, message); });
     }

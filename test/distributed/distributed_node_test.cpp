@@ -70,10 +70,10 @@ class ThreeNodeInProcessCluster {
       client_endpoints_[offset] = {"127.0.0.1", ports[offset + 3]};
     }
     for (size_t offset = 0; offset < 3; offset++) {
-      const auto id = static_cast<NodeId>(offset + 1);
+      const auto id = static_cast<NodeId>(offset) + NodeId{1};
       std::map<NodeId, DistributedPeerConfig> peers;
       for (size_t peer_offset = 0; peer_offset < 3; peer_offset++) {
-        const auto peer_id = static_cast<NodeId>(peer_offset + 1);
+        const auto peer_id = static_cast<NodeId>(peer_offset) + NodeId{1};
         if (peer_id != id) {
           peers.emplace(peer_id, DistributedPeerConfig{raft_endpoints_[peer_offset], client_endpoints_[peer_offset]});
         }

@@ -42,7 +42,7 @@ class ThreeNodeBusTubCluster {
         transport_(std::make_shared<InMemoryRaftTransport>()) {
     storage_->RemoveTree(root_);
     for (size_t offset = 0; offset < nodes_.size(); offset++) {
-      const auto id = static_cast<NodeId>(offset + 1);
+      const auto id = static_cast<NodeId>(offset) + NodeId{1};
       directories_[offset] = NodeDirectory::Open(root_ / ("node-" + std::to_string(id)), storage_);
       machines_[offset] = BusTubRaftStateMachine::Open(directories_[offset].get(), storage_, 64);
       const auto raft_directory = directories_[offset]->RaftDirectory();
@@ -52,7 +52,7 @@ class ThreeNodeBusTubCluster {
           machines_[offset], SnapshotStore::Open(raft_directory / "snapshots", storage_));
     }
     for (size_t offset = 0; offset < nodes_.size(); offset++) {
-      const auto id = static_cast<NodeId>(offset + 1);
+      const auto id = static_cast<NodeId>(offset) + NodeId{1};
       transport_->Register(
           id, [this, offset](NodeId from, const RaftMessage &message) { nodes_[offset]->Receive(from, message); });
     }

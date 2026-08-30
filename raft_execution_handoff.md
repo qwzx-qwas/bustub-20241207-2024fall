@@ -115,6 +115,13 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
   <https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html>。
   本地 `-j1` Release recovery 编译、直接 clang-tidy、项目配置 cpplint 和真实 canonical snapshot 2/2
   已通过；新的 macOS branch 尚须由下一次远端 ARM64 build 验证，不能由本地 Linux 结果代替。
+- 包含上述 storage 修复的 run `33315815294` 已通过 macOS 14 CMake、全量 ARM64 Build、format 和 lint，
+  `F_FULLFSYNC` 编译阻塞因此关闭。随后全仓 tidy 在三个真实三节点 harness 中发现六处
+  `static_cast<NodeId>(size_t_offset + 1)`：加法发生在扩宽前，macOS 类型组合保留理论溢出路径。现改为
+  先把 offset 转成 `NodeId` 再加 `NodeId{1}`，测试节点仍严格为 1–3。三个文件逐个通过 tidy/cpplint/format；
+  本地串行 Release 的 TCP/持久目录分布式链 9/9、BusTub exact-once 链 2/2、Raft 核心 31/31。默认
+  沙箱运行只在创建 loopback socket 前被权限拒绝，获准回环后的 fresh 运行才是有效 TCP 证据。
+  新提交仍须通过 hosted macOS tidy/public tests 和其余完整矩阵。
 - 只有包含 `20f1af2` 的最终文档 HEAD 所触发 workflow 全部必需 jobs 终态成功，才能把这次 CI 收敛记为
   完成；远端 run ID/结果由最终交接报告记录，不为了回填动态编号再制造 docs-only CI 循环。
 

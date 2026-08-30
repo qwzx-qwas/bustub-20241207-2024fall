@@ -1811,6 +1811,15 @@ ARM64 build 则暴露 Linux-only `fdatasync`。文件 durability 屏障现按平
 真实 `canonical_snapshot_test` 2/2 已通过；macOS 分支必须由修复提交触发的新 ARM64 run 最终验证，
 不得把本地 Linux 结果当作该分支已通过。
 
+包含该修复的 run `33315815294` 随后通过 macOS 14 CMake、全量 ARM64 Build、format 与 lint，证明
+`F_FULLFSYNC` 分支可在目标平台编译。该 run 的全仓 clang-tidy 又发现三个三节点测试 harness 共六处
+先计算 `size_t offset + 1`、再扩宽为 64-bit `NodeId`；在 macOS 的 `unsigned long`/`unsigned long long`
+组合下会留下加法先溢出的理论路径。修复改为先把 offset 扩宽到 `NodeId` 再加 `NodeId{1}`，不改变实际
+节点 1–3。三个 translation unit 已逐个通过 Clang 14 tidy/cpplint/format；单线程 Release 下真实 TCP、
+持久目录、选举、切主、快照、损坏恢复和并发读写的 `distributed_node_test` 9/9，BusTub exact-once
+三节点链 2/2，Raft durable/election/snapshot 核心 31/31。macOS public tests 仍须由包含该修复的新 run
+验证；不得重跑失败场景来代替新提交的完整门禁。
+
 ### 方案结构复审与基线维护（2026-08-30）
 
 本次复审将五个大章改为 A–D 架构工作流 + 横切规则，并以一张 M0–M7 表作为唯一执行轴。
