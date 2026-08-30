@@ -55,17 +55,21 @@ TEST(CommandLogTest, MultiEntryBatchBoundaryAlwaysReopens) {
   storage->RemoveTree(directory);
   const CommandLogOptions options{/*segment_max_bytes=*/40, /*batch_max_bytes=*/80};
   auto log = CommandLog::Open(directory, storage, 0, 0, 0, options);
-  const std::vector<ReplicatedLogEntry> accepted{{1, 1, 1, EntryType::NOOP, {}}, {1, 2, 1, EntryType::NOOP, {}}};
+  const std::vector<ReplicatedLogEntry> accepted{{1, 1, 0, EntryType::NOOP, {}}, {1, 2, 0, EntryType::NOOP, {}}};
   ASSERT_NO_THROW(log->Append(accepted));
   EXPECT_EQ(storage->FileSize(directory / "LOG-00000000000000000001"), 80);
 
   const auto bytes_before_rejection =
       storage->ReadFile(directory / "LOG-00000000000000000001", options.batch_max_bytes_);
-  EXPECT_THROW(log->Append({{1, 3, 1, EntryType::NOOP, {}}, {1, 4, 1, EntryType::KV_COMMAND, {std::byte{1}}}}),
+  EXPECT_THROW(log->Append({{1, 3, 0, EntryType::NOOP, {}}, {1, 4, 0, EntryType::KV_COMMAND, {std::byte{1}}}}),
                std::runtime_error);
   EXPECT_EQ(log->LastLogIndex(), 2);
   EXPECT_EQ(storage->ReadFile(directory / "LOG-00000000000000000001", options.batch_max_bytes_),
             bytes_before_rejection);
+  EXPECT_THROW(log->Append({{1, 3, 1, EntryType::NOOP, {}}}), std::runtime_error);
+  EXPECT_EQ(storage->ReadFile(directory / "LOG-00000000000000000001", options.batch_max_bytes_),
+            bytes_before_rejection);
+  EXPECT_THROW(CommandLog::Open(directory, storage, 2, 1, 1, options), std::runtime_error);
   log.reset();
 
   auto reopened = CommandLog::Open(directory, storage, 2, 0, 0, options);
@@ -93,6 +97,13 @@ TEST(CommandLogTest, TailRepairRespectsCommittedBoundary) {
   EXPECT_EQ(repaired->EntryAt(1), first);
   repaired.reset();
 
+  const auto foreign_term = LogCodec::Encode({1, 2, 1, EntryType::COMMAND_BATCH, {std::byte{7}}});
+  storage->AppendFileDurable(segment, foreign_term);
+  EXPECT_THROW(CommandLog::Open(directory, storage, 2), std::runtime_error);
+  auto term_repaired = CommandLog::Open(directory, storage, 1);
+  EXPECT_EQ(term_repaired->LastLogIndex(), 1);
+  term_repaired.reset();
+
   auto bytes = storage->ReadFile(segment, 1024 * 1024);
   bytes.back() ^= std::byte{1};
   storage->WriteFile(segment, bytes);
@@ -101,7 +112,7 @@ TEST(CommandLogTest, TailRepairRespectsCommittedBoundary) {
   storage->RemoveTree(directory);
 }
 
-// M1-T01: selecting a snapshot must not require a segment to begin exactly at S + 1. The retained bridge log may
+// M2-T10: selecting a snapshot must not require a segment to begin exactly at S + 1. The retained bridge log may
 // intentionally start at an older fallback snapshot boundary, including in the middle of the same physical segment.
 TEST(CommandLogTest, SnapshotBaseCanReuseRetainedBridgePrefix) {
   auto storage = std::make_shared<PosixDurableStorage>();
@@ -171,7 +182,7 @@ TEST(CommandLogTest, CompactionDeletesOnlyFullyCoveredSegments) {
   storage->RemoveTree(directory);
 }
 
-// M2-T07: synchronous Append returns only after durability; named crashes recover one whole logical prefix.
+// M2-T11: synchronous Append returns only after durability; named crashes recover one whole logical prefix.
 TEST(CommandLogTest, NamedPowerLossMatrix) {
   const ReplicatedLogEntry first{1, 1, 0, EntryType::COMMAND_BATCH, {std::byte{1}}};
   const ReplicatedLogEntry second{1, 2, 0, EntryType::COMMAND_BATCH, {std::byte{2}}};

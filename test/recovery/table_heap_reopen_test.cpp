@@ -25,7 +25,9 @@ namespace bustub {
 TEST(TableHeapReopenTest, ReopensExistingMultiPageHeap) {
   const auto stem = "bustub-table-reopen-" + std::to_string(getpid());
   const auto db_path = std::filesystem::temp_directory_path() / (stem + ".bustub");
+  const auto log_path = std::filesystem::temp_directory_path() / (stem + ".log");
   std::filesystem::remove(db_path);
+  std::filesystem::remove(log_path);
 
   const Schema schema({Column("id", TypeId::INTEGER), Column("payload", TypeId::VARCHAR, 128)});
   page_id_t first_page_id = INVALID_PAGE_ID;
@@ -62,6 +64,7 @@ TEST(TableHeapReopenTest, ReopensExistingMultiPageHeap) {
   }
 
   std::filesystem::remove(db_path);
+  std::filesystem::remove(log_path);
 }
 
 }  // namespace bustub

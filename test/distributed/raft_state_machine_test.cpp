@@ -169,6 +169,12 @@ TEST(BusTubRaftStateMachineTest, CanonicalPayloadInstallAndSuffixApply) {
   SessionSnapshotCodec::DecodeInto(compatibility_bundle.sessions_, &snapshot_sessions);
   EXPECT_EQ(snapshot_sessions.Classify(44, 2), RequestDisposition::RETRY_LAST);
   EXPECT_EQ(snapshot_sessions.GetLastResponse(44), left->GetLastResponse(44));
+  const auto right_runtime = right_directory->WorkingDirectory() / "bustub-raft-fsm";
+  const auto right_entries_before_validation = storage->ListDirectory(right_runtime);
+  right->ValidateSnapshotFile(payload, 2);
+  EXPECT_EQ(right->LastApplied(), 0);
+  EXPECT_TRUE(right->CatalogSnapshotForRead().tables_.empty());
+  EXPECT_EQ(storage->ListDirectory(right_runtime), right_entries_before_validation);
   right->InstallSnapshotFile(payload, 2);
   ASSERT_TRUE(right->GetRow(0, Key(1)).has_value());
   EXPECT_EQ(right->GetRow(0, Key(1))->first.ts_, 2);
@@ -246,6 +252,12 @@ TEST(BusTubRaftStateMachineTest, InstallRejectsSessionCommittedPastBundleBoundar
   const auto invalid_bytes = BusTubSnapshotBundleCodec::Encode(bundle);
   const auto invalid_path = source_root / "snapshot-with-future-session.bundle";
   storage->WriteFile(invalid_path, invalid_bytes);
+  const auto target_runtime = target_directory->WorkingDirectory() / "bustub-raft-fsm";
+  const auto target_entries_before_validation = storage->ListDirectory(target_runtime);
+  EXPECT_THROW(target->ValidateSnapshotFile({invalid_path, 0, invalid_bytes.size()}, 0), std::runtime_error);
+  EXPECT_EQ(target->PublishedAppliedIndex(), 0);
+  EXPECT_TRUE(target->CatalogSnapshotForRead().tables_.empty());
+  EXPECT_EQ(storage->ListDirectory(target_runtime), target_entries_before_validation);
   EXPECT_THROW(target->InstallSnapshotFile({invalid_path, 0, invalid_bytes.size()}, 0), std::runtime_error);
   EXPECT_EQ(target->PublishedAppliedIndex(), 0);
   EXPECT_TRUE(target->CatalogSnapshotForRead().tables_.empty());

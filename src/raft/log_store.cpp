@@ -250,6 +250,34 @@ auto LogStore::DecodeMutation(const std::vector<std::byte> &bytes, size_t offset
   }
 }
 
+auto LogStore::ProbeRecovery(const std::filesystem::path &directory, std::shared_ptr<DurableStorage> storage,
+                             uint64_t effective_commit_index, uint64_t recovery_boundary_index,
+                             uint64_t latest_boundary_index, LogStoreOptions options) -> LogStoreRecoveryProbe {
+  if (directory.empty() || storage == nullptr || options.maximum_journal_bytes_ < MINIMUM_MUTATION_FRAME_BYTES ||
+      options.maximum_journal_bytes_ > LogStoreOptions::MAXIMUM_JOURNAL_BYTES) {
+    throw std::runtime_error("invalid LogStore recovery probe configuration");
+  }
+  auto probe = std::unique_ptr<LogStore>(new LogStore(directory, std::move(storage), effective_commit_index, options));
+  if (probe->storage_->Exists(probe->journal_path_)) {
+    const auto bytes = probe->storage_->ReadFile(probe->journal_path_, options.maximum_journal_bytes_);
+    size_t offset = 0;
+    while (offset < bytes.size()) {
+      auto decoded = DecodeMutation(bytes, offset);
+      if (decoded.status_ != DecodeStatus::COMPLETE) {
+        if (probe->LastLogIndexUnlocked() < effective_commit_index) {
+          throw std::runtime_error("committed Raft log mutation is corrupt or truncated");
+        }
+        break;
+      }
+      probe->ApplyMutation(*decoded.mutation_, true);
+      offset += decoded.bytes_consumed_;
+    }
+  }
+  probe->ValidateCommittedRange();
+  return {probe->snapshot_base_index_, probe->snapshot_base_term_, probe->LastLogIndexUnlocked(),
+          probe->TermAtUnlocked(recovery_boundary_index), probe->TermAtUnlocked(latest_boundary_index)};
+}
+
 auto LogStore::Open(const std::filesystem::path &directory, std::shared_ptr<DurableStorage> storage,
                     uint64_t effective_commit_index, uint64_t published_snapshot_index,
                     uint64_t published_snapshot_term, LogStoreOptions options) -> std::unique_ptr<LogStore> {

@@ -30,7 +30,9 @@ ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
   /tmp/bustub-raft-build-clang /tmp/bustub-raft-component-logs
 ```
 
-The runner executes the 26 M0-M7 binaries exactly once and retains one log plus the GoogleTest JSON report per binary.
+The runner executes the 26 M0-M7 binaries exactly once and writes one log plus the GoogleTest JSON report per binary
+under the caller-owned external artifact root. Preserve them through result summarization/upload; then delete successful
+raw artifacts at the cleanup gate. Preserve failures only through diagnosis, handoff, or explicit external archival.
 Before starting, it reverse-scans every recovery/Raft/distributed test source and rejects an incomplete or stale binary
 manifest. A zero exit is accepted only when the JSON report proves that at least one concrete test ran. Every nonzero
 exit, signal, sanitizer report, assertion, bind failure, malformed report, or 120-second timeout fails immediately;
@@ -94,11 +96,14 @@ come from the complete snapshot, the pre-crash bridge suffix, and the entry that
 duplicate replay is attempted only after restoring quorum; standalone restart is used for durable read recovery. The transfer timeline
 uses a test-owned external Raft proxy for lag, chunk recording and stale replay. The recovery matrix covers minority
 loss with the old Leader kept online, higher-term demotion after healing, fresh ReadIndex isolation, all-node restart,
-newest-snapshot corruption, and concurrent reads. `raft_m0_m7_chain.sh` keeps one production-process state alive across
-admission, response loss, Leader replacement, multi-chunk snapshot catch-up, stale-snapshot replay, identity rejection,
-full restart, and post-recovery OID/index use; it complements rather than replaces the focused fault timelines. These helpers only
-forward/drop formal frames or edit stopped test files; they add no production test API. Successful and failed runs
-retain node logs and directories at the requested `/tmp` artifact root until the stage cleanup gate removes them.
+newest-snapshot corruption, and concurrent reads. The historically named `raft_m0_m7_chain.sh` starts with fresh
+distributed directories and keeps one M3–M7 production-process state alive across admission, response loss, Leader replacement,
+multi-chunk snapshot catch-up, stale-snapshot replay, identity rejection, full restart, and post-recovery OID/index use.
+It cumulatively rechecks earlier logical recovery properties; it does not migrate term-0 physical state and complements rather than replaces the focused fault timelines. These helpers only
+forward/drop formal frames or edit stopped test files; they add no production test API. Runs temporarily retain node
+logs and directories at the requested external artifact root. The cleanup gate removes successful raw state after
+summary/upload and removes failed state after diagnosis, handoff, or explicit archival; process/PID/port cleanup is
+mandatory at the end of every scenario.
 
 Do not copy process helpers back into the scenario scripts. New process cases should be timeline functions or scripts
 that source the same harness; if a client receives `NOT_LEADER`, the shared retry path follows the advertised Leader or

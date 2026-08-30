@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/state_visibility.h"
 #include "distributed/bustub_state_machine.h"
 #include "raft/stable_store.h"
 #include "recovery/command_log.h"

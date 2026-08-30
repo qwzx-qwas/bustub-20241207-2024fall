@@ -47,7 +47,10 @@ V1 保留“暂停写入生成完整 canonical snapshot + `lastIncludedIndex/Ter
 
 ### 本方案要做
 
-- 不可变全量快照、原子 `CURRENT`/`MANIFEST` 发布，以及“最多两代有效恢复点 + 从最老恢复点开始的 bridge log”保留策略。
+- 不可变全量快照与最多两代有效恢复点：M0–M2 的 term-0 验证模式使用
+  `state/CURRENT -> MANIFEST-N -> SNAPSHOT-N/`；M4 起的分布式模式使用
+  `raft/snapshots/CURRENT -> SNAPSHOT-N`。两者共享 canonical 逻辑状态和 bridge-log 可恢复性规则，
+  但不共享物理发布封装。
 - Catalog 完整持久化与现有 TableHeap 的重新打开。
 - 有 framing、版本、长度、校验和、尾部截断处理和明确同步 durability boundary 的命令日志。
 - 持久化 Raft `term`、`voted_for`、日志、`commit_index` 和快照元数据。
@@ -65,7 +68,7 @@ V1 保留“暂停写入生成完整 canonical snapshot + `lastIncludedIndex/Ter
 - 增量快照、远程对象存储、日志或快照加密。
 - PostgreSQL 式独立 base backup + 连续 WAL 归档；V1 仍使用 Raft 的完整状态快照 + committed suffix 模型。
 - 在线/模糊/COW snapshot、跨进程断点续传、压缩、限速、多流并发和 snapshot pipeline/group commit。
-- 以大型数据集吞吐、最低 RSS 或写停顿 SLO 作为 V1 验收条件；本阶段只验协议、持久化和逻辑恢复正确性。
+- 以大型数据集吞吐、最低 RSS 或写停顿 SLO 作为 V1 验收条件；V1 只验协议、持久化和逻辑恢复正确性。
 - 任意索引物理字节持久化；第一版把包括 primary-key index 在内的 B+Tree、Hash、HNSW、IVFFlat 等结构统一视为 derived state，只持久化定义并从表数据重建。
 - 以原始 SQL 文本作为最终复制协议。
 - secondary UNIQUE index/constraint 和任何需要 deferred constraint checking 的 batch；V1 只保留不可更新的 primary-key uniqueness 与普通 non-unique secondary index。
@@ -79,13 +82,56 @@ V1 功能范围保持冻结。本轮只补 safety contract、确定性细节和�
 不再以 production scalability 为理由继续增加 base backup/WAL、增量/fuzzy/COW、续传、压缩或 pipeline。
 多语句事务、并行 proposal、group commit 和 secondary UNIQUE 同样留到独立后续项目，除非发现 safety 缺口。
 
+## 文档权威、执行轴与共享前置契约
+
+本文只有一条可执行门禁轴：`M0 -> M1 -> ... -> M7`。后文 A–D 是架构工作流，
+“横切测试与交付规则”从 M0 开始持续生效，它们都不是另一套串行阶段。出现表述冲突时，
+权威顺序为：本节与“里程碑唯一归属表” > 全局不变量 > 各工作流的细化说明 >
+非规范的历史执行记录。
+
+M0 前只冻结跨阶段最小契约：`VersionedFrame`/checksum 骨架、`ReplicatedLogEntry`
+envelope、canonical `db/catalog/session` 逻辑内容、`DurableStorage` 语义以及命名故障事件词汇。
+M0 的 spike scaffolding 和未冻结假设可丢弃/演进，但其可执行 vertical slice 首次实现的最小 production
+Catalog/Session/WriteResponse codecs、replicated V1 Catalog shape/restore admission、TableHeap reopen 与
+`CanonicalSnapshotBuilder` 是后续阶段的正式 contracts/code，不能按“临时实验”清理。M0 不包含 durable
+publication，也不把 SQL 生产者提前到 M0。
+M0–M2 的恢复退出门禁只依赖
+预构造、格式已冻结的非空 entry/payload fixture；源码可复用已存在的 codec/consumer。M2 先拥有
+consumer 方向：`TransactionCommandBatch` 固定 wire 类型/解码、预构造 committed batch 的
+state-dependent admission、`BusTubStateMachine::Apply`、Session request/稳定 response 状态转换与 term-0
+恢复。M5 后拥有 producer 方向：raw SQL -> canonical batch、SQL shape/unsupported 语义准入、canonical
+`CommandBuilder`、完整 command-set 确定性强化和 BusTub Raft snapshot hooks；它复用 M2 admission 并累计
+复验 consumer，但不建立第二条 Apply、Session 状态机或日志/快照恢复路径。
+
+共享类型按“最早必需能力”而不是目录名归属：M0 为非空 self-contained fixture 引入稳定
+`WriteResponseV1` frame 和可持久化的 `SessionRecord/SessionSnapshotCodec` 容器；M1 增加 production
+`StateVisibilityLatch`、Snapshot@S 边界校验与原子发布/回退；M2 增加请求分类、`RecordCommitted`、
+committed Apply 中的 response 构造/重放和 exact-once 状态转换。M0 只用预构造 record，不调用这些
+状态转换。M2 的 `SingleNodeCommandRuntime` 只接收
+预构造 batch；`CommitSql` 是 M5 放在 distributed translation unit 中增加的 producer adapter，不能使
+recovery target 反向编译依赖 `SqlCommandPreparer`。
+
+两种运行模式的持久化权威必须互斥：
+
+| 运行模式 | 所属里程碑 | 唯一日志/快照权威 | 允许共享的内容 |
+| --- | --- | --- | --- |
+| term-0 单节点恢复验证 | M0–M2 | `CommandLog` + `SnapshotManager/StateManifestStore` + `StableStore` 的 term-0 commit marker | entry/frame codec、canonical logical snapshot builder、Catalog/Session codec、durable storage/fault vocabulary、StableStore disk format |
+| 静态三节点分布式运行 | M3–M7 | `LogStore` + `SnapshotStore` + `StableStore` + `BusTubRaftStateMachine` | 有意复用 StableStore 和上述逻辑原语；不复用 term-0 的 CommandLog/StateManifest 日志与快照 envelope |
+
+V1 没有持久化运行模式 marker，也没有 term-0 -> distributed 的原地迁移器。因此受支持的部署规则是：
+一个进程不得同时打开两套日志或两个 `CURRENT` 权威，分布式节点必须使用全新目录，不能把 term-0
+目录当作集群目录继续打开。现有 HardState/日志一致性检查可能拒绝部分误用，但不是完整的模式检测器；
+若未来需要强制检测或迁移，必须另定义 versioned mode marker、离线迁移工具和验收，不能靠路径猜测。
+
 ## 必须始终成立的不变量
 
 1. 完成启动恢复归一化后，运行态必须满足 `last_applied <= commit_index <= last_log_index`；被快照压缩的日志以 `last_included_index` 作为逻辑日志基点。
 2. `published_applied_index` 表示“效果已完整发布的最高连续 Raft log index”，不是“最近一条修改数据的 CommandBatch index”。Apply 每一种 entry（包括不修改数据库的 `NOOP`）都必须推进它；由 `Snapshot@S` 恢复或安装快照后，`published_applied_index` 与 `last_applied` 都初始化为 `S`。
 3. Apply 线程只能按连续递增的日志索引执行，不能跳过、并行乱序或重复产生副作用。
 4. 节点回复日志持久化成功前，对应日志字节必须已经越过 `fdatasync/fsync` 持久化屏障。
-5. `CURRENT` 只能指向已完整写入、已同步并且 checksum 校验通过的不可变 `MANIFEST-N`。
+5. term-0 模式的 `state/CURRENT` 只能指向已同步且校验通过的不可变
+   `MANIFEST-N`；分布式模式的 `raft/snapshots/CURRENT` 只能指向已同步且校验通过的
+   framed `SNAPSHOT-N`，其外层不存在 `MANIFEST-N`。
 6. 一个快照必须同时描述同一日志索引处的数据库文件、Catalog、OID 分配器、`schema_epoch` 和请求去重表。
 7. 未提交日志永远不能 Apply；只复制到少数节点的日志允许被后续 Leader 覆盖。
 8. 已提交日志不能丢失。新 Leader 必须包含所有已提交条目。
@@ -93,7 +139,9 @@ V1 功能范围保持冻结。本轮只补 safety contract、确定性细节和�
 10. 一个 CommandBatch 是一个原子可见状态转换；表数据、Catalog、全部索引、MVCC commit timestamp 和 SessionTable/去重状态不能向并发读者暴露部分新、部分旧的组合。
 11. 若最老的保留快照边界为 `S_old`，本地必须保留从 `S_old + 1` 到当前日志尾的完整连续日志；没有这段 bridge log 的旧快照不能被计为可回退恢复点。
 12. 测试不得通过测试专用网络 API、隐藏管理命令或 production 默认分支改变生产行为。
-13. InstallSnapshot 只能在安装前的本地逻辑日志满足 `TermAt(S) == T` 时保留 `index > S` 的旧 suffix；否则必须丢弃全部旧 suffix，并建立 `snapshot_base = (S, T)`。
+13. InstallSnapshot 只能在安装前的本地逻辑日志满足 `TermAt(S) == T` 时保留 `index > S` 的旧 suffix。
+    若不匹配，只有 `E=max(H,S)==S`（Snapshot 自身覆盖全部 durable commit）时才能丢弃 suffix 并建立
+    `snapshot_base=(S,T)`；若 `E>S`，必须在发布 CURRENT 前 fail-closed，不能破坏 committed suffix。
 14. 任何使 `current_term` 增大的事件都必须先持久化新的 `HardState{term, voted_for}`，再发送或回复任何依赖新 term 的 RPC；Candidate 自增 term 并自投票也遵守同一规则。
 15. 每次线性一致读必须使用在该读到达后创建的唯一 ReadIndex context 完成一次当前 term 的新鲜 quorum round；旧 heartbeat ACK 或已经完成的旧 read barrier 不能复用。
 16. V1 distributed mode 中每个可写用户表必须具有协议支持的逻辑主键；无主键或主键编码不受支持的 CREATE TABLE 必须在 proposal 前拒绝，恢复时无法验证主键定义则节点不得开放服务。
@@ -108,13 +156,16 @@ V1 功能范围保持冻结。本轮只补 safety contract、确定性细节和�
 
 ---
 
-# 第一阶段：节点目录、Catalog 持久化与单机恢复闭环
+# 架构工作流 A（M0–M2）：节点目录、Catalog 持久化与单机恢复闭环
 
 ## 背景
 
-Raft 不能弥补状态机自身不能重启恢复的问题。本阶段先让单个 BusTub 节点在任意日志追加、Apply、快照发布阶段崩溃后，都能找到最近一次可信快照并重放已提交命令。
+Raft 不能弥补状态机自身不能重启恢复的问题。M0–M2 先让单个 BusTub 节点在任意日志追加、Apply、快照发布时崩溃后，都能找到最近一次可信快照并重放已提交命令。
 
-本阶段不是只搭接口。结束时必须有一个可运行的单节点纵向链路：SQL/命令进入、日志持久化、Apply、快照、杀进程、重启、查询验证。
+该工作流不是只搭接口。M0–M2 结束时必须有一个可运行的 term-0 纵向链路：
+预构造的确定性 entry 进入、日志持久化、恢复 consumer Apply、快照、杀进程、重启和字面状态验证。
+SQL 解析/绑定/CommandBuilder producer 不作为本工作流的前置退出条件；M2 已用预构造 batch 验证
+state-dependent admission、Session exact-once consumer 与恢复，M5 再用真实 SQL 累计重跑这条链路。
 
 ## 目标
 
@@ -129,14 +180,59 @@ Raft 不能弥补状态机自身不能重启恢复的问题。本阶段先让单
   -> 扫描 Snapshot@S 的 rows，先重建 primary index 和全部 secondary indexes 到 state@S
   -> 初始化 published_applied_index = last_applied = S
   -> 扫描日志，按规则截断仅位于 committed boundary 之后的损坏尾
-  -> 通过正式 FSM Apply 重放 Log[S+1..effective_commit_index]
+  -> 通过恢复 consumer Apply 入口重放 Log[S+1..effective_commit_index]
      每条 Apply 同步增量维护 primary/secondary indexes
   -> 完成一致性校验后开放请求
 ```
 
-## 节点目录范式
+M2 用预构造 entry 验证该 consumer/恢复顺序；当前实现为减少重复而复用
+`BusTubStateMachine::{ValidateProposal,Apply}`；M2 验收已构造 batch 的 state-dependent admission 与
+Session/WriteResponse consumer，但不验收 SQL 解析/准备语义。M5 的累计门禁证明同一入口由真实 SQL
+producer 驱动，并复验而不重新拥有这些 consumer 语义。
 
-一个节点是一个进程和一个独立目录。单机阶段只启动一个目录；到集群阶段才分别启动 `node-1`、`node-2`、`node-3`，绝不能让三个节点共享同一个 `db.bustub`。
+本工作流内的出口边界是：M0 用最小 production codec、TableHeap reopen 和 canonical builder 证明一份
+无旧进程内存依赖的状态可表达已提交结果，但不引入 `CURRENT`/Manifest/日志；M1 负责 NodeDirectory、
+StateManifest、capture barrier 和完整 `Snapshot@S` 的原子发布/精确恢复，最新代损坏时最多退回到上一
+快照边界；M2 才拥有 term-0 commit marker、
+durable CommandLog、bridge replay、恢复到当前 `effective_commit_index`、两代联动回收和掉电矩阵。
+
+## term-0 节点目录范式
+
+一个节点是一个进程和一个独立目录。下图只是 M0–M2 term-0 验证模式的物理布局，不是分布式目录的
+过渡态。到集群工作流时必须为 `node-1`、`node-2`、`node-3` 使用独立目录，绝不能共享
+同一个 `db.bustub`。
+
+```text
+node-1/
+├── LOCK
+├── raft/
+│   ├── HARD_STATE
+│   └── log/
+│       ├── LOG-00000000000000000008
+│       └── LOG-00000000000000000009
+├── state/
+│   ├── CURRENT
+│   ├── MANIFEST-00000000000000000006
+│   ├── MANIFEST-00000000000000000007
+│   ├── SNAPSHOT-00000000000000000006/
+│   │   ├── db.bustub
+│   │   ├── catalog.bin
+│   │   └── session.bin
+│   └── SNAPSHOT-00000000000000000007/
+│       ├── db.bustub
+│       ├── catalog.bin
+│       └── session.bin
+└── working/
+    └── db.bustub
+```
+
+term-0 runtime 不创建 `node.conf`；该身份文件只属于 distributed `EnsureIdentity`。`CURRENT` 不是数据库内容，
+而是很小的原子入口，例如只包含 `MANIFEST-00000000000000000007\n`。`MANIFEST-N` 是第 N 代快照的
+不可变说明书，记录文件名、边界索引和校验值。它不是不断 append 的单一大文件；每代新建一个小文件。
+三个内容 checksum 只存于 Manifest；不再写一份无恢复消费者的 `CHECKSUMS` 旁路文件。
+
+M3 以后的分布式目录使用下列互斥布局；`working/` 只是可重建物化状态，
+`state/` 即使由通用 `NodeDirectory` 预建也不是分布式恢复权威：
 
 ```text
 node-1/
@@ -144,28 +240,16 @@ node-1/
 ├── node.conf
 ├── raft/
 │   ├── HARD_STATE
-│   └── log/
-│       ├── LOG-000008
-│       └── LOG-000009
-├── state/
-│   ├── CURRENT
-│   ├── MANIFEST-000006
-│   ├── MANIFEST-000007
-│   ├── SNAPSHOT-000006/
-│   │   ├── db.bustub
-│   │   ├── catalog.bin
-│   │   ├── session.bin
-│   │   └── CHECKSUMS
-│   └── SNAPSHOT-000007/
-│       ├── db.bustub
-│       ├── catalog.bin
-│       ├── session.bin
-│       └── CHECKSUMS
+│   ├── log/
+│   │   └── LOG-MUTATIONS
+│   └── snapshots/
+│       ├── CURRENT
+│       ├── SNAPSHOT-00000000000000000006
+│       └── SNAPSHOT-00000000000000000007
+├── state/                    # 预留，非 distributed authority
 └── working/
-    └── db.bustub
+    └── bustub-raft-fsm/      # 启动时可从 snapshot + log 重建
 ```
-
-`CURRENT` 不是数据库内容，而是很小的原子入口，例如只包含 `MANIFEST-000007\n`。`MANIFEST-N` 是第 N 代快照的不可变说明书，记录文件名、边界索引和校验值。它不是不断 append 的单一大文件；每代新建一个小文件。
 
 “保留两代”指最多保留两个**可独立恢复到当前 committed state 的恢复点**，而不只是留下两个快照目录。假设旧代边界为 `A`、当前代边界为 `B`，就必须同时保留 `Log[A+1..last_log_index]`。只有 `Snapshot-A + Log[A+1..commit_index]` 完整可用时，Snapshot A 才有实际 fallback 能力。
 
@@ -203,23 +287,25 @@ struct StateManifest {
 - `format_version`：磁盘格式版本；不支持的版本必须明确拒绝启动，不能猜测解析。
 - `generation`：Manifest/快照发布代数，只用于选择新旧快照，不等同于 Raft index。
 - `last_included_index`：快照已经包含到哪条 Raft/单机命令日志。
-- `last_included_term`：该 index 的 Raft term；单机阶段为 `0`，集群阶段用于快照和日志匹配。
+- `last_included_term`：term-0 StateManifest 中固定为 `0`。M4 distributed Snapshot 的实际 Raft term
+  位于独立 `SnapshotStore` framed metadata，不复用本 Manifest 字段。
 - `schema_epoch`：快照边界处已发布的 Catalog 版本。它也写入 Catalog snapshot，恢复时两份值必须相等，否则该代不可用。
 - `database_file`、`catalog_file`、`session_file`：本代快照中各文件的相对路径，禁止逃逸节点目录。
 - 三个 checksum：检测半写、误配和静默损坏；校验失败时回退上一代，不允许继续打开可疑文件。
 - `next_table_oid`、`next_index_oid`：恢复 OID 分配器，防止重启后复用已有 OID。它们也写入 Catalog 快照，Manifest 中的副本用于交叉校验。
 
-## 本阶段只做
+## 本工作流只做
 
 1. 节点数据目录、独占 `LOCK` 和路径合法性校验。
 2. 版本化命令日志格式与有效前缀扫描。
 3. `CatalogSnapshotCodec`：序列化与恢复表、Schema、首页面 ID、索引定义、`schema_epoch` 与 OID 分配器，并与 Manifest 副本交叉校验。
 4. 增加“按 `first_page_id` 打开已有 TableHeap”的明确接口；不能调用创建新表的构造函数代替恢复。
 5. 暂停写入的全量快照、原子发布、启动回退和两代保留。
-6. 单节点的确定性 `TransactionCommandBatch` 重放。
-7. 用 Raft index 兼容的单调序号作为本地 `commit_index/published_applied_index/last_applied`；本阶段 term 固定为 `0`。
+6. 单节点对预构造、格式已冻结的确定性 entry payload 执行 state-dependent admission 与 consumer replay，
+   并验证 Session exact-once 状态转换；SQL -> `TransactionCommandBatch` 生产归 M5。
+7. 用 Raft index 兼容的单调序号作为本地 `commit_index/published_applied_index/last_applied`；M0–M2 term 固定为 `0`。
 
-## 本阶段不做
+## 本工作流不做
 
 - 选举、Raft RPC、多节点日志复制。
 - 模糊快照和后台增量复制。
@@ -263,6 +349,10 @@ index 0 不对应物理日志记录，也不能被 Apply；它只让第一条 Ap
 - Leader 单写路径通常每次 append 一条 entry；Follower 追赶可以把一次 AppendEntries 中的多条 entry 作为同一次 `Append(entries)` 落盘，这只是 batch append。
 - 单机阶段 append 成功即形成已提交项，但必须先持久化日志，再 Apply，再向客户端返回成功。
 
+M2 同时拥有 `StableStore` 的版本化 HardState 磁盘格式、generation/checksum 原子替换与
+term-0 `commit_index` marker 用法。M3 复用同一 Store，但才拥有 `current_term/voted_for`、
+higher-term transition 和 durable-before-RPC 的 Raft 状态转换语义。
+
 ## Catalog 持久化要求
 
 Catalog 快照至少包含：
@@ -288,44 +378,91 @@ CanonicalRow {
 
 恢复只能采用上文唯一顺序：必须先从 Snapshot@S 的 canonical rows 重建 primary-key index 与全部 secondary indexes 到 state@S，再令 `published_applied_index = last_applied = S` 并重放 suffix。primary index 是 `UPDATE_ROW/DELETE_ROW` 按逻辑主键定位旧行的正式路径，suffix replay 禁止依赖临时全表扫描，也禁止等日志重放完再建索引；`Log[S+1..effective_commit_index]` 期间由正常 `BusTubStateMachine::Apply` 增量维护所有 derived indexes，最后才开放服务。
 
-## 快照发布协议
+## term-0 SnapshotManager 发布协议
 
-1. 关闭新的 write prepare/proposal 准入；已经进入 prepare 的请求必须完成构造或取消，不能再产生新的公开状态修改。
-2. 等待已经进入复制通道的写请求 commit + Apply；如果在超时内不能排空，则取消本次快照，而不是擅自丢弃一个可能提交的 Raft entry。
-3. 记录 `target = commit_index`，等待 `last_applied == target` 且 Apply loop 空闲；然后获取 `StateVisibilityLatch exclusive`。该锁会等待已开始的 reader 结束，并阻止新的 reader、Apply 与 MVCC GC 并发进入逻辑 capture。
-4. 在 exclusive lock 内重新确认 `S = target = commit_index = last_applied = published_applied_index`，并断言 working state 中不存在 speculative/uncommitted write。本地创建快照时必须在压缩或删除 index S 的日志前读取 `T = LogStore::TermAt(S)`，将 `last_included_term = T` 写入 Snapshot/Manifest；若无法确定 T，则取消快照而不能猜测。单机阶段 T 固定为 0。
-5. 在同一锁内执行必要的 MVCC GC/canonicalization，使快照不依赖只存在于内存 Transaction 中的 undo 信息。
-6. 在同一文件系统创建 `SNAPSHOT-N.tmp/`；扫描 `S` 可见的稳定 committed rows，将每行原始 `latest_committed_version_ts` 写入新的 canonical `db.bustub`，并序列化 Catalog definitions、`schema_epoch` 和去重状态。禁止直接把包含旧索引页的 working 文件复制成下一代 canonical snapshot。
-7. 完成并封闭上述逻辑 capture 后释放 `StateVisibilityLatch exclusive`；write proposal 准入仍保持关闭，临时快照文件从此只做校验和持久化，不再修改其逻辑内容。
-8. 对新的 canonical 快照文件计算 checksum，逐个 `fsync/fdatasync`，再同步临时目录。快照正确性不依赖对旧 working Buffer Pool 执行 Flush；真正需要 durable 的是新快照文件。
-9. 将 `SNAPSHOT-N.tmp` rename 为不可变的 `SNAPSHOT-N`，并同步 `state/` 目录。
-10. 写入并同步 `MANIFEST-N.tmp`，rename 为 `MANIFEST-N`，再次同步父目录。
-11. 写入并同步 `CURRENT.tmp`，原子 rename 覆盖 `CURRENT`，再次同步父目录。
-12. 解除 write proposal 阻塞。
-13. 新代发布后暂时可能存在三代快照。先删除最老快照及 Manifest 并同步目录，再将日志回收上界推进到新的最老快照边界；删除顺序不能反过来。
+以下物理封装只适用于 `state/CURRENT -> MANIFEST-N -> SNAPSHOT-N/`；M4 的 framed
+`SnapshotStore` 发布协议在工作流 B 单独定义，不能把本段的 Manifest 步骤套到 distributed 目录。
+`SnapshotManager`、`StateManifestCodec/Store` 与 `CommandLog` 都必须对任意非零 term fail-closed；
+CommandLog 恢复遇到 committed 非零 term 必须拒绝启动，只能把 durable commit 之后的外来 term 当作
+不可信 tail 截断。`SnapshotManager` 发布和 `StateManifestStore` 候选校验还必须逐条解码 Session response，
+要求其 `term == 0`；否则即使外层 checksum 自洽也不得发布或恢复。共享 `LogCodec`/`StableStore`/
+`WriteResponseCodec` 可表达非零 term 供 distributed 模式使用，不能因此放宽 term-0 物理 authority。
 
-任何一步崩溃后，`CURRENT` 必须仍指向旧的完整代或新的完整代。启动时若 `CURRENT` 本身损坏，则按 generation 从新到旧扫描 Manifest；候选快照除了自身 checksum 通过，还必须具备重放到 `effective_commit_index` 所需的连续 bridge log，否则不能作为恢复点。
+### M1：冻结 capture 的原子发布器
 
-安装远端快照时可能没有旧快照到新快照之间的 bridge log。这种情况下旧快照应被移出“有效恢复点”集合，只保留新安装快照；等将来再成功生成下一代快照后，才重新形成两个有效恢复点。不能为了满足“两个目录”这一形式要求谎称旧快照可回退。
+M1 不依赖 M2 的 CommandLog、StableStore commit marker 或三水位。调用者提供 Catalog/Session 引用、
+`S/term=0` 元数据和 common `StateVisibilityLatch`；M1 publisher 自己获取 exclusive latch 形成内部自洽的
+逻辑 capture。M1 拥有该 shared/exclusive primitive，并复用 M0 的 Session record/snapshot codec 负责以下发布：
 
-## 建议修改或新增文件
+1. M1 `CreateSnapshot` 内部获取 exclusive barrier，冻结并扫描 state@S；做必要 MVCC
+   GC/canonicalization，确保内容不依赖旧进程内存。调用者不得预先获取同一非递归 latch。
+2. 在同一文件系统创建 `SNAPSHOT-N.tmp/`，扫描 S 可见的 committed rows，保留每行原始
+   `latest_committed_version_ts`，并序列化 Catalog、`schema_epoch`、OID 和 Session 内容。
+3. 封闭 capture 后可释放 exclusive barrier；调用者的 mutation freeze 在 CURRENT 发布前仍保持，临时文件只再做持久化。
+4. 对三个 canonical 文件计算 checksum，逐个 `fsync/fdatasync`，再同步临时目录；不以 Flush 旧 working file 代替。
+5. rename 为不可变 `SNAPSHOT-N/` 并同步 `state/`；写入/同步/rename `MANIFEST-N.tmp` 后再同步父目录。
+6. 写入并同步 `CURRENT.tmp`，原子 rename 覆盖 `CURRENT`，再次同步父目录，随后允许调用者解除 freeze。
+
+任一步崩溃后，M1 只能选择旧完整 Snapshot 边界或新完整 Snapshot 边界。CURRENT 损坏时可按 generation
+从新到旧扫描并校验 Manifest/三个内容文件；M1 不声称已把选中的边界重放到更高 commit。
+
+### M2：commit orchestration、bridge 与联动回收
+
+M2 在调用上述 M1 publisher 前后增加唯一属于 runtime/log 的步骤：
+
+1. 关闭新的 term-0 append/Apply 准入，排空已准入转换；记录 `target=commit_index`。
+2. 等待 `last_applied=published_applied_index=target` 且 Apply loop 空闲，并在整个发布期间继续持有
+   admission/write freeze；把 Catalog/Session、latch 与 `S=target,term=0` 交给 M1，由 M1 内部获取
+   exclusive latch capture。M2 不能在调用前重复锁住同一 latch。
+3. CURRENT durable 后恢复准入。启动恢复选择候选 Snapshot@S 时，除 M1 的完整性校验外，还必须证明
+   `Log[S+1..effective_commit_index]` 连续可用；否则该代不能作为恢复点。
+4. 新代发布后可暂时有三代。先删除最老 Snapshot/Manifest 并同步目录，再把 CommandLog 回收上界推进到
+   新的最老有效边界；删除顺序不能反过来。只有具备 bridge 的两代才计为两个恢复点。
+
+## 建议修改或新增文件（按最早 owner 分组）
 
 ```text
-src/include/recovery/command_log.h
-src/recovery/command_log.cpp
-src/include/recovery/log_codec.h
-src/recovery/log_codec.cpp
+# M0 executable feasibility / minimum canonical logical codecs and reopen
+src/include/recovery/canonical_snapshot.h
+src/recovery/canonical_snapshot.cpp
+src/include/catalog/catalog_snapshot.h
+src/catalog/catalog_snapshot.cpp
+src/include/distributed/session_table.h      # WriteResponse frame + SessionRecord/SnapshotCodec foundation
+src/distributed/session_table.cpp
+src/include/storage/table/table_heap.h
+src/storage/table/table_heap.cpp
+
+# M1 immutable publication / shared capture / recovery selection hardening
+src/include/recovery/node_directory.h
+src/recovery/node_directory.cpp
 src/include/recovery/state_manifest.h
 src/recovery/state_manifest.cpp
 src/include/recovery/snapshot_manager.h
 src/recovery/snapshot_manager.cpp
-src/include/catalog/catalog_snapshot.h
-src/catalog/catalog_snapshot.cpp
-src/include/storage/table/table_heap.h
-src/storage/table/table_heap.cpp
+src/include/common/state_visibility.h
+
+# M2 term-0 commit/log/replay orchestration
+src/include/recovery/command_log.h
+src/recovery/command_log.cpp
+src/include/recovery/log_codec.h
+src/recovery/log_codec.cpp
+src/include/raft/stable_store.h
+src/raft/stable_store.cpp
+src/include/recovery/single_node_runtime.h
+src/recovery/single_node_runtime.cpp
+src/include/distributed/command.h          # consumer wire model/codec; fixture 不调用 CommandBuilder
+src/distributed/command_codec.cpp
+src/include/distributed/bustub_state_machine.h
+src/distributed/bustub_state_machine.cpp
+
+# M5 extension, not part of the M2 recovery target
+src/distributed/single_node_sql_runtime.cpp
 src/include/common/bustub_instance.h
 src/common/bustub_instance.cpp
 ```
+
+同一源码文件可在后续阶段增加能力，但最早 owner 不改变：M1 在 M0 的 Session container 上增加
+Snapshot@S boundary validation，M2 再增加 exact-once transition；测试必须按能力标注，不能把整文件重复归属。
 
 不要直接把旧的页级 `LogManager` 改造成同时承担命令日志和 Raft 日志的混合类。可以复用文件 I/O 基础设施，但对外语义必须分开，避免未来误把 page LSN 当作 Raft index。
 
@@ -334,31 +471,51 @@ src/common/bustub_instance.cpp
 ### 单元测试
 
 - `LogCodecTest`：正常编解码、最大长度、版本拒绝、checksum 错误、半 header、半 payload、segment 边界。
-- `LogBaseSentinelTest`：空状态固定为 `snapshot_base=(0,0)`、`TermAt(0)=0`、首条真实 entry 为 1；覆盖第一条 AppendEntries、空数据库 Snapshot@0 和从 sentinel 开始恢复，确认 index 0 永不被编码或 Apply。
-- `ManifestTest`：原子发布、CURRENT 损坏、最新代损坏回退、路径逃逸拒绝、两代恢复点与 bridge log 联动回收；Manifest 与 Catalog snapshot 的 `schema_epoch` 或 OID 副本不一致时拒绝该代。
-- `CatalogSnapshotTest`：多表、多类型、多索引 definition、OID 连续性、`schema_epoch` round-trip、未知 IndexType/版本拒绝；验证 replicated logical primary key 的列、类型与 codec version round-trip，缺失/不受支持/mismatch 或包含 secondary UNIQUE definition 时 distributed restore 拒绝开放服务；确认第一版格式不依赖任何索引 root/header page。
+- `LogBaseSentinelTest`（M2）：空状态固定为 `snapshot_base=(0,0)`、`TermAt(0)=0`、首条真实 entry 为 1；覆盖空数据库 Snapshot@0 和 CommandLog 恢复，确认 index 0 永不被编码或 Apply。首条 AppendEntries 归 M3，SnapshotStore 空基线归 M4。
+- `ManifestTest`：M1 覆盖原子发布、CURRENT/最新代损坏后选择上一完整 Snapshot 边界、路径逃逸拒绝；M2 再覆盖用 bridge log 恢复到当前 commit 与两代联动回收。Manifest 与 Catalog snapshot 的 `schema_epoch` 或 OID 副本不一致时拒绝该代。
+- M0 的 Session 测试用预构造 `SessionRecord` 验证非空 WriteResponse frame、snapshot round-trip 和坏字节拒绝；
+  M1 增加与 Snapshot@S 的 commit boundary；M2 再验证 `NEW/RETRY/TOO_OLD/GAP`、RecordCommitted、byte-identical response
+  和恢复后的同请求重放。M5 只把这些 consumer 语义接到真实 SQL producer，不能把它们倒称为首次实现。
+- `CatalogSnapshotTest`：M0 覆盖多表、多类型、普通索引 definition、OID 连续性、`schema_epoch` round-trip、
+  未知 IndexType/版本拒绝、TableHeap reopen，以及 replicated logical primary key 定义及缺失/不受支持/
+  mismatch、secondary UNIQUE definition 的 restore 拒绝，并确认格式不依赖任何索引 root/header page。
+  M5 只验证 SQL parser/producer 在 proposal 前执行同一 policy 且无 Catalog/Raft 副作用，不能把静态 restore
+  validator 倒称为首次实现。
 - `DurableAppendTest`：单条和单次多 entry append 都只能在 `fdatasync` 后成功返回；同步失败时本次调用直接失败，不能确认部分 entry；两个独立 append 调用不要求被调度器合并。
 
 ### 单节点集成测试
 
-- 使用真实 `BusTubInstance`、真实临时目录和正式命令 Apply 入口执行 `CREATE TABLE/INDEX`、`INSERT/UPDATE/DELETE`。
-- 在快照前、快照后和日志尾存在新 autocommit batch 时重启，查询表、索引定义、下一 OID 和 `schema_epoch`。
-- 构造“行最后更新于 index 800、Snapshot 边界为 1000、Log 1001 的 UPDATE 携带 `expected_old_commit_ts = 800`”的恢复场景；先断言 Snapshot@1000 的 primary/secondary indexes 已完成重建，再允许 replay 1001。UPDATE 必须通过 primary index 定位且恢复后 commit timestamp 为 1001；测试配置禁止 fallback 全表扫描，也禁止 replay 后才建索引。
-- 让 reader 持有 `StateVisibilityLatch shared` 时启动快照，确认 snapshot capture/GC 在 exclusive lock 处等待；释放 reader 后得到的快照只能对应一个完整 published index。
+- M0–M2 使用真实 `BusTubInstance`/临时目录和预构造的非空正式 entry payload，验证恢复 consumer 及表、索引定义、OID、`schema_epoch` 的字面状态；不把 SQL preparer 的正确性当成本层 oracle。
+- M5 累计门禁再从真实 `CREATE TABLE/INDEX`、`INSERT/UPDATE/DELETE` SQL 生产 batch，并在快照前、快照后和 suffix 存在时重启查询。
+- 构造“行最后更新于 `K < S`、Snapshot 边界为 S、Log S+1 的 UPDATE 携带
+  `expected_old_commit_ts = K`”的恢复场景；先断言 Snapshot@S 的 primary/secondary indexes 已完成重建，
+  再允许 replay S+1。UPDATE 必须通过 primary index 定位且恢复后 commit timestamp 为 S+1；
+  测试配置禁止 fallback 全表扫描，也禁止 replay 后才建索引。
+- M1 让 reader 持有 `StateVisibilityLatch shared` 时启动快照，确认 snapshot capture/GC 在 exclusive lock 处等待；释放 reader 后得到的快照只能对应一个完整 capture 边界。三水位对齐与 runtime 准入由 M2 测试，Apply-vs-reader 的整批发布由 M5 测试。
 - 比较 SQL 查询得到的逻辑结果；不要比较 `db.bustub` 的原始字节，因为合法的物理布局可以不同。
 
 ### 崩溃点测试
 
-- 复用测试专用的命名故障注入框架，在 `before_write / after_fsync / after_rename / after_dir_fsync` 四类事件及其 occurrence 上逐点模拟掉电；Snapshot、StableStore、LogStore 与 InstallSnapshot 使用同一个“恢复结果只能为完整旧状态或完整新状态”的 oracle。
+- 公共命名故障框架固定 `before_write / after_fsync / after_rename / after_dir_fsync`
+  事件和 occurrence/path topology。M1/M2 只注册 SnapshotManager、CommandLog 与 term-0 StableStore 的适用点，
+  单个原子发布使用 old-or-new oracle。M3 扩展 StableStore/LogStore，M4 扩展 InstallSnapshot；
+  InstallSnapshot 的跨文件中间 durable 组合必须用 `max(H,S)`、pre-install `TermAt(S)`、
+  committed-range 连续性和 fail-stop 专用 oracle，不得简化成单文件 old-or-new。
 - 掉电模型同时维护 volatile image 和 durable image；普通 `SIGKILL` 只能证明进程崩溃，不能代替断电后缓存未落盘测试。
-- 每个崩溃点重启后只允许恢复旧完整代或新完整代，禁止混合两代文件。
+- M1/M2 的单次 SnapshotManager 代发布以及各 Store 的单文件原子 mutation，在每个崩溃点后只允许恢复
+  完整旧逻辑状态或完整新逻辑状态，禁止混合两代文件；本条不覆盖 M4 InstallSnapshot 的跨文件中间态。
 - 构造 Snapshot 7000、Snapshot 8000 和 commit 8500，损坏当前快照后必须由 Snapshot 7000 + Log 7001..8500 恢复；再生成 Snapshot 9000，验证先删 Snapshot 7000、再删除 `<= 8000` 日志的 crash ordering。
-- 在 prepare/proposal、commit、Apply、`StateVisibilityLatch` 获取、MVCC canonicalization、逻辑 capture 与新快照文件同步边界请求快照，验证 `Snapshot(S) = Apply(Log[1..S])` 且不含 speculative state。
+- M2 在 term-0 的预构造 entry append/commit、Apply、`StateVisibilityLatch` 获取、MVCC canonicalization、
+  逻辑 capture 与新 SnapshotManager 文件同步边界请求快照，验证
+  `Snapshot(S) = Apply(Log[1..S])` 且不含 speculative state。M5 只累计增加真实 SQL prepare 边界；
+  M4 先以 KV FSM 对 distributed proposal/commit/Apply + `SnapshotStore` 验证同一逻辑等式，M6 只在
+  正式 BusTub 装配中累计复验；二者都不能调用 term-0 CURRENT/Manifest 路径。
 - 保持 working Buffer Pool 含未 Flush 的 committed dirty pages，完成逻辑扫描与 canonical snapshot 落盘后模拟崩溃；恢复必须只依靠新快照成功，证明 snapshot correctness 不错误依赖 working file FORCE。
 
 ## 验收标准
 
-- 单节点真实生产路径完成“提交 autocommit batch -> 杀进程 -> 重启 -> SQL 查询一致”。
+- M2 term-0 链路完成“持久化预构造 entry -> consumer Apply -> 杀进程 -> 重启 ->
+  字面逻辑状态一致”；M5 再完成“真实 autocommit SQL -> batch -> 同一恢复链路”的累计门禁。
 - 截断任意 uncommitted 日志尾字节后，能恢复最后完整记录且不 Apply 半条记录；损坏 committed range 必须 fail-stop。
 - 任一快照发布步骤模拟掉电后，均能选择一代完整快照恢复。
 - Catalog、TableHeap、全部索引 definitions、OID 和 `schema_epoch` 在重启后正确；canonical rows 保留各自原始 `latest_committed_version_ts`，所有索引均由这些 rows 重建。
@@ -375,11 +532,12 @@ src/common/bustub_instance.cpp
 
 ---
 
-# 第二阶段：独立 KV 状态机上的完整 Raft
+# 架构工作流 B（M3–M4）：独立 KV 状态机上的 Raft
 
 ## 背景
 
-在接入 SQL、Catalog 和 MVCC 前，先用很小的 KV FSM 验证 Raft 本身的安全性。这样选举或日志冲突错误不会被复杂数据库行为掩盖。
+在把 M2 已验证的 BusTub consumer 接入 Raft 前，先用很小的 KV FSM 隔离验证 Raft 本身的安全性。
+这样选举或日志冲突错误不会被 SQL producer、Catalog 和 MVCC 的复杂行为掩盖。
 
 ## 目标
 
@@ -392,16 +550,26 @@ src/common/bustub_instance.cpp
 - 快照创建、日志压缩和 `InstallSnapshot`。
 - 节点重启、网络分区、丢包、重复包、乱序和旧 Leader 回归。
 
-## 本阶段只做
+M3 的退出边界到选举/投票、AppendEntries/冲突回退、多数提交、current-term NOOP、
+新鲜 ReadIndex 和无快照的持久 KV 重启为止。M4 唯一拥有 SnapshotStore、压缩、
+InstallSnapshot 分块/重传、两次 stale guard、suffix 保留与 compacted follower catch-up。
+旧 Leader 冲突算法归 M3，结合 durable restart/snapshot 的回归归 M4，真实 TCP 三进程证据归 M6；
+这是同一风险在不同边界的不同 oracle，不是重复实现。
+
+## 本工作流只做
 
 - 三个静态 voter、单 Raft Group、内存 KV FSM。
-- 进程内可控 Transport 做确定性测试，同时实现正式 TCP/RPC Transport。
-- `StableStore`、`LogStore`、`SnapshotStore` 与 FSM 明确分层。
+- M3 以进程内可控 Transport 和固定 RPC codec 验证协议；TCP Transport 可做独立组件验证，
+  但首次组装进 production 三进程链路唯一归 M6。
+- 复用 M2 的 `StableStore` 物理格式，并使 `LogStore`、M4 `SnapshotStore` 与 FSM 明确分层。
+- Raft core 把 application payload 当作 opaque bytes，并经 `RaftStateMachine::ValidateProposalPayload`
+  委托状态机做类型/格式/admission 校验；`src/raft` 不得 include `distributed/*`。M3 KV 实现只接受
+  `KV_COMMAND`，M5 BusTub adapter 再实现 `COMMAND_BATCH`，RaftNode 不直接解析任一业务 codec。
 - 每个节点仍使用独立真实磁盘目录。
 - 生产节点使用相同配置的选举超时区间，并在每次 deadline reset 时独立重新抽样；测试通过固定 seed 或
   timeout source 注入确定性序列。禁止依赖操作者为三个节点手工设置不同固定常量。
 
-## 本阶段不做
+## 本工作流不做
 
 - BusTub SQL/MVCC 集成。
 - 动态成员、learner、分片、跨组事务。
@@ -458,7 +626,9 @@ Candidate election timeout
 
 ## 跨文件 crash ordering 与恢复规则
 
-`HARD_STATE`、`CURRENT/MANIFEST`、Snapshot 和 LogStore 是不同文件，不能假定它们在一次原子写中更新。设当前校验通过的快照边界为 `S = last_included_index`，持久化 HardState 中的提交位置为 `H`：
+`HARD_STATE`、Raft `SnapshotStore` 的 framed `SNAPSHOT-N`/`CURRENT` 与 `LogStore` 是不同文件，
+不能假定它们在一次原子写中更新。这里不参与 term-0 `state/MANIFEST-N`。
+设当前校验通过的快照边界为 `S = last_included_index`，持久化 HardState 中的提交位置为 `H`：
 
 ```text
 effective_commit_index       = max(H, S)
@@ -489,23 +659,41 @@ retain_old_suffix = old_term.exists && old_term == T
 if retain_old_suffix:
     retained = PreInstallLog.entries(index > S)
 else:
-    retained = empty
+    if max(H, S) > S:
+        fail_closed_before_durable_publication()
+    retained = empty  # only when E == S
 
 new snapshot_base = (S, T)
 ```
 
-新下载或新发布 Snapshot 自己携带的 T 不能反过来充当 `PreInstallLog.TermAt(S)` 的匹配证据。只比较 `index > S` 也不成立。即使保留 suffix，后续 AppendEntries 仍按正常冲突规则校验和修复。
+新下载或新发布 Snapshot 自己携带的 T 不能反过来充当 `PreInstallLog.TermAt(S)` 的匹配证据。只比较
+`index > S` 也不成立。若 `E>S`，还必须在同一只读 preflight 中证明连续
+`Log[S+1..E]`；term/连续性任一不可证明，除前文独立要求的 higher-term
+`HardState.current_term/voted_for` transition 外，都必须在改 CURRENT、`HardState.commit_index`、LogStore
+或 FSM 前失败。
+即使保留 suffix，后续 AppendEntries 仍按正常冲突规则校验和修复。
 
 InstallSnapshot 固定采用以下可崩溃顺序：
 
 1. 收到 metadata 时执行首次 stale guard；仅当 `S > published_applied_index` 时下载到临时目录并校验、同步所有文件。
-2. 将安装任务提交给单线程 FSM Apply/Install 序列，在其中执行最终 stale guard。若 `S <= published_applied_index`，以 no-op 结束；否则从这里到第 6 步禁止其他 Apply 穿插，并从旧 LogStore view 计算 `retain_old_suffix`。
-3. 原子发布 Snapshot、Manifest 与 CURRENT；从这一步起 `S` 已成为 durable commit lower bound。
+2. 将安装任务提交给单线程 FSM Apply/Install 序列，在其中执行最终 stale guard。若 `S <= published_applied_index`，以 no-op 结束；否则从这里到第 6 步禁止其他 Apply 穿插，并从旧 LogStore view 计算 `retain_old_suffix`。同时计算 `E=max(H,S)`：若 `E>S`，必须先证明 `retain_old_suffix` 且 `(S,E]` 连续；失败时取消 staged 临时文件并 fail-stop/reject，以下权威步骤一个都不能执行。
+3. 通过 `SnapshotStore` 写入/同步 framed `SNAPSHOT-N.tmp`、rename 为 `SNAPSHOT-N`、
+   同步目录，再原子发布/同步 `CURRENT`；从这一步起 `S` 已成为 durable commit lower bound。
 4. 持久化 `HARD_STATE.commit_index = max(H, S)`。
-5. 调用 `LogStore::InstallSnapshotBase(S, T, retain_old_suffix)`，以一个 durable framed mutation 建立 `snapshot_base = (S,T)`，并按决策保留全部 `index > S` entries 或丢弃全部旧 suffix；完成后再按最老有效恢复点规则回收前缀。
-6. 获取 `StateVisibilityLatch exclusive`，原子切换 FSM working state，令 `published_applied_index = last_applied = S`，释放锁后按顺序 Apply 保留或由 Leader 补齐的后缀 entry。
+5. 调用 `LogStore::InstallSnapshotBase(S, T, retain_old_suffix)`，以一个 durable framed mutation 建立
+   `snapshot_base=(S,T)`；匹配时保留全部 `index>S` entries，只有 preflight 已证明 `E==S` 的不匹配路径
+   才能丢弃旧 suffix。完成后再按最老有效恢复点规则回收前缀。
+6. 通过 FSM 自己的原子发布屏障切换 working state，令 `published_applied_index = last_applied = S`，
+   随后按顺序 Apply 保留或由 Leader 补齐的后缀 entry。M4 的 KV FSM 在单线程 Apply/Install 序列内
+   直接替换；M5 BusTub FSM 复用 M1 common `StateVisibilityLatch exclusive`，M4 不拥有第二套 latch。
 
-在第 3、4、5、6 步任意位置崩溃，重启都按上述 `max(H, S)` 规则解释，而不是把四份文件拼成一个不存在的原子事务。若第 3 步已发布而第 5 步尚未 durable，恢复必须针对仍在磁盘上的 pre-install log material 重做同一 term 比较；若无法证明旧 `TermAt(S) == T`，只能保守丢弃 suffix，绝不能用当前 Snapshot 的新 base 制造“匹配”。若保守丢弃后缺少 `(S, effective_commit_index]` 的 committed entries，则按 committed-range 规则 fail-stop/先向 Leader 补齐，不能降低 commit index。任何正常路径或 crash recovery 都不得令 `last_applied`、`published_applied_index` 或已对读者发布的逻辑状态回退。
+在第 3、4、5、6 步任意位置崩溃，重启都按上述 `E=max(H,S)` 规则解释，而不是把四份文件拼成一个
+不存在的原子事务。若第 3 步已发布而第 5 步尚未 durable，恢复必须针对仍在磁盘上的 pre-install log
+material 重做同一 term/continuity 证明；当前 Snapshot 的新 base 不能自证匹配。若 `E>S` 且证明失败，
+必须保持权威 LOG/HARD_STATE/CURRENT 字节并 fail-closed，绝不能先丢 suffix 再发现 committed range 缺失；
+只有 `E==S` 时，完整验证 Snapshot 内层状态后才允许丢弃不可信 suffix。关闭服务的启动恢复期间，working
+FSM 与两个 applied 水位允许先从 Snapshot@S 重建，再连续 replay 到 E；完成归一化前不得开放读写。
+服务已开放后，对外可观察的逻辑状态和两个 published/applied 水位不得回退。
 
 ## 新 Leader 为什么不会缺少已提交日志
 
@@ -535,43 +723,78 @@ Follower 对冲突日志调用一个具有明确 durable 语义的操作：
 void ReplaceSuffix(from_index, new_entries)
 ```
 
-第一版不采用“原地 truncate 文件，再逐条 append”的两步协议。LogStore 在 append-only segment 尾部写入一条完整 framed mutation record：
+第一版不采用“原地 truncate 文件，再逐条 append”的两步协议。M3+ `LogStore`
+是单个 checksummed mutation journal `LOG-MUTATIONS`：普通 `Append` 向当前 journal 追加一个 durable
+frame；`ReplaceSuffix` 与 `InstallSnapshotBase` 则编码完整的 canonical journal 到
+`LOG-MUTATIONS.tmp`，执行 `fsync -> rename -> directory fsync` 后替换。它不是 M0–M2
+分段 `LOG-*` 的原地扩展。
 
-```text
-REPLACE_SUFFIX { from_index, entry_count, encoded_entries, checksum }
-```
+因此恢复只能看到完整旧 journal 或完整新 canonical journal，不会重新显露已被替换的
+物理后缀。`from_index <= effective_commit_index` 必须拒绝并 fail-stop。只有新 journal
+完成文件和目录持久化后，同步调用才可成功返回并回复 `AppendEntries(success=true)`；
+该 success 同时证明冲突删除与新后缀已作为一个 durable 逻辑操作发布。
 
-恢复扫描只有在整条 record 长度和 checksum 均正确时才将逻辑日志替换为“保留 `< from_index` 前缀 + new_entries”；半条 record 当作未发生，旧逻辑后缀仍有效。物理旧后缀等后续 segment compaction 再回收。`from_index <= effective_commit_index` 必须拒绝并 fail-stop。只有 REPLACE_SUFFIX record 已 `fdatasync` 后该同步调用才可成功返回并回复 `AppendEntries(success=true)`，因此 success 同时证明冲突删除与新后缀已经作为一个逻辑操作 durable。
+## distributed 本地快照发布要求
+
+- M4 的发布输入是状态机生成的完整文件 payload；KV FSM 用它验证 Raft 协议。M5 唯一实现 canonical
+  BusTub `db/catalog/session` bundle 的 `CreateSnapshotFile/InstallSnapshotFile` hooks，M6 只把该 FSM 装配进
+  M4 RaftNode 和正式节点。M4 不读取或生成 term-0 StateManifest。
+- 仅在 `last_applied = published_applied_index = commit_index = S` 的稳定边界 capture，并在任何日志压缩前
+  从 pre-compaction `LogStore::TermAt(S)` 取得 T；无法取得 T 时取消，不能猜测。
+- `SnapshotStore::PublishFile` 将 payload 包成单个 checksummed `SNAPSHOT-N.tmp`，同步文件后 rename 为
+  `SNAPSHOT-N` 并同步 `raft/snapshots/`；随后以同样的 write/fsync/rename/dir-fsync 顺序发布该目录的
+  `CURRENT`。distributed 外层没有 `MANIFEST-N`，也不使用 `state/CURRENT`。
+- 发布新代后，`OldestRetained()` 只有在 `Snapshot@old + Log[old+1..commit]` 连续可用时才算 fallback。
+  LogStore 的压缩基点最多推进到这个最老有效边界；不能仅因 latest 已发布就删除 bridge。
+- 如果安装远端 Snapshot@S 时没有从旧快照到 S 的 bridge，旧快照必须移出有效恢复点集合并只保留新代；
+  等以后再成功生成一代本地快照，才重新形成两个有效恢复点。
+- 本地 capture 不切换 HardState 或 FSM；若 CURRENT 已发布而 LogStore 尚未推进恢复基点，启动时用原日志
+  验证 latest `(S,T)` 并保留可证明匹配的 bridge/suffix，不能因为 `H == S` 就无条件重建成空 suffix。
 
 ## 快照安装要求
 
-- 快照就是第一阶段定义的一致状态快照，包含 `last_included_index/term`，不是只复制裸 `db.bustub`。
+- 快照的内层逻辑内容复用 M0 定义的 canonical `db/catalog/session` 一致状态，
+  但外层由 M4 `SnapshotStore` 封装成带 `last_included_index/term` 的单个 framed 文件；
+  它不复用 M1/M2 的 StateManifest 物理发布协议，也不是只复制裸 `db.bustub`。
 - 分块传输必须带 snapshot ID、offset、总长度和 checksum；重复块不产生副作用。Leader 从已发布快照文件按 offset 读取固定上限块，Follower 按 offset 追加到临时文件并逐块同步，禁止在任一端把完整 payload 物化为单个内存 vector。
 - Leader 为每个 Follower 保留一个活动传输和一个 in-flight 块。heartbeat 重发该块时必须保持 request ID、offset
   和 bytes 不变；只有与活动 request ID 匹配且证明 durable high-water 不小于本块末端的 ACK 才能推进 offset。
   Follower 收到已经 durable 的旧块时报告真实 high-water，而不是简单回显请求末端；最终 COMPLETE ACK 丢失后，
   Leader 必须能通过重复末块失败关闭、从 offset 0 重启和 stale-complete 收敛，且不重新安装或回滚状态。
 - Follower 下载到临时目录，完整校验、同步并按“跨文件 crash ordering”发布后，才能更新日志起点和 Apply 状态。
+- 完成外层长度/checksum 校验后，还必须先经 `RaftStateMachine::ValidateSnapshotFile` 完整验证内层 KV 或
+  BusTub bundle；该步骤只能构造并清理非权威 candidate，不能切换 working FSM。higher-term request 仍须先
+  按全局不变量持久化 term；除此独立 transition 外，只有内层验证成功后才能发布 CURRENT、推进 HardState
+  commit index、重建/裁剪 LogStore 或安装 FSM。
+- 远端安装中 CURRENT 已发布而 HardState/LogStore/FSM 尚未切换的崩溃不是单文件 old-or-new 事务；
+  启动必须解释 `max(H,S)`、pre-install term、suffix continuity 与 fail-stop。
 - metadata 到达时和正式发布前各执行一次 `S <= published_applied_index` stale guard；第二次判定在单线程 Apply/Install 序列中完成。stale/duplicate Snapshot 只能被忽略，不能借机压缩日志或替换 working state。
-- 对通过最终 stale guard 的 Snapshot，`SnapshotStore/LogStore` contract 明确采用 `PreInstallLog.TermAt(S) == snapshot.last_included_term` 作为唯一 suffix 保留条件：相等时保留全部 `index > S` entries，不相等或不存在时丢弃全部旧 suffix，并建立 `snapshot_base = (S,T)`。
+- 对通过最终 stale guard 的 Snapshot，`SnapshotStore/LogStore` contract 明确采用
+  `PreInstallLog.TermAt(S) == snapshot.last_included_term` 作为唯一 suffix 保留条件：相等时保留全部
+  `index>S` entries；不相等/不存在时只有 `E==S` 才能丢弃旧 suffix 并建立 `snapshot_base=(S,T)`，
+  `E>S` 必须在任何权威发布前 fail-closed。
 - 如果安装时不存在旧快照到 `S` 的 bridge log，旧快照不得继续标记为 fallback；此时只有新快照是有效恢复点。
 
-## 建议修改或新增文件
+## 建议修改或新增文件（按最早 owner 分组）
 
 ```text
+# M3 Raft core / durable election-log / controllable transport
 src/include/raft/raft_node.h
 src/raft/raft_node.cpp
 src/include/raft/raft_types.h
-src/include/raft/stable_store.h
-src/raft/stable_store.cpp
 src/include/raft/log_store.h
 src/raft/log_store.cpp
-src/include/raft/snapshot_store.h
-src/raft/snapshot_store.cpp
 src/include/raft/transport.h
 src/raft/tcp_transport.cpp
 src/include/raft/state_machine.h
 src/raft/kv_state_machine.cpp
+
+# M4 snapshot/compaction/install and cross-file startup recovery
+src/include/raft/snapshot_store.h
+src/raft/snapshot_store.cpp
+src/include/raft/persistent_state.h
+src/raft/persistent_state.cpp
+# raft_node/log_store/state_machine 上的 snapshot extension 也归 M4
 ```
 
 可以参考 HashiCorp Raft 的组件边界和存储接口，但协议安全规则以 Raft 论文为准；不要把第三方库的 API 形状直接嵌入 BusTub 执行器。
@@ -580,28 +803,42 @@ src/raft/kv_state_machine.cpp
 
 ### 确定性协议测试
 
-- 由 `ManualClock`、固定随机源和 `InMemoryTransport` 驱动逻辑时间，不通过真实 sleep 猜选举结果。
-- 覆盖 sentinel `(0,0)` 上的首次选举、首条 AppendEntries 与首个 current-term NOOP，再覆盖单候选者当选、分票后重新选举、旧 term RPC、重复投票、日志不够新的候选者被拒绝。
-- 在 StableStore 的命名持久化事件注入失败，分别触发 Candidate 自增 term、higher-term RequestVote（包括拒绝票）、AppendEntries、InstallSnapshot 和 RPC response；同步调用成功返回前不得发送新 term RPC/response，也不得继续旧 Leader 服务，返回后才能继续状态转换。
-- 覆盖快速冲突回退、Follower 多余后缀替换、重复 AppendEntries、乱序响应。
-- 对 `ReplaceSuffix` 在写 header、payload、checksum 和同步前后逐点崩溃，恢复结果只能是完整旧后缀或完整新后缀，不能出现混合状态；success reply 只能发生在新逻辑后缀 durable 之后。
-- 损坏 uncommitted tail 可以截断；损坏或缺失 committed range 必须 fail-stop，不能把 `effective_commit_index` 从 100 降到 99。
-- 覆盖两种关键故障：只复制到少数节点后 Leader 崩溃，该日志被覆盖；复制到多数节点后 Leader 崩溃，新 Leader 必须保留并最终 Apply。
-- 在 Leader 本地 LogStore 的命名持久化事件注入失败，断言同步调用未成功返回时不会发送该 entry 的 AppendEntries，也不会推进 commit；本地 durable 后才允许开始复制。
-- ReadIndex fresh-round 测试：先让旧 Leader 收到一次完整 heartbeat quorum ACK，再隔离它并选出新 Leader；随后到达旧 Leader 的读必须创建新 context，旧 ACK、错误 context/term ACK 都不能完成该读，最终只能超时或因降级失败。
+- **M3**：由 `ManualClock`、固定随机源和 `InMemoryTransport` 驱动逻辑时间，不通过真实 sleep 猜选举结果。
+- **M3**：覆盖 sentinel `(0,0)` 上的首次选举、首条 AppendEntries 与首个 current-term NOOP，再覆盖单候选者当选、分票后重新选举、旧 term RPC、重复投票、日志不够新的候选者被拒绝。
+- **M3**：在 StableStore 的命名持久化事件注入失败，分别触发 Candidate 自增 term、higher-term
+  RequestVote（包括拒绝票）、AppendEntries 和 RPC response；同步调用成功返回前不得发送新 term
+  RPC/response，也不得继续旧 Leader 服务，返回后才能继续状态转换。**M4** 再把同一 higher-term
+  contract 扩展到 InstallSnapshot request/response，不把该 RPC 倒置成 M3 前置。
+- **M3**：覆盖快速冲突回退、Follower 多余后缀替换、重复 AppendEntries、乱序响应。
+- **M3**：对 `ReplaceSuffix` canonical journal 重写的 `before_write / after_fsync / after_rename /
+  after_dir_fsync` 逐点崩溃，恢复结果只能是完整旧后缀或完整新后缀，不能出现混合状态；
+  success reply 只能发生在新 journal 和父目录 durable 之后。
+- **M3**：损坏 uncommitted tail 可以截断；损坏或缺失 committed range 必须 fail-stop，不能把 `effective_commit_index` 从 100 降到 99。
+- **M3**：覆盖两种关键故障：只复制到少数节点后 Leader 崩溃，该日志被覆盖；复制到多数节点后 Leader 崩溃，新 Leader 必须保留并最终 Apply。
+- **M3**：在 Leader 本地 LogStore 的命名持久化事件注入失败，断言同步调用未成功返回时不会发送该 entry 的 AppendEntries，也不会推进 commit；本地 durable 后才允许开始复制。
+- **M3**：ReadIndex fresh-round 测试先让旧 Leader 收到一次完整 heartbeat quorum ACK，再隔离它并选出新 Leader；随后到达旧 Leader 的读必须创建新 context，旧 ACK、错误 context/term ACK 都不能完成该读，最终只能超时或因降级失败。
 
 ### 组件故障测试
 
-- 三节点真实 `LogStore`，轮流重启每个节点，验证 term、vote、日志与 commit 恢复。
-- 对 HARD_STATE 临时文件写入、文件同步、rename 和目录同步逐点崩溃；任何依赖新增 `current_term` 的 RequestVote/AppendEntries/InstallSnapshot response 或 Candidate RequestVote 都只能在完整可信 generation durable 后发出。
-- 双向分区、单向丢包、重复包、消息延迟、旧 Leader 回归、Follower 长时间落后。
-- 快照覆盖落后节点所需日志后，Follower 必须经 `InstallSnapshot` 追上。
-- 让真实 `StageChunk` 的 fsync ACK 跨越至少一个 heartbeat，断言 Leader 重发同一 request ID/offset/bytes；预置多个
+- **M3**：三节点真实 `LogStore`，轮流重启每个节点，验证 term、vote、日志与 commit 恢复；覆盖双向分区、单向丢包、重复包、消息延迟、旧 Leader 回归和无压缩日志的 Follower 追赶。
+- **M3**：对 HARD_STATE 临时文件写入、文件同步、rename 和目录同步逐点崩溃；RequestVote/AppendEntries
+  response 或 Candidate RequestVote 只能在完整可信 generation durable 后发出。**M4** 再覆盖
+  InstallSnapshot response 的同一约束。
+- **M4**：快照覆盖落后节点所需日志后，Follower 必须经 `InstallSnapshot` 追上。
+- **M4**：让真实 `StageChunk` 的 fsync ACK 跨越至少一个 heartbeat，断言 Leader 重发同一 request ID/offset/bytes；预置多个
   durable 块后从 offset 0 开始，断言 Follower 返回实际 high-water 且 Leader 直接跳进。再丢弃最终 COMPLETE ACK，
   验证重复末块失败关闭、下一 heartbeat 从 0 重启、已发布 Follower 返回 stale-complete、原 ACK 任意晚到也无副作用。
-- 分别构造本地 `TermAt(S) == T` 与 `TermAt(S) != T/不存在`：前者保留完整 `index > S` suffix，后者全部丢弃；禁止用新 Snapshot base 自证匹配。本地创建 Snapshot 时验证 T 在 compact S 前取得。
-- stale Snapshot 覆盖三种情况：到达时 `S < P`、重复安装 `S == P`、开始下载时 `S > P` 但发布前 Apply 已推进到 `P >= S`。三者均断言 CURRENT/snapshot base/LogStore/FSM digest/`last_applied/P` 完全不变且索引单调不减；额外用 higher-term stale Snapshot 验证只有 HardState term 先 durable，FSM 仍不回滚。
-- 在 InstallSnapshot 发布 Snapshot、更新 HardState、更新日志基点和切换 FSM 的每个间隙崩溃，重启后验证 `effective_commit_index = max(H, S)`、suffix term 决策以及所需日志连续性；无法从 pre-install material 证明匹配时必须走保守丢弃。
+- **M4**：分别构造本地 `TermAt(S) == T` 与 `TermAt(S) != T/不存在`：前者保留完整 `index > S`
+  suffix；后者只有 `E=max(H,S)==S` 才能丢弃不可信 suffix，`E>S` 必须在任何权威字节变化前 fail-closed。
+  禁止用新 Snapshot base 自证匹配。本地创建 Snapshot 时验证 T 在 compact S 前取得。
+- **M4**：stale Snapshot 覆盖三种情况：到达时 `S < P`、重复安装 `S == P`、开始下载时 `S > P` 但发布前 Apply 已推进到 `P >= S`。三者均断言 CURRENT/snapshot base/LogStore/FSM digest/`last_applied/P` 完全不变且索引单调不减；额外用 higher-term stale Snapshot 验证只有 HardState term 先 durable，FSM 仍不回滚。
+- **M4**：用外层 CRC 正确但内层 KV frame 无效的 live InstallSnapshot，证明除 higher-term contract
+  独立要求的 durable term transition 外，在 CURRENT/HardState commit index/LogStore/FSM 任一权威变化前拒绝；
+  再在发布 Snapshot、更新 HardState、更新日志基点和切换 FSM 的每个间隙
+  崩溃，重启后验证 `E=effective_commit_index=max(H,S)`、suffix term 决策以及所需日志连续性。无法从
+  pre-install material 证明匹配时，只有 `E==S` 可走经完整内层验证的保守丢弃，`E>S` 必须 fail-closed。
+- **M5**：再用外层 CRC 正确但内层 BusTub bundle 无效的 live InstallSnapshot 累计复验同一 generic
+  validation/authority-ordering 边界；M4 不依赖 BusTub snapshot hook。
 
 ### 性质检查
 
@@ -630,26 +867,31 @@ src/raft/kv_state_machine.cpp
 
 ---
 
-# 第三阶段：Autocommit Statement 到确定性 CommandBatch 与 BusTub FSM
+# 架构工作流 C（M5）：SQL 到 canonical CommandBatch producer 与 BusTub FSM 完整性强化
 
 ## 背景
 
-V1 不复制原始 SQL，而是把一条 autocommit statement 编译成确定性的 `TransactionCommandBatch`。一个 `UPDATE/DELETE` statement 可以展开成许多行 mutation，因此 batch 仍然是有意义的原子复制单位。多语句 non-interactive transaction、跨语句私有 Table/Catalog overlay 和跨语句约束验证推迟到 V2，避免其实现复杂度淹没 Raft 主线。
+M2 已冻结并恢复 consumer 侧 `TransactionCommandBatch`、Session response 和 committed Apply。M5 不复制
+原始 SQL，而是把一条 autocommit statement 编译成该格式的确定性 producer，并补齐所有 V1 command 的
+SQL shape/unsupported 语义准入、canonicalization、跨实例确定性和 BusTub Raft snapshot hooks。已构造 batch
+相对当前状态的 proposal admission 属于 M2，M5 producer 复用它而不重新拥有。一个 `UPDATE/DELETE`
+statement 可以展开成许多行 mutation，因此 batch 仍然是有意义的原子复制单位。多语句 non-interactive
+transaction、跨语句私有 Table/Catalog overlay 和跨语句约束验证推迟到 V2，避免其实现复杂度淹没 Raft 主线。
 
 ## 目标
 
-建立以下写入链路：
+建立以下 producer→既有 consumer 边界；M5 的测试不伪造 majority/Leader 响应作为自身 oracle：
 
 ```text
 客户端 autocommit DDL/DML statement
-  -> Leader 解析、绑定、校验并物化最终 mutations
+  -> 在已追至 committed boundary 的 BusTub 状态上解析、绑定、校验并物化 mutations
   -> 生成版本化 TransactionCommandBatch
-  -> Raft 复制并在多数节点持久化
-  -> commit_index 推进
-  -> 各节点 FSM 按 index 串行 Apply
-  -> Leader 等待本地 last_applied >= index
-  -> 返回客户端成功
+  -> 测试/上层注入带 term/index 的 committed ReplicatedLogEntry
+  -> 两个独立 BusTub FSM 按 index 串行 Apply
+  -> 比较字面 rows/Catalog/index/OID/epoch/Session response
 ```
+
+Raft 多数持久化、Leader 等待本地 Apply 和正式客户端响应唯一归 M6。
 
 ## CommandBatch 格式
 
@@ -683,14 +925,15 @@ CREATE_INDEX {
   constraint_kind
 }
 
-DROP_TABLE { table_oid }                  # 若当前项目语义支持
-DROP_INDEX { index_oid, table_oid }          # 若当前项目语义支持
 INSERT_ROW
 UPDATE_ROW
 DELETE_ROW
 ```
 
-DDL OID 是 Leader prepare 已决定并写入二进制 Command 的状态转换输入，不是 Follower Apply 时的隐式选择。由于 V1 每张表必须有 primary index，`CREATE_TABLE` 同时显式携带 `table_oid` 与 `primary_index_oid`；显式 CREATE_INDEX 携带自己的 `index_oid/table_oid`，DROP 也按 OID 指定目标。V1 单写 prepare 从 committed Catalog allocator 读取候选 OID，但不提前修改公开 allocator；committed Apply 必须校验 command OID 等于本地对应 `next_table_oid/next_index_oid`，使用精确 OID 创建对象，然后逐项推进 allocator。Follower、恢复 replay 和 Leader Apply 都不得调用本地 allocator 重新决定 OID；不匹配表示状态漂移并 fail-stop。未提交 proposal 不消耗 OID，DROP 后也不复用旧 OID。
+V1 命令集精确到上述五类。`DROP TABLE`/`DROP INDEX` 不存在“若当前支持”的隐式分支；
+它们必须在 proposal 前以稳定 unsupported 结果无副作用拒绝，直到独立的版本化协议扩展被定义。
+
+DDL OID 是 Leader prepare 已决定并写入二进制 Command 的状态转换输入，不是 Follower Apply 时的隐式选择。由于 V1 每张表必须有 primary index，`CREATE_TABLE` 同时显式携带 `table_oid` 与 `primary_index_oid`；显式 CREATE_INDEX 携带自己的 `index_oid/table_oid`。V1 单写 prepare 从 committed Catalog allocator 读取候选 OID，但不提前修改公开 allocator；committed Apply 必须校验 command OID 等于本地对应 `next_table_oid/next_index_oid`，使用精确 OID 创建对象，然后逐项推进 allocator。Follower、恢复 replay 和 Leader Apply 都不得调用本地 allocator 重新决定 OID；不匹配表示状态漂移并 fail-stop。未提交 proposal 不消耗 OID。
 
 DML 使用逻辑身份和完整值，而不是复制页面字节：
 
@@ -716,7 +959,8 @@ V1 distributed mode 对所有可写用户表强制执行以下协议，不存在
 
 ## V1 prepare 与提交边界
 
-- Leader 同一时刻只允许一个 autocommit write request 进入 prepare/replicate/apply 通道；开始 prepare 前必须追平已提交状态，保证验证基线与日志顺序一一对应。
+- M5 preparer API 的前置条件是“调用者已串行化写准备，且状态已追平 committed boundary”；
+  `DistributedNode` 的 single-active-write gate、timeout 和 overwritten proposal 处理唯一归 M6。
 - prepare 只读取 committed state，在私有 mutation buffer 中解析、绑定、计算表达式、展开本 statement 的全部受影响行并校验约束；不得修改公开 Catalog、TableHeap、索引、Buffer Pool 页面或 MVCC version chain。
 - 一条 DML statement 可以生成许多 INSERT/UPDATE/DELETE commands；一条 DDL statement 生成显式携带 Leader 已决定 `table_oid/index_oid` 的确定性 Catalog command，但 V1 不允许在同一 batch 中继续执行下一条 statement。
 - 所有可能导致普通业务失败的条件，例如语法、类型、表不存在、primary-key collision、受影响行前置条件和非确定值求值，都必须在 proposal 前解决；secondary UNIQUE/deferred constraint DDL 属于 V1 不支持语义，直接在 proposal 前拒绝。
@@ -727,7 +971,12 @@ V1 distributed mode 对所有可写用户表强制执行以下协议，不存在
 
 ## Apply 原子可见性
 
-V1 使用简单的全局 `StateVisibilityLatch` 保证可见性：SQL 读在整个执行期间持有 shared lock，FSM Apply 持有 exclusive lock。Apply 内部使用只服务于 committed entry 的 internal apply transaction，它不是客户端事务，也不会出现在 Raft proposal 之前。`published_applied_index` 是所有 entry 共用的发布水位，而不是 data-change counter。
+M2 consumer 已复用 M1 common `StateVisibilityLatch` 建立基本 committed-batch 原子 Apply；M5 不重新定义
+publication primitive 或第二条 Apply 路径。M5 的增量 owner 是：对由真实 SQL producer 生成的多行 DML、
+DDL、Catalog/Table/index/MVCC/Session/水位组合做完整 command-set 语义与并发验证。SQL 读在整个执行期间
+持有 shared lock，FSM Apply 持有 exclusive lock。Apply 内部使用只服务于 committed entry 的 internal apply
+transaction，它不是客户端事务，也不会出现在 Raft proposal 之前。
+`published_applied_index` 是所有 entry 共用的发布水位，而不是 data-change counter。
 
 ```text
 Apply(any committed entry at index I)
@@ -761,7 +1010,11 @@ V1 primary-key 列不可更新，secondary indexes 全部 non-unique，因此 Ap
 - 上述检查是确定性漂移检测，不是 committed 后重新决定事务成败；任一不匹配都 fail-stop。
 - 每次 Apply 可生成逻辑状态 digest 供测试和诊断比较，但 digest 不是共识输入。
 
-## 请求去重
+## 请求去重的 M5 producer 接线
+
+下述 V1 response frame/persistence foundation 由 M0 引入，Session exact-once consumer 与已构造 batch 的
+state-dependent proposal validation 由 M2 为恢复闭环首次实现；M5 负责让真实 SQL producer 和 canonical
+batch 使用同一身份，并做累计边界测试，不创建第二份去重表。
 
 V1 committed write response 固定为可完整缓存和重放的稳定协议：
 
@@ -784,6 +1037,11 @@ V1 write response 不包含 `affected_rows`、created table/index OID、节点�
 - proposal 前失败不推进 SessionTable，也不产生 committed response；去重表属于状态机状态，必须进入快照。
 - 新 Leader 完成当前 term no-op、追平已提交前缀并恢复去重表后，才接受客户端写入。
 
+V1 把 `(client_id, request_id)` 定义为逻辑操作身份，Session 不另存 request/batch digest。
+因此重试时修改 SQL/payload 属于客户端违约，节点必须返回原稳定响应且不产生第二次副作用。
+若后续要对同 ID/不同 payload 显式 fail-closed，需在新协议版本中持久化 canonical request digest，
+不能改变已落盘 V1 Session 语义。
+
 ## Catalog 与索引
 
 - DDL 和 DML 共用一个 Raft 序列，不能通过节点本地管理接口绕过日志修改 Catalog。
@@ -796,16 +1054,17 @@ V1 write response 不包含 `affected_rows`、created table/index OID、节点�
 ## 建议修改或新增文件
 
 ```text
+# extend the M2-owned consumer files; do not create a second codec/FSM
 src/include/distributed/command.h
-src/distributed/command_codec.cpp
-src/include/distributed/command_builder.h
-src/distributed/command_builder.cpp
+src/distributed/command_codec.cpp                  # CommandBuilder/canonicalization additions
 src/include/distributed/bustub_state_machine.h
-src/distributed/bustub_state_machine.cpp
-src/include/distributed/state_visibility.h
-src/distributed/state_visibility.cpp
-src/include/distributed/session_table.h
-src/distributed/session_table.cpp
+src/distributed/bustub_state_machine.cpp           # complete V1 command-set hardening
+src/include/common/state_visibility.h             # 复用 M1 owner，不在 M5 重建
+src/distributed/single_node_sql_runtime.cpp        # M5 SQL -> M2 prebuilt-batch adapter
+src/include/distributed/sql_command_preparer.h
+src/distributed/sql_command_preparer.cpp
+src/include/distributed/raft_state_machine.h       # BusTub snapshot hooks
+src/distributed/raft_state_machine.cpp
 src/include/concurrency/transaction_manager.h
 src/concurrency/transaction_manager.cpp
 src/include/common/bustub_instance.h
@@ -816,21 +1075,29 @@ src/common/bustub_instance.cpp
 
 ### 单元测试
 
-- CommandBatch 跨版本编解码、未知命令拒绝、Schema/Value 稳定编码。
+- **M2 consumer owner**：至少一个手写、非空且已 canonical 的 `TransactionCommandBatch` 直接匹配固定
+  golden frame，并覆盖 bad version、未知 command、checksum/corruption；fixture 不调用 `CommandBuilder`。
+- **M5 producer extension**：Schema/Value/主键稳定编码与完整 DDL/DML golden；`CommandBuilder` 对同一 mutation
+  集合的不同输入顺序必须产生与 M2 consumer golden 相同的 bytes。
 - 将同一 mutation 集合以随机 TableHeap、RID 和 unordered-map 顺序多次交给 CommandBuilder，结果必须都按 `(table_oid, PrimaryKeyCodecV1::CanonicalCompare(primary_key))` canonical sort 并产生 byte-identical payload/checksum；重复 logical key 在 proposal 前拒绝。
 - `PrimaryKeyCodecV1` 使用 golden bytes 覆盖 `-1`、`42`、INT32/INT64 MIN/MAX，验证 INTEGER=4-byte、BIGINT=8-byte signed two’s-complement big-endian，模拟不同 host endian 后 payload 仍相同；VARCHAR 覆盖 `ABC`/`abc`、尾随空格、空串和多字节序列，验证长度前缀、raw bytes、binary/no-normalization/no-locale 语义与 index comparator 一致。
 - prepare 成功和失败都不能改变公开 Catalog、页面、索引或 MVCC version；只有 committed-entry Apply 能产生可见写。
 - distributed mode 的 CREATE TABLE 缺少主键、声明复合/nullable 主键或使用非 `PrimaryKeyCodecV1` 类型时，必须在 proposal 前返回 `UNSUPPORTED_REPLICATED_PRIMARY_KEY`；断言无公开 OID/Catalog 变化、无 Raft entry。主键列 UPDATE 同样在 proposal 前拒绝。
-- `CREATE UNIQUE INDEX`、secondary UNIQUE constraint 和恢复出的 V1 secondary UNIQUE definition 必须以 `UNSUPPORTED_DEFERRED_UNIQUE_CONSTRAINT` 拒绝且无 Raft/Catalog 副作用；primary-key index 和 ordinary non-unique secondary index 仍可正常创建。
+- **M0 restore admission**：恢复出的 V1 secondary UNIQUE definition 必须在 Catalog 恢复/开放服务前 fail-closed；该静态正反例已属于 M0，不是 M5 的首次交付。
+- **M5 SQL proposal admission**：`CREATE UNIQUE INDEX` 和 secondary UNIQUE constraint 必须在 proposal 前以 `UNSUPPORTED_DEFERRED_UNIQUE_CONSTRAINT` 无副作用拒绝；无 Raft entry、无公开 Catalog/OID 变化，而 primary-key index 和 ordinary non-unique secondary index 仍可正常创建。
+
+### BusTub FSM/恢复集成测试
+
 - 用测试侧 blocking storage/index adapter 暂停 Apply 中间步骤，同时启动并发 SELECT；读必须阻塞，释放 Apply 后只能看到整个旧 batch 或整个新 batch，不能看到部分 row/Catalog/index/session 状态。
 - Apply 在最终 publish 前发生错误时节点 fail-stop；重启重放整条 committed entry 后只能出现完整结果。
 - 一条多行 DML statement 生成的整个 batch 只能整体可见，不能让读者观察到部分 row mutations；合法 committed entry 的业务校验不得在 Apply 阶段重新失败。
 - 非确定函数被预求值或拒绝；相同 batch 在两个独立实例上产生相同逻辑 digest。
-- 相同 `client_id/request_id` 重放多次只产生一次副作用；首次提交、快照恢复和新 Leader 重试返回 byte-identical encoded `WriteResponseV1`，其中 term 固定为原 entry term；并发、空洞和过旧 request ID 按协议被拒绝。
+- 相同 `client_id/request_id` 重放多次只产生一次副作用；M2 首次证明 synthetic committed Apply、Session
+  快照恢复与同一 entry 重放返回 byte-identical encoded `WriteResponseV1`，其中 term 固定为原 entry term，
+  并拒绝并发、空洞和过旧 request ID。M5 只用真实 SQL producer/完整 command set/跨实例链累计复验；
+  正式进程中的首次新 Leader 重试证据归 M6，M7 final gate 可再次复验但不重新拥有。
 - `expected_start_schema_epoch = 10` 的 CREATE TABLE batch 显式携带 `table_oid = next_table_oid` 与 `primary_index_oid = next_index_oid` 并结束于 epoch 11；CREATE INDEX 同样携带 `index_oid/table_oid`。两个实例必须使用 command OID 并推进 allocator，伪造任一 OID mismatch 时 fail-stop；后续 INSERT batch 必须期望 epoch 11。
 - Apply 一条不含 CommandBatch 的 committed NOOP，断言数据库 digest 与 SessionTable 不变，但 `published_applied_index` 和 `last_applied` 都推进到 NOOP index；由 `Snapshot@S` 新建 FSM 时两者均从 `S` 开始。
-
-### BusTub FSM 集成测试
 
 - 从同一快照启动两个独立实例，Apply 同一批显式携带 table/index OID 的 DDL、INSERT、UPDATE、DELETE，比较 Catalog、allocator 与 SQL 结果；instrumented allocator 断言 Follower Apply 未自行选择 OID。
 - 覆盖单条 UPDATE/DELETE 影响多行、DDL batch 后的下一条 DML batch；primary-key collision 等普通失败必须发生在 proposal 前，不能生成 committed entry。
@@ -844,31 +1111,32 @@ src/common/bustub_instance.cpp
 
 - Raft payload 不依赖原始 SQL 文本、执行计划对象、RID 或页面布局。
 - 单条 statement 展开的全部 row mutations 在所有节点上具有相同的 batch 原子边界和逻辑结果。
-- Leader 在 majority commit 前绝不返回成功；proposal 前的私有 mutation buffer 不修改 working state，可直接丢弃。
-- Leader 与 Follower 只能经同一个 `BusTubStateMachine::Apply` 修改公开数据库，不存在双提交路径。
+- proposal 前的私有 mutation buffer 不修改 working state，可直接丢弃；majority-before-success 归 M6 验收。
+- 任何调用者都只能经同一个 `BusTubStateMachine::Apply` 修改公开数据库，不存在领导者专用的第二提交路径。
 - 任意节点重放同一快照和日志后，Catalog、表数据、索引定义、显式 table/primary-index/secondary-index OID、allocator、commit_ts 顺序和 SessionTable 完整响应一致；每个用户表都能由 Catalog 确定一个受 `PrimaryKeyCodecV1` 支持的逻辑身份。
 - 并发读者永远只能观察到 batch publish 前或 publish 后的完整逻辑状态；`published_applied_index/last_applied` 不得提前。
 
 ## 输出要求
 
 - CommandBatch 二进制协议与兼容策略，包括整数/VARCHAR wire bytes 和所有 DDL 显式 OID 字段。
-- `WriteResponseV1` 与 SessionTable 完整响应重放协议。
+- 复用并补充 M0/M2 的 `WriteResponseV1` 与 SessionTable 完整响应重放协议，说明真实 SQL producer 的身份映射。
 - autocommit SQL statement 到逻辑 mutation 的映射表，以及 V2 多语句事务扩展边界。
 - 所有拒绝的非确定语义和错误信息清单。
 
 ---
 
-# 第四阶段：三节点 BusTub 生产链路集成
+# 架构工作流 D（M6–M7）：三节点 BusTub 正式链路集成
 
 ## 背景
 
-前两阶段已经分别验证单机状态恢复和 Raft 协议，第三阶段定义了确定性 BusTub FSM。本阶段把它们接成真实的三个进程，而不是只在测试内调用对象方法。
+工作流 A–C 已分别验证单机状态恢复、Raft 协议和确定性 BusTub FSM。
+M6 把它们接成真实的三个进程；M7 只补齐快照/恢复故障矩阵与最终回归，不重新拥有 M6 的装配。
 
 ## 目标
 
 ```text
 正式客户端入口
-  -> Leader 路由与请求 ID
+  -> 服务端 NOT_LEADER hint + 调用方保持请求 ID 的有界重定位
   -> TransactionCommandBatch
   -> 正式 TCP/RPC Transport
   -> 三节点 LogStore 持久化
@@ -878,7 +1146,7 @@ src/common/bustub_instance.cpp
   -> 正式客户端响应
 ```
 
-## 本阶段只做
+## 本工作流只做
 
 - 一个正式 `bustub-node` 进程对应一个节点目录。
 - 静态配置 `node_id/group_id/peer addresses/client address/data_dir`。
@@ -887,7 +1155,12 @@ src/common/bustub_instance.cpp
 - 节点启动恢复、选举、日志追赶、快照创建与安装。
 - 优雅关闭和 `SIGKILL` 后恢复。
 
-## 本阶段不做
+M6 拥有 `DistributedNode`、正式 TCP/client envelope、single-active-write gate、`NOT_LEADER`、
+BusTub ReadIndex/stale-read 接线，以及正常复制、切主、响应丢失和 AppendEntries 追赶的 M6 smoke。
+M7 不重新实现这些功能；它拥有需要在线分区/恢复矩阵的正式进程证据、InstallSnapshot 追赶、全停全启、
+快照损坏/崩溃/stale replay、全量回归、分布式累计链路和清理总门禁。
+
+## 本工作流不做
 
 - 自动服务发现、动态扩缩容、滚动协议升级编排。
 - 跨节点交互式事务和多语句 non-interactive transaction；V1 一个请求只包含一条 autocommit statement。
@@ -910,6 +1183,11 @@ bustub-node \
 
 这些参数本身是合法的 production 配置，不是测试开关。正式入口必须校验三个节点的 group ID、成员集合和独立数据目录，拒绝同一目录的并发打开。
 
+V1 `DistributedClient::Send` 只向一个 endpoint 发送一次请求并校验响应 correlation，
+不声称自己已实现通用自动路由器。节点返回 Leader hint；CLI/调用方和测试 harness 可做有界重定位，
+但 write retry 必须保持同一 `(client_id, request_id)`。`WriteResponseV1` 只带 `request_id`，
+因此它的强相关保证限于 V1 的一连接一请求/外层身份已校验模型；更强的 client ID/digest 绑定需要新 wire version。
+
 ## 写入与响应语义
 
 - Leader 收到 autocommit write request 后，先将 entry 追加到本地 LogStore 并等待 `fdatasync` 成功；只有本地 durable 后才向 Follower 发送 AppendEntries。
@@ -928,7 +1206,7 @@ bustub-node \
 - 新 Leader 在当前 term no-op 提交和 Apply 前不提供线性一致读写。分布式读禁止再从节点本地 timestamp allocator 获取独立时间戳。
 - Follower read 必须由客户端显式选择 `stale`；它获取 shared lock，使用捕获的 `P = published_applied_index` 作为 `read_ts`，响应同时携带该值。默认读不能悄悄走 Follower。
 - 因此写入 `commit_ts = Raft log index`，Leader 读满足 `read_ts >= ReadIndex`，Follower 陈旧读满足 `read_ts = follower.published_applied_index`，三者共用一条 Raft index 时间轴。
-- 本阶段不使用“Leader lease + 本地时钟”优化，避免时钟假设进入正确性路径。
+- M6 不使用“Leader lease + 本地时钟”优化，避免时钟假设进入正确性路径。
 
 ## 运行与恢复
 
@@ -938,17 +1216,28 @@ bustub-node \
 - 节点检测到 Catalog epoch、Apply digest 或日志连续性违例时进入 fail-stop 状态，禁止继续对外响应成功。
 - 为事务管理器增加显式 `BeginReadAt(timestamp_t)`；生产分布式读路径必须传入 Raft 派生时间戳。
 
-## 建议修改或新增文件
+## 建议修改或新增文件（按最早 owner 分组）
 
 ```text
+# M6 production assembly / transport-facing client
 src/include/distributed/node.h
 src/distributed/node.cpp
+src/include/recovery/node_directory.h       # M1-owned directories; M6 extends durable node/group/voter identity
+src/recovery/node_directory.cpp
 src/include/distributed/client_protocol.h
 src/distributed/client_protocol.cpp
 tools/bustub-node/CMakeLists.txt
 tools/bustub-node/bustub-node.cpp
 tools/bustub-client/CMakeLists.txt
 tools/bustub-client/bustub-client.cpp
+
+# M6 shared process harness + smoke; M7 recovery/fault timelines and final gate
+test/e2e/raft_process_harness.sh
+test/e2e/raft_m6_smoke.sh
+test/e2e/raft_m7_snapshot_crash.sh
+test/e2e/raft_m7_snapshot_transfer.sh
+test/e2e/raft_m7_recovery_matrix.sh
+test/e2e/raft_m0_m7_chain.sh              # historical name; M3-M7 distributed state only
 ```
 
 ## 测试要求
@@ -957,35 +1246,35 @@ tools/bustub-client/bustub-client.cpp
 
 E2E 必须启动三个正式 `bustub-node` 二进制，使用正式客户端协议和各自的真实临时目录：
 
-1. 等待选出 Leader，先分别提交无主键 CREATE TABLE 和 secondary UNIQUE DDL 并确认都在 proposal 前拒绝，再通过正式客户端依次提交带 `PrimaryKeyCodecV1` 主键及普通 secondary index 的 autocommit DDL/DML；其中至少一条 UPDATE/DELETE 必须影响多行并生成多 command batch。
-2. 从 Leader 做线性一致查询，并从三个节点获取带 `last_applied` 的状态后比较逻辑数据。
-3. `SIGKILL` Leader，在剩余两节点中选出新 Leader，使用同一 request ID 重试不确定请求；比较新 Leader 返回值与 SessionTable 保存的首次 `WriteResponseV1` encoded bytes。
-4. 向新 Leader继续写入，再重启旧 Leader，确认它通过日志或快照追赶。
-5. 终止全部节点，再按不同顺序重启，查询 Catalog、`schema_epoch`、OID allocators、数据、索引和去重结果；恢复后立即执行新 DDL/DML，验证 CommandBuilder 使用已恢复 epoch，并把显式 table/primary-index/secondary-index OID 连续写入 Command。
-6. 在一个影响大量行的 UPDATE/DELETE batch Apply 期间持续并发读取，结果只能是完整旧集合或完整新集合，并记录 read timestamp 与 published applied index。
-7. 每次新 Leader 完成当前 term NOOP 后，通过正式读响应与只读诊断观测其 index；线性一致读必须成功且 `published_applied_index/last_applied` 已越过该 NOOP。
-8. 先在 index K 写入目标行，再用无关写把快照边界推进到 S，生成 `Snapshot@S`，随后提交引用 `expected_old_commit_ts = K` 的更新 S+1；杀死节点并强制它由 Snapshot S + Log S+1 恢复，验证后缀可正常 Apply。
-9. 网络代理复制并延迟一份完整 `InstallSnapshot@1000`，让原始传输先完成且 Follower 继续追到 index 1200，再释放延迟副本；验证 CURRENT、snapshot base、FSM digest、`last_applied/published_applied_index` 均不回退，并可继续 Apply 1201。
+下表是唯一规范场景清单。`Owner` 指首次必须交付该正式进程场景的里程碑，不等同于底层算法首次实现阶段；
+例如 M3 已实现少数派后缀覆盖，但带在线代理分区的 E2E-02 由 M7 recovery matrix 交付。
+脚本可将多个编号组合成一条有业务含义的时间线，
+但不得在本节再维护一份内容稍有不同的编号列表。多行 UPDATE/DELETE 必须生成“一个含多个 row command
+的 batch”，不得误写为多个 batch。
 
 ### 必测故障场景
 
-| 编号 | 场景 | 必须证明的性质 |
-| --- | --- | --- |
-| E2E-01 | 正常三副本 batches 与非法 DDL 准入 | 带 V1 主键及普通 secondary index 的 DDL/多行 DML 三节点一致；无主键和 secondary UNIQUE DDL 在 proposal 前拒绝且无状态副作用 |
-| E2E-02 | Leader 只复制给少数节点后崩溃 | 请求未成功，旧未提交后缀可被新 Leader 覆盖 |
-| E2E-03 | Leader 完成多数持久化、响应前崩溃 | 新 Leader 保留提交，重复 request ID 不重复写，并返回首次结果对应的 byte-identical WriteResponseV1 |
-| E2E-04 | Follower 落后后重启 | 通过 AppendEntries 追上并继续 Apply |
-| E2E-05 | Follower 落后超过日志保留范围 | 安装快照后继续接收日志 |
-| E2E-06 | 旧 Leader 在网络恢复后回归 | 识别更高 term、降级并截断冲突后缀 |
-| E2E-07 | 三节点同时停止再重启 | snapshot + committed log 恢复 Catalog、epoch 与 OID allocators，恢复后 DDL Command 使用连续的显式 OID |
-| E2E-08 | Follower stale read | `read_ts = published_applied_index`，响应明确标注该值且不冒充线性一致 |
-| E2E-09 | 持有近期 heartbeat ACK 的旧 Leader 与多数失联 | 不再提交写；分区后新到达的线性一致读不能复用旧 ACK，只能超时/非成功 |
-| E2E-10 | 快照生成期间杀节点 | 重启选择完整旧代或新代，不能混合状态 |
-| E2E-11 | 损坏 CURRENT 指向的最新快照 | 使用上一快照与 bridge log 恢复到当前 committed state |
-| E2E-12 | 多行 batch Apply 期间并发读 | 只出现完整旧/新结果，Leader read_ts 不小于 ReadIndex |
-| E2E-13 | 新 Leader 当前 term NOOP 后立即线性一致读 | NOOP 不改数据但推进 `published_applied_index/last_applied`，读水位不落后 |
-| E2E-14 | 旧版本行的 canonical snapshot + 后缀 UPDATE 重放 | 快照保留行的真实 `latest_committed_version_ts = K`，Log S+1 不因被改写为 S 而 fail-stop |
-| E2E-15 | 延迟重复 Snapshot@1000 到达已 Apply 1200 的 Follower | stale guard 把安装视为 no-op，CURRENT/log base/FSM/两个 applied index 不回退且可继续 Apply |
+| 编号 | Owner | 场景 | 必须证明的性质 |
+| --- | --- | --- | --- |
+| E2E-01 | M6 | 正常三副本 batches 与非法 DDL 准入 | 带 V1 主键及普通 secondary index 的 DDL/多行 DML 三节点一致；无主键和 secondary UNIQUE DDL 在 proposal 前拒绝且无状态副作用 |
+| E2E-02 | M7 | 在线旧 Leader 与多数隔离并只在少数派形成未提交后缀；多数侧选出新 Leader | 请求未成功，旧未提交后缀在网络恢复后被新 Leader 覆盖，测试期间旧 Leader 进程始终存活 |
+| E2E-03 | M6 | 服务端完成提交并发出完整响应，外部代理丢弃整帧，随后 Leader 崩溃 | 客户端未收到首次响应；新 Leader 保留提交，重复 request ID 不重复写，并返回与被丢弃响应 byte-identical 的 WriteResponseV1 |
+| E2E-04 | M6 | Follower 落后后重启 | 通过 AppendEntries 追上并继续 Apply |
+| E2E-05 | M7 | Follower 落后超过日志保留范围 | 安装快照后继续接收日志 |
+| E2E-06 | M7 | 在线旧 Leader 在网络恢复后重新收到多数侧流量 | 识别更高 term、降级并截断冲突后缀 |
+| E2E-07 | M7 | 三节点同时停止再重启 | snapshot + committed log 恢复 Catalog、epoch 与 OID allocators，恢复后 DDL Command 使用连续的显式 OID |
+| E2E-08 | M6 | Follower stale read | `read_ts = published_applied_index`，响应明确标注该值且不冒充线性一致 |
+| E2E-09 | M7 | 在线旧 Leader 先完成一次成功 ReadIndex round，随后与多数失联 | 不再提交写；分区后新到达的线性一致读不能复用分区前 context/ACK，只能超时/非成功 |
+| E2E-10 | M7 | 快照生成期间杀节点 | 重启选择完整旧代或新代，不能混合状态 |
+| E2E-11 | M7 | 损坏 CURRENT 指向的最新快照 | 使用上一快照与 bridge log 恢复到当前 committed state |
+| E2E-12 | M7 | 多行 batch Apply 期间并发读 | 只出现完整旧/新结果，Leader read_ts 不小于 ReadIndex |
+| E2E-13 | M6 | 新 Leader 当前 term NOOP 后立即线性一致读 | NOOP 不改数据但推进 `published_applied_index/last_applied`，读水位不落后 |
+| E2E-14 | M7 | 旧版本行的 canonical snapshot + 后缀 UPDATE 重放 | 快照保留行的真实 `latest_committed_version_ts = K`，Log S+1 不因被改写为 S 而 fail-stop |
+| E2E-15 | M7 | 延迟重复 `Snapshot@S` 到达已发布到 `P > S` 的 Follower | stale guard 把安装视为 no-op，CURRENT/log base/FSM/两个 applied index 不回退且可继续 Apply `P+1` |
+
+E2E-12 使用 production 调度下的大型真实 batch 和并发读压力，对每个实际观测结果做完整 old/new oracle；
+它不宣称必然命中 Apply 内部某一条指令。精确临界区阻塞证明归 M5 组件测试，
+使用测试自有 adapter，不为此向 production 协议增加 pause RPC。
 
 ## 验收标准
 
@@ -1000,15 +1289,16 @@ E2E 必须启动三个正式 `bustub-node` 二进制，使用正式客户端协�
 
 - 三节点启动示例、客户端请求/响应协议和一致性语义。
 - 可复现的 E2E 命令与故障时间线。
-- 每次运行保留节点日志、term/index 轨迹和失败诊断产物。
+- 每次运行在场景期间收集节点日志与 term/index 轨迹；持久保留摘要和失败诊断产物，
+  成功原始现场在归档/上传结果后精确删除，不进入源码树。
 
 ---
 
-# 第五阶段：测试体系、生产隔离与最终验收
+# 横切规则（M0–M7 及任何后续明确里程碑）：测试体系、生产隔离与最终验收
 
 ## 背景
 
-模块测试通过只能证明局部行为，不能证明“客户端请求 -> Leader -> Raft 持久化 -> majority commit -> FSM Apply -> 崩溃恢复”的生产链路成立；但把同一算法在每一层重复穷举，也会制造高成本、低信息量的测试。本阶段用不变量和风险决定测试位置，并将生产代码与测试控制彻底隔离。
+模块测试通过只能证明局部行为，不能证明“客户端请求 -> Leader -> Raft 持久化 -> majority commit -> FSM Apply -> 崩溃恢复”的正式链路成立；但把同一算法在每一层重复穷举，也会制造高成本、低信息量的测试。本章从 M0 开始就生效，用不变量和风险决定测试位置，并将正式代码与测试控制彻底隔离；它不是 M6 之后才开始的第五个串行阶段。
 
 ## 目标
 
@@ -1041,7 +1331,8 @@ E2E 必须启动三个正式 `bustub-node` 二进制，使用正式客户端协�
 
 - `RaftNode + LogStore + InMemoryTransport + KV FSM`。
 - `SnapshotManager + CatalogSnapshot + BusTubInstance`。
-- `CommandBuilder + TransactionManager + BustubStateMachine`。
+- `SqlCommandPreparer + Catalog/Planner + BusTubStateMachine`；`TransactionManager::BeginReadAt`
+  只在 M6 的分布式读接线中组装。
 
 组件测试要验证边界顺序，例如“同步持久化调用成功返回后才允许 RPC success”，而不是再次穷举 Codec 的所有坏字节组合。
 
@@ -1059,7 +1350,8 @@ E2E 必须启动三个正式 `bustub-node` 二进制，使用正式客户端协�
 - 网络故障由测试进程拥有的代理或系统级隔离层制造；production 节点只看到正常的连接、断开、延迟和丢包。
 - 快照损坏场景由外部 harness 在节点停止后修改该测试自己的临时文件；不得为此给 production 节点增加“损坏快照”API。
 - M6/M7 只允许复用一个 `test/e2e/raft_process_harness.sh` 管理节点启动、随机选举区间、Leader 定位/重定位、客户端重试、状态等待、停止和 PID trap；场景脚本只表达 E2E 时间线与断言，公共生命周期逻辑不得复制回各脚本。
-- E2E 至少覆盖第四阶段的 E2E-01 至 E2E-15，不允许因各模块测试已通过而删掉完整链路验证。
+- M6/M7 按工作流 D 的唯一 owner 表合计覆盖 E2E-01 至 E2E-15，
+  不允许因各模块测试已通过而删掉完整链路验证。
 
 ## 如何决定“测什么”
 
@@ -1069,9 +1361,10 @@ E2E 必须启动三个正式 `bustub-node` 二进制，使用正式客户端协�
 | --- | --- | --- |
 | checksum、坏尾识别 | 单元 | 只选一个代表性重启场景 |
 | 空日志/snapshot sentinel `(0,0)` | LogStore/SnapshotStore 单元 | 正常集群首次启动自然覆盖 |
-| Manifest 原子发布每个崩溃点 | 单元掉电模型 | E2E 在快照期间杀进程一次 |
+| term-0 Manifest 原子发布每个崩溃点 | M1 SnapshotManager 掉电模型 + M2 runtime restart | distributed E2E 不打开 StateManifest，不能替代该物理门禁 |
+| distributed 单次 SnapshotStore/CURRENT 原子发布 | M4 SnapshotStore/本地 capture 组件 | E2E-10 在正式节点快照期间杀进程一次 |
 | 两代快照与 bridge log 回收 | 单元/恢复集成 | E2E 损坏最新快照并从旧代恢复 |
-| Snapshot/HardState/Log 跨文件顺序 | 组件崩溃矩阵 | E2E 覆盖一次 InstallSnapshot 后重启 |
+| 远端 InstallSnapshot 的 Snapshot/HardState/Log/FSM 跨文件顺序 | M4 专用 `max(H,S)` 崩溃矩阵 | E2E 覆盖一次 InstallSnapshot 后重启 |
 | InstallSnapshot suffix 保留 | LogStore/SnapshotStore 公式与崩溃组件测试 | Follower 快照追赶后继续追加 E2E |
 | stale/duplicate InstallSnapshot 单调性 | Apply/Install 序列组件测试，覆盖两次 guard | 延迟 Snapshot 到达已追上 Follower 的 E2E |
 | HARD_STATE generation 原子替换 | StableStore 掉电单元测试 | 由节点重启 E2E 间接覆盖 |
@@ -1143,24 +1436,28 @@ Process-independent NodeConfig
 ### 构建隔离
 
 ```text
-bustub                 # production library
-bustub-node            # production executable
-bustub-client          # production client
-bustub_test_support    # 仅链接到测试目标，不被 production target 依赖
-bustub_cluster_e2e_test# 外部 harness，启动 production executable
+bustub                      # production library
+bustub-node                 # production executable
+bustub-client               # production client
+*_test                      # test/CMakeLists.txt 自动发现，可使用 test/include
+build-raft-component-gates  # 已实现的 M0–M7 组件目标聚合
+test/e2e/*.sh               # 外部 harness/场景，启动正式二进制
 ```
 
-`bustub_test_support` 可以包含 `ManualClock`、`InMemoryTransport`、`CrashableStorage` 和临时集群管理器。依赖方向必须由测试指向 production，production 不能反向依赖测试。
+`bustub_test_support`/`bustub_cluster_e2e_test` 若在架构图中出现，只能表示上述测试依赖桶，
+不得冒充已实现 CMake target。`ManualClock`、`InMemoryTransport`、故障 storage 和临时集群管理器
+位于测试头文件/目标或外部 harness；依赖方向始终由测试指向 production。
 
 ### 文件和端口隔离
 
 - 每个测试使用唯一临时根目录，并在其下为三个节点创建独立子目录。
 - 端口块由 harness 调用方为本次场景独占；所有 listener 和派生 proxy 端口必须避开 Linux 临时端口区
   （通常从 32768 开始），且不得使用跨并发任务共享的单个固定端口。CI 中彼此隔离的 runner 可以复用同一低端口块。
-- 用 RAII 清理成功用例；失败时可选择保留目录并输出路径，便于复现。
+- 进程、PID、listener 和 proxy 在每个场景结束时必须清理。节点目录/日志先在源码树外的 artifact root
+  暂存；成功场景在生成摘要和完成 CI 上传后精确删除，失败场景只保留到诊断、交接或归档完成。
 - 测试绝不读取或覆盖仓库根目录的 `db.bustub`，也不接触真实 production 数据目录。
 
-### 阶段结束清理门禁（M0–M7 强制）
+### 里程碑结束清理门禁（M0–M7 及任何后续明确里程碑强制）
 
 每个里程碑在声明完成前都必须执行一次工作树污染审计；后续阶段也必须复查此前阶段留下的文件，不能把可再生成的中间产物累积到最终交付。审计至少包含 `git status --short --untracked-files=all`、未跟踪文件按顶层目录计数、源码树占用统计，以及 production target 对测试目录/测试框架的反向依赖扫描。
 
@@ -1187,16 +1484,21 @@ bustub_cluster_e2e_test# 外部 harness，启动 production executable
 
 ## 最终门禁测试集
 
-1. 现有项目 GTest 与 SQLLogicTest 全部通过，避免 Raft 改造破坏原有单机能力；CI 必须以独立 Release job
-   构建 `sqllogictest` 并运行所有已注册 `.slt`，不能由排除 SQLLogic 的公共 GTest job 代替。
-2. 第一阶段全部恢复与掉电点测试通过。
-3. 第二阶段全部确定性 Raft safety 测试通过。
-4. 第三阶段 CommandBatch/FSM 双实例一致性测试通过。
-5. 第四阶段 E2E-01 至 E2E-15 通过。
+1. 当前里程碑的 component manifest 全部通过，并单独运行仓库支持的 public-CI regression set；
+   不得用当前 26 个 Raft 组件二进制的结果冒充仓库全部 GTest。CI 还必须以独立 Release job
+   构建 `sqllogictest` 并运行所有已注册 `.slt`，不能由排除 SQLLogic 的 public GTest job 代替。
+2. M0–M2 全部恢复与掉电点测试通过。
+3. M3–M4 全部确定性 Raft safety/snapshot 测试通过。
+4. M5 CommandBatch/FSM 双实例一致性与真实 SQL 累计恢复链路通过。
+5. M6/M7 按唯一 owner 表覆盖 E2E-01 至 E2E-15，M7 退出时全部通过。
 6. 至少一次 ASan/UBSan 全量运行和一次 TSan 并发核心集运行。
-7. 重复运行故障 E2E，确认无不可复现的偶发失败；失败必须打印 seed 和节点事件轨迹。
-8. 至少一条正式三进程连续链路必须在同一 durable state 上依次穿过 M0–M7：准入拒绝、写入与响应丢失、
-   Leader 切换和 exact-once retry、snapshot+suffix、真实多块追赶、stale Snapshot、身份拒绝、全停全启及恢复后继续 DDL/DML；不得把各阶段重置后的独立 green case 冒充跨阶段组合验证。
+7. required gate 每个场景执行一次，任一失败立即使本次 gate 失败，不 retry-until-green。
+   多 seed/稳定性重复只放在独立 nightly，每个 attempt/seed/轨迹都必须记录，失败 attempt 不得被后续成功覆盖。
+8. 物理模式门禁分成两条且不能互相冒充：M0–M2 的独立 term-0 gate 必须验证
+   `CommandLog/StateManifest` 恢复；另有一条正式三进程链路从全新 distributed 目录开始，在同一份
+   M3–M7 durable state 上连续覆盖准入拒绝、写入与响应丢失、Leader 切换和 exact-once retry、
+   snapshot+suffix、真实多块追赶、stale Snapshot、身份拒绝、全停全启及恢复后继续 DDL/DML。
+   后者累计复验 M0–M2 定义的逻辑恢复性质，但不是 term-0 物理目录迁移，也不能替代前者。
 
 ## 最终验收标准
 
@@ -1205,7 +1507,9 @@ bustub_cluster_e2e_test# 外部 harness，启动 production executable
 - Catalog、`schema_epoch`、OID、带原始 `latest_committed_version_ts` 的 canonical table rows、索引定义、数据、提交顺序和去重状态能够由权威状态完整重建；primary 与所有 secondary indexes 必须先重建到 Snapshot@S，suffix 才能经正式 FSM Apply 重放并增量维护它们。
 - 一个 CommandBatch 对并发读者原子可见，Leader/Follower 的 MVCC read timestamp 与 Raft published index 位于同一时间轴；NOOP 也推进 published index，canonical snapshot 则保留每行真实的最近提交 index。
 - HARD_STATE 和 ReplaceSuffix 在任一规定崩溃点恢复后都只能呈现完整旧代或完整新代，不能出现 torn election/log state；任何 higher-term RPC 路径都先持久化新 term。
-- InstallSnapshot 仅在 `S > published_applied_index` 时进入发布流程，并仅在 pre-install `TermAt(S) == T` 时保留旧 suffix；stale/duplicate 安装不改变任何状态，无法证明 suffix 匹配时保守丢弃且绝不降低 committed boundary。
+- InstallSnapshot 仅在 `S > published_applied_index` 时进入发布流程，并仅在 pre-install `TermAt(S) == T`
+  时保留旧 suffix；stale/duplicate 安装不改变任何状态。无法证明匹配时，只有 `E==S` 才能在完整验证
+  Snapshot 后丢弃 suffix；`E>S` 必须在权威发布前 fail-closed，绝不降低或先破坏 committed boundary。
 - 每次线性一致读都由请求到达后的新鲜 ReadIndex context 确认当前 term quorum；隔离的旧 Leader 不能复用历史 ACK。
 - distributed mode 的所有用户表均具备 `PrimaryKeyCodecV1` 支持的逻辑身份；INTEGER/BIGINT 使用固定 signed big-endian wire bytes，VARCHAR 使用固定 binary semantics。非法 CREATE TABLE 与 secondary UNIQUE DDL 在 proposal 前无副作用地拒绝，恢复时非法 Catalog 不开放服务。
 - CREATE_TABLE/CREATE_INDEX 的 OID 由 Leader 写入 Command，所有节点使用相同显式 OID；相同 DML mutation 集合不受物理扫描/RID/container 顺序影响，canonical sort 后得到 byte-identical CommandBatch。
@@ -1223,39 +1527,107 @@ bustub_cluster_e2e_test# 外部 harness，启动 production executable
 
 ---
 
-# 推荐实施顺序与阶段门禁
+# 里程碑唯一执行顺序与门禁
 
 ```text
-第一阶段：一个节点 snapshot + replay 可真实恢复
-  -> 第二阶段：独立 KV Raft 通过协议与故障测试
-  -> 第三阶段：Autocommit CommandBatch + BusTub FSM 确定性
-  -> 第四阶段：三个 BusTub 正式进程打通
-  -> 第五阶段：完整 E2E、故障矩阵和 CI 门禁
+M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7
 ```
 
-任何阶段没有通过自己的持久化和故障验收，不进入下一阶段。尤其不能在第一阶段只有类定义、第二阶段只有正常网络演示时就开始三节点 SQL 集成。
+任何里程碑没有通过自己的退出门禁，不进入下一里程碑。各章只能细化本表，不得另行创建“第几阶段”的并行执行轴。
 
-## 建议里程碑
+## 里程碑唯一归属表
 
-- M0：完成 snapshot self-contained spike，证明无活动事务时 canonical `db.bustub + catalog.bin + session.bin` 可独立表达 committed state，包含每行真实 `latest_committed_version_ts` 与 `schema_epoch`，且不依赖旧索引页、working file Flush 或内存 undo；否则先实现 MVCC canonicalization。
-- M1：Catalog 可重新打开，单节点从快照和 bridge log 恢复，最新代损坏时可回退。
-- M2：空日志 sentinel、日志 durable batch append、torn tail、两代恢复点联动回收和 Manifest 掉电矩阵通过。
-- M3：KV Raft 完成选举、复制、冲突回退和多数提交。
-- M4：KV Raft 完成快照安装、stale/duplicate Snapshot 不回滚、节点重启和旧 Leader 回归。
-- M5：autocommit statement 到 canonical CommandBatch、固定 wire codec、显式 DDL OID、PrimaryKeyCodecV1/secondary UNIQUE 准入、原子可见 Apply、WriteResponseV1 去重重放和确定性双实例测试通过。
-- M6：三个正式 BusTub 节点完成正常链路和 Leader 切换。
-- M7：快照追赶、全体重启、全部 E2E 与 sanitizer 门禁通过。
+| 里程碑 | 工作流 | 唯一功能交付 | 主验证层 | 明确不属于本里程碑 |
+| --- | --- | --- | --- | --- |
+| M0 | A | 最小 production Catalog/Session/WriteResponse codec、`ValidateReplicatedCatalogV1` 静态 shape/restore admission、TableHeap reopen 与 CanonicalSnapshotBuilder；证明 canonical `db.bustub + catalog.bin + session.bin` 可无旧索引页、working Flush 或内存 undo 地表达 committed state，包括行原始 commit ts/epoch | 独立 golden、literal replicated Catalog 正反例、预构造非空 SessionRecord、代表性 schema/rows 的 self-contained round-trip | `CURRENT`/Manifest/日志、SQL producer、exact-once transition |
+| M1 | A | NodeDirectory、StateManifest/SnapshotManager、common `StateVisibilityLatch`、Snapshot@S boundary validation（包括内嵌 Session response term=0）与 term-0 原子发布/精确恢复；损坏最新代只回到上一 Snapshot 边界 | capture barrier、路径/边界 hardening、发布/恢复集成、Snapshot old-or-new 掉电 | 三水位 orchestration、suffix replay、Session exact-once transition |
+| M2 | A | term-0 StableStore commit marker、CommandLog/sentinel/torn tail、`TransactionCommandBatch` consumer codec、预构造 batch 的 state-dependent admission/committed BusTub Apply、Session/WriteResponse exact-once consumer、bridge replay 到 `effective_commit_index`、两代联动回收与 fallback 掉电矩阵 | 不经 CommandBuilder 的手写非空 golden/entry、单节点 crash/restart、literal rows/Catalog/Session response 与 storage oracle | Raft RPC、raw SQL/canonical CommandBuilder producer、CommitSql adapter |
+| M3 | B | 随机选举、term/vote durable-before-RPC、AppendEntries/冲突回退、多数提交、NOOP、新鲜 ReadIndex、无快照 KV 重启 | ManualClock/固定 seed、InMemoryTransport、StableStore/LogStore 组件 | SnapshotStore/InstallSnapshot、BusTub SQL、三进程 TCP |
+| M4 | B | SnapshotStore、压缩、分块 InstallSnapshot/ACK liveness、两次 stale guard、suffix 保留、compacted follower catch-up 与 durable restart | KV snapshot/命名崩溃组件矩阵 | SQL producer、正式三进程验收 |
+| M5 | C | raw SQL -> V1 单 statement canonical batch/`CommitSql` adapter、CommandBuilder/golden、显式 OID、SQL PK/secondary UNIQUE/unsupported 语义的无副作用准入；用完整 command-set/跨实例确定性/多行并发 oracle 累计复验 M2 consumer，实现 BusTub Raft snapshot hooks 与 `BeginReadAt` exact-timestamp primitive，累计重跑 M0–M2 真实 SQL 恢复链 | 独立 producer golden、真实非空 SQL、双实例 cumulative Apply、exact timestamp 单元、组件并发 oracle | M2 batch admission/consumer/Session 状态机、common latch/term-0 publisher、ReadIndex/majority/Leader response、TCP、新 Leader retry |
+| M6 | D | DistributedNode/正式 TCP/client、M1 NodeDirectory 上的 durable node/group/voters identity extension、single-write gate、NOT_LEADER hint、ReadIndex 到 M5 `BeginReadAt` 的 BusTub/stale-read 组装、正常链路、切主/响应丢失/AppendEntries 追赶 | 三进程 E2E-01/03/04/08/13；02/06/09/12 的低层 deterministic/TCP 前置 | 在线分区/恢复矩阵、快照故障补集与 final gate |
+| M7 | D + 横切 | 在线分区、InstallSnapshot 追赶、全停全启、快照崩溃/损坏/stale replay、E2E 补集、全量回归/sanitizer、M3–M7 分布式累计链与清理总门禁 | E2E-02/05/06/07/09/10/11/12/14/15 + component/public-CI/SLT/sanitizer/清理 | 任何未定义的 M8/V2 功能 |
 
-## 执行状态（2026-08-30）
+## 后续里程碑准入：M8 当前未分配
 
-M0–M7 已按上述顺序完成。早期完整验收曾覆盖 ASan/UBSan 有效 GTest 60/60、Release SQLLogicTest 40/40、
+“允许继续执行”只授权进入下一个已定义阶段，不会自动赋予 M8 技术含义。
+在编写 M8 代码前，必须先冻结：唯一目标、输入/前置、排除范围、wire/disk version 与升级兼容、
+功能 owner、主测试层、production-like E2E、退出门禁、清理和停止边界。
+
+当前 V2 候选是互相独立的项目，不得因为都被称为“V2”就捆成一个 M8：
+
+| 候选项目 | 独立协议/测试成本 |
+| --- | --- |
+| 单请求、多语句、非交互式原子写事务 | 需 V2 batch envelope、private Catalog/Table overlay、net mutation 归并、V1 prefix + V2 suffix 恢复 |
+| 复合/nullable/更多类型的 primary key | 需新 identity codec/comparator 与 Catalog 升级 |
+| secondary UNIQUE/deferred constraint | 需 batch-aware constraint/index transition，不只是解除准入拒绝 |
+| request digest/client identity 加强 | 需 Session 与 client wire 版本升级 |
+| 并行 proposal/group commit/pipeline | 需存储调度器、真 completion 和并发 safety/performance 门禁 |
+| base backup + 连续日志/低停顿快照 | 属于数据库备份协议的另立项目，不是 V1 快照局部重构 |
+| durable mode marker + term-0 离线迁移 | 只有需要复用旧目录时才立项；需格式识别、迁移 crash oracle、回滚/备份与混用拒绝门禁 |
+
+# 非规范执行与审计记录
+
+本章只保存已发生修订的证据、测试计数和清理记录，不定义新功能、阶段 owner 或下一执行步骤；
+若与前文规范部分冲突，以“文档权威、执行轴与共享前置契约”规定的顺序为准。
+
+## 执行状态（基线与当前指针）
+
+M0–M7 已按上述顺序完成，其已提交并推送的基线是 `ec11bb0f9f15d1e5abaedb64ea44dee5c6606e66`。
+早期完整验收曾覆盖 ASan/UBSan 有效 GTest 60/60、Release SQLLogicTest 40/40、
 M0–M7 目标集 23/23 及 TSan 核心 7/7 + 4/4；这些数字属于当时修订，不能追溯性代表后续测试修正。
-当前权威验收见本节“最终修复收口复核（2026-08-30，当前权威）”与 `docs/testing/raft_test_matrix.md`。本方案停在 M7，
-不自动进入任何 V2 工作；
-后续动作必须等待新的用户命令。
+基线权威验收见本节“最终修复收口复核（2026-08-30，M0–M7 基线权威）”与
+`docs/testing/raft_test_matrix.md`；这些证据绑定该提交，不自动为后续工作树修改背书。
+本次方案结构复审与小型一致性修正仍是 M7 后的规划/基线维护，不是 M8 功能实现。
 
-以下所有带 2026-08-29 日期的数字均是对应历史修订的证据，不代表后来源码；只有文末 2026-08-30 收口段
-及测试矩阵的同名权威段描述当前工作树。
+以下所有带 2026-08-29 日期的数字均是对应历史修订的证据，不代表后来源码；
+文末 2026-08-30 收口段及测试矩阵的同名段只描述上述 M0–M7 基线提交，不再使用“当前工作树”这一会随后续编辑失效的指代。
+
+### 方案结构复审与基线维护（2026-08-30）
+
+本次复审将五个大章改为 A–D 架构工作流 + 横切规则，并以一张 M0–M7 表作为唯一执行轴。
+已拆除 M1 -> M2 bridge-log 循环、M0–M2 -> M5 SQL producer 倒置、M3/M4 Raft/snapshot 混合、
+M5 -> M6 majority/TCP 越界，以及 M6/M7/横切章对 E2E 的重复 owner。term-0 与 distributed
+日志/快照 Store 现在被定义为物理互斥的两种运行模式，只共享逻辑状态与基础原语。
+
+实现一致性修正分为四类，均回补既有 owner，不分配 M8：
+
+- 删除 SnapshotManager 中与 Manifest checksum 重复且无恢复消费者的 `CHECKSUMS`，并相应收缩 term-0
+  命名掉电 topology；GitHub Actions push/PR 分支从已不存在的 `master` 改为当前默认 `main`，checkout 统一 v4。
+- 将 `StateVisibilityLatch` 从 distributed 下沉到 common，由 M1 拥有 capture primitive、M5 复用；将
+  `SingleNodeCommandRuntime::CommitSql` 的实现移到 M5 distributed translation unit，使 M2 recovery target
+  不再编译依赖未来 SQL producer。两项都只改依赖方向，不改 wire/disk 格式。
+- 修正 M6/M7 进程证据中的阶段标签与时间线：E2E-13 在 replacement Leader ready 且任何新 proposal 前
+  取 NOOP 水位；E2E-09 显式先完成一次分区前 ReadIndex；E2E-01 在每个进程执行字面 secondary-key 查询；
+  distributed 累计链不再冒充 term-0 -> cluster 物理迁移。
+- 审计发现已有 startup 仅用 `OldestRetained` 打开 LogStore，在 latest 已完整覆盖 commit、previous bridge
+  不匹配时可能错误 fail-stop。新增统一 `RecoverRaftPersistentState` 与只读 `LogStore::ProbeRecovery`：任何
+  durable repair 前先完整验证 latest FSM、`max(H,S)`、latest/pre-install term 和 committed suffix；只在
+  `E=max(H,S)==S` 时允许丢弃不可信 suffix，在 latest boundary 与 `(S,H]` 可证明时允许提升 latest 并保留 suffix，
+  否则 fail-closed 且不降低 H。恢复 helper 的 HardState/rebuild/prune 10 个实际命名事件均经过
+  PowerLoss、冷启和第二次冷启的专用 cross-file oracle。
+
+在 startup recovery helper 落地后的**中间检查点**，Clang 14 Debug + ASan
+（`detect_leaks=0:halt_on_error=1`）曾验证通过 8 个二进制/60 个测试：
+`snapshot_manager_test` 4/4、`single_node_runtime_test` 1/1、`sql_command_preparer_test` 3/3、
+`bustub_state_machine_test` 4/4、`raft_state_machine_test` 4/4、`log_store_test` 10/10、
+`raft_node_test` 25/25、`distributed_node_test` 9/9。后者在受限沙箱内只因无法分配 loopback socket
+于测试入口拒绝，获准在沙箱外原样运行后 9/9 通过。该数字早于后续 live InstallSnapshot、application-neutral
+proposal hook、分层测试 fixture 与 term-0 nested Session 修正，只能证明当时的子集，不能替后续源码背书。
+
+终审随后补齐：Raft core 通过 `RaftStateMachine` hook 验证 opaque proposal；live InstallSnapshot 在任何
+CURRENT/commit-index/Log/FSM authority 变化前完成 inner-state 与 pre-install suffix preflight（higher-term
+的独立 durable term transition 除外）；term-0 publisher/recovery 还拒绝内嵌非零-term Session response。
+当前工作树的最终定向 Clang 14 Debug + ASan 回归覆盖 17 个二进制/108 个测试并全部通过，其中
+`raft_node_test` 为 31/31、`state_manifest_test` 为 9/9、`distributed_node_test` 为 9/9；loopback 用例只在
+受限沙箱入口被拒绝，原命令在允许本机 loopback 的环境中通过。本次仍没有重跑 122 个基线组件、40 个 SLT、
+全部正式 E2E 或 TSan，不能把 108 个定向测试冒充新一轮全量 M7 验收。最终静态门禁通过全部本轮
+C/C++ 的 Clang 14 format dry-run 与仓库参数 cpplint、3 个修改 shell 的 `bash -n`、CI YAML 解析、
+`git diff --check`、Raft -> distributed、recovery -> SQL producer 及 production -> test 反向依赖扫描。
+清理审计还发现 `table_heap_reopen_test` 只删 `.bustub`、漏删同 stem `.log`；夹具已修复并复跑 1/1。
+早期 431,479,634-byte 审计构建树已删除；本轮又精确删除 1,039,771,113-byte 外部 ASan 构建树和遗留的
+0-byte reopen 日志。复扫后 `/tmp/bustub-*`、后台 node/client/proxy、源码树生成/ignored 文件均为空；
+工作树只剩 44 个已跟踪修改、2 个正式删除和 4 个已注册源码新增文件。
 
 2026-08-29 选举超时补强：固定单值配置已替换为生产随机区间；Raft 核心接受可注入 timeout source，
 确定性测试显式使用固定值或固定 seed。M6/M7 进程 harness 的三个节点使用同一区间，不再按节点编号设置
@@ -1265,12 +1637,14 @@ M0–M7 目标集 23/23 及 TSan 核心 7/7 + 4/4；这些数字属于当时修�
 `void` API，成功返回即表示相应文件持久化屏障已经完成，失败直接抛出；删除同步执行后再包装 ready future、
 调用方立刻 `.get()` 的冗余层。本选择借鉴 etcd/raft `Ready` 的关键顺序约束——依赖 HardState/Entries 的
 消息不得先于持久化发送——但 V1 不复制其异步 surface，也不引入没有调度器支撑的 completion。测试层统一
-使用 `before_write / after_fsync / after_rename / after_dir_fsync` 命名事件，并让 Snapshot、StableStore、
-LogStore/CommandLog 和 InstallSnapshot 复用同一 old-or-new 恢复 oracle。该修正仍位于已完成阶段的 durability
+使用 `before_write / after_fsync / after_rename / after_dir_fsync` 命名事件。Snapshot/单 Store 原子替换使用
+old-or-new oracle；InstallSnapshot 只复用事件框架，使用跨文件 `max(H,S)`/suffix/continuity 专用 oracle。
+该修正仍位于已完成阶段的 durability
 验收范围，不进入新阶段。
 
 2026-08-29 架构收敛补强：M6/M7 的进程生命周期与客户端 Leader 重定位已抽到单一测试 harness；当前四条
-聚焦脚本和一条 M0–M7 连续链路只保留 E2E 时间线。`magic/version/length/CRC` 校验抽成公共
+聚焦脚本和一条文件名沿用 `raft_m0_m7_chain.sh` 的 distributed 累计链路只保留 E2E 时间线。
+该脚本从全新 distributed 目录开始，不执行 term-0 格式迁移。`magic/version/length/CRC` 校验抽成公共
 `VersionedFrame`/`ChecksummedFrame` 骨架，
 CommandBatch、客户端协议、Raft RPC、Manifest、HardState、Session、Catalog 与既有 snapshot bundle 保留各自
 协议类型和原有线格式，只共享边界检查。正式 BusTub 快照改为 `DurableFileSlice` + 有界块：canonical
@@ -1278,7 +1652,7 @@ CommandBatch、客户端协议、Raft RPC、Manifest、HardState、Session、Cat
 完整 payload vector；128 MiB 内存上限只留给测试便利 codec/KV 示例，正式文件 payload 使用 1 GiB
 实验安全上限。分块用于验证 Raft InstallSnapshot 和崩溃边界，不构成大型数据库容量声明。
 
-V1 继续保留自研 Raft 核心以服务 BusTub 状态机学习和不变量验证，不在本阶段替换库。若目标改成真实生产，
+V1 继续保留自研 Raft 核心以服务 BusTub 状态机学习和不变量验证，不在本轮替换库。若目标改成真实生产，
 应另立迁移项目比较 NuRaft 等成熟 C++ 实现的选举、压缩、快照、可插拔 LogStore/FSM、group commit 与 pipeline，
 并重新完成 wire/disk 兼容、故障语义和整套 E2E；这不是当前实现上的局部重构。Raft 当前的“完整状态快照 +
 lastIncludedIndex/Term + 分块 InstallSnapshot”仍遵循论文模型；对更大数据库，base backup + 连续日志是未来独立
@@ -1296,9 +1670,11 @@ InstallSnapshot 分块，用于验证 offset、重复/半传输、崩溃发布�
 各自仅由既有有限门禁重试，没有测试体失败或 sanitizer 报告被重试。该收敛不新增阶段，完成后仍停在 M7。
 
 2026-08-29 测试缺口回补（历史修订记录）：审计发现原“E2E-01～15 已覆盖”的表述混用了同进程 TCP 集成与
-正式进程证据，当时改为四条共享 harness 的正式三进程时间线，随后又增加一条连续 M0–M7 链路。M6 增加
+正式进程证据，当时改为四条共享 harness 的正式三进程时间线，随后又增加一条 M3–M7 distributed
+durable state 累计链路（文件名因历史原因仍为 `raft_m0_m7_chain.sh`）。M6 增加
 无主键/secondary UNIQUE 无副作用拒绝、真实响应丢失、
-`WriteResponseV1` 精确字节比较、三节点逻辑结果比较、stale/read/NOOP 水位断言；M7 增加少数派后缀覆盖、旧
+`WriteResponseV1` 精确字节比较、三节点逻辑结果比较和 stale/read 水位断言；当时标为 NOOP 的进程断言
+实际发生在后续客户端写之后，已由本次基线后复审改为 replacement Leader ready 后、任何新 proposal 前取证。M7 增加少数派后缀覆盖、旧
 Leader 新读超时、全停全启后继续 DDL/OID 分配、损坏最新快照回退、800 行 batch 并发读、Snapshot S + 后缀
 S+1、以及延迟完整旧 Snapshot 重放后继续 Apply。网络丢失、响应丢失、文件损坏均由 test-only 外部代理/脚本
 制造，production 协议没有测试开关。节点根目录新增 checksummed `node.conf`，首次原子持久化 node/group/voters，
@@ -1330,10 +1706,11 @@ CTest 在本宿主 PRE_TEST discovery 阶段遇到空输出 pre-main 139，未�
 - 命名故障框架要求事件类型、occurrence、路径、related path 和顺序全部精确匹配；目录 fsync 不再错误发布
   sibling 目录项。进程 harness 会核对 node/proxy/后台 helper 的退出状态，代理协议解析或快照块内容冲突不能
   只写日志后继续变绿。
-- 四条聚焦进程场景加一条连续链路全部使用有业务含义的数据和字面结果。快照崩溃场景使用 1600 行并分别核对
+- 四条聚焦进程场景加一条 distributed 累计链路全部使用有业务含义的数据和字面结果。快照崩溃场景使用 1600 行并分别核对
   完整快照、bridge suffix 和触发被杀 capture 的 Apply 效果；损坏场景持久截断最新代、独立解析前一代 index
-  并要求精确选择；传输场景要求实际多块、`Snapshot@S` 精确等于记录值且 `S < suffix`；连续链路在同一 durable
-  state 上穿过准入、响应丢失、切主、快照+后缀、stale replay、身份拒绝、全停全启及恢复后继续 DDL/DML。
+  并要求精确选择；传输场景要求实际多块、`Snapshot@S` 精确等于记录值且 `S < suffix`；连续链路从全新
+  distributed 目录开始，在同一份 M3–M7 durable state 上穿过准入、响应丢失、切主、快照+后缀、stale replay、
+  身份拒绝、全停全启及恢复后继续 DDL/DML。它累计复验早期逻辑性质，但不迁移 term-0 物理状态。
 - 该修订当时的本地 Release 严格门禁为 26 个组件二进制、102 个具体测试，全部单进程尝试通过，0 failed、
   0 disabled、`process_retries=0`；原生 `b_plus_tree_insert_test` 3/3；五条正式进程时间线各在全新目录中
   单次通过。该次
@@ -1347,7 +1724,7 @@ CTest 在本宿主 PRE_TEST discovery 阶段遇到空输出 pre-main 139，未�
 
 本次只补齐 M0–M7 的测试与实现盲点，完成清理门禁后仍停在 M7，不进入 M8/V2。
 
-### 最终修复收口复核（2026-08-30，当前权威）
+### 最终修复收口复核（2026-08-30，M0–M7 基线权威）
 
 恢复执行前重新核对方案、工作树、测试注册和上轮现场，确认仍处于 M7 收口而非下一阶段。最终复查并修复了
 四类会让测试或运行链路失真的问题：`DiskManager` 的 WAL 双缓冲状态改为实例所有，避免两个数据库实例共享
@@ -1362,7 +1739,8 @@ heartbeat 只重发同一 in-flight 块，不刷新 request ID；Follower 对重
 重启、已发布快照 stale-complete、旧 ACK 晚到无副作用及后缀继续 Apply。该测试使用真实 `StageChunk`、文件
 同步、发布、FSM 安装和独立 KV 结果，不是空参、同源 round-trip 或“输入 A 输出 A”的自证。
 
-当前源码的最终动态门禁如下，历史段中的旧数字不再代表当前工作树：
+基线提交 `ec11bb0f9f15d1e5abaedb64ea44dee5c6606e66` 的最终动态门禁如下，
+历史段中的旧数字不再代表该基线：
 
 - Clang 14 ASan/UBSan 组件门禁：26/26 个二进制、122/122 个具体测试，0 failed/errors/disabled/not-run，
   26 份非空 JSON 和日志均可解析，`process_retries=0`，无 sanitizer marker。
@@ -1370,8 +1748,8 @@ heartbeat 只重发同一 in-flight 块，不刷新 request ID；Follower 对重
   `distributed_node_test` 9/9，合计 34/34，无 data race 或 lock-order-inversion。
 - Release SQLLogicTest：40/40，0 failed；长耗时 `leaderboard-q1-index` 自然完成 669.72 秒，未中断或重跑。
 - 五条 ASan/UBSan 正式三进程场景与同五条 Release 场景各自单次通过，各覆盖 24 个 timeline。聚焦传输为
-  3 块/135,485 bytes/Snapshot@4 term 1；同一 durable state 的连续链路为 5 块/266,737 bytes/Snapshot@12
-  term 2。两套均无异常 cleanup、残留进程/端口或协议/sanitizer 报告。
+  3 块/135,485 bytes/Snapshot@4 term 1；在同一份 M3–M7 distributed durable state 上运行的累计链路为
+  5 块/266,737 bytes/Snapshot@12 term 2。两套均无异常 cleanup、残留进程/端口或协议/sanitizer 报告。
 - 全部 `src/`、`test/` C/C++ 通过 Clang 14 format dry-run 和仓库 cpplint；6 个 shell 通过 `bash -n`，
   4 个 Python helper 通过 AST 解析，`git diff --check` 和 production 对测试依赖反向扫描通过。
 
@@ -1382,12 +1760,41 @@ Release、原生 Linux CI 或任何进入测试体后的失败，规则已写入
 
 结束时精确删除 21 个已逐项盘点的外部构建、组件日志、成功/失败 E2E 现场和零字节诊断日志，共
 2,676,096,997 bytes（2.492 GiB），均可按 runbook 重建。复扫 `/tmp` 任务前缀、后台 node/client/proxy、
-18,100–31,899 端口、源码树 ignored/generated 文件均为空。工作树保持 208 项正式交付（103 个 tracked 修改、
-105 个新增、0 删除），未跟踪项只有源码、已注册测试、harness/tool 和文档；1,347 文件、36,074,734 bytes 的
+18,100–31,899 端口、源码树 ignored/generated 文件均为空。基线提交前的 208 项正式交付清单
+（103 个 tracked 修改、105 个新增、0 删除）已全部收入 `ec11bb0`，该数字不再是后续工作树状态。
+1,347 文件、36,074,734 bytes 的
 已跟踪嵌套课程基线不是中间产物，继续保留。
 
 独立只读审查在既定 crash-stop、非 Byzantine 模型下未发现 blocker；恶意伪造的超大 RPC 字段属于 V1 明确
-边界外，不以测试组合膨胀为由进入新协议阶段。M0–M7 至此完成并停在 M7；不进入 M8/V2，等待用户新命令。
+边界外，不以测试组合膨胀为由进入新协议阶段。M0–M7 基线至此完成；
+M8 仍须先按“后续里程碑准入”冻结唯一功能定义，不能把多个 V2 候选自动捆绑执行。
+
+# 合理性复审结论（2026-08-30）
+
+在“教学版 BusTub + 静态三节点 + crash-stop/非 Byzantine”定义下，当前 V1 主线合理，
+不需要因本次复审重写 Raft 核心或替换成第三方库：
+
+- 先用 canonical full-state snapshot + committed suffix 建立单节点 BusTub consumer 恢复闭环，再以 KV FSM
+  隔离验证 Raft，最后把 M2 consumer 接入 Raft 并补 M5 SQL producer/完整性强化，依赖顺序正确。
+- 日志/HardState 使用同步 durable API，依赖该状态的 RPC 在持久化后才发送；
+  这与 etcd/raft `Ready` 所强调的 Entries/HardState/Snapshot 与 Messages 顺序约束一致，
+  而不复制一个没有调度器的伪异步 surface。
+- 完整状态快照携带 `last_included_index/term`、分块 InstallSnapshot 并在快照后继续追 suffix，
+  符合 Raft 论文的状态压缩模型。暂停写、1 GiB 防御上限和非增量快照是课程规模约束，
+  不是对大型数据库 production 能力的声称。
+- 全局 visibility latch、一次一个 proposal、derived indexes、随机选举区间 + 测试 timeout source、
+  稳定 Session response 和分层 production-like E2E 都是适合该实验目标的可验证简化。
+
+`NO-STEAL + NO-FORCE` 在这里是逻辑状态政策：未提交命令不进入公开 working pages，
+已提交 working pages 可不立即 FORCE，因为重启丢弃 working state 并从权威 snapshot/log 重建。
+它不是对通用 steal-capable page cache 已实现 ARIES 恢复的声称。额外持久化 `commit_index`
+是为了简化重启恢复而有意采用的项目约定，不冒充 Raft 原论文的最小必需持久状态。
+
+复审后保留的主要债务均已变成显式边界，而不是阶段间隐式冲突：term-0 与 distributed
+物理 Store 不原地互通，且 V1 只以“集群使用全新目录”的部署前提隔离模式，没有 durable mode marker；
+V1 client 只提供 Leader hint 而非通用自动路由；Session ID 未持久化 payload digest；
+不支持 DROP、secondary UNIQUE、多语句、并行 proposal 和大库低停顿备份。它们只能作为各自独立的
+后续版本项目，不得在未定义的 M8 中一次性解除。
 
 # 风险与提前决策
 
@@ -1397,7 +1804,12 @@ Release、原生 Linux CI 或任何进入测试体后的失败，规则已写入
 
 ## 2. Snapshot 是否 self-contained 是前置问题
 
-BusTub 的部分 MVCC undo 信息只存在于内存 Transaction 中。M0 必须证明：停止准入、在 `StateVisibilityLatch exclusive` 内排空事务并完成 GC/canonicalization 后，`db.bustub + catalog.bin + session.bin` 可以在没有旧进程内存的情况下恢复全部 committed state，包括每行真实的最近提交时间戳、`schema_epoch`、OID 和 SessionTable。若不能，必须先定义并持久化缺失状态，不能直接复制数据库文件，也不能依赖先 Flush 不权威的 working file 来掩盖缺失元数据。
+BusTub 的部分 MVCC undo 信息只存在于内存 Transaction 中。M0 必须以 feasibility harness 的等价
+exclusive capture barrier 证明：停止准入、排空事务并完成 GC/canonicalization 后，
+`db.bustub + catalog.bin + session.bin` 可以在没有旧进程内存的情况下恢复全部 committed state，包括每行
+真实的最近提交时间戳、`schema_epoch`、OID 和 SessionTable。M1 才把该屏障固化为 production
+`StateVisibilityLatch`。若不能，必须先定义并持久化缺失状态，不能直接复制数据库文件，也不能依赖先 Flush
+不权威的 working file 来掩盖缺失元数据。
 
 ## 3. 不能依赖会修改页面的 write set 提取命令
 

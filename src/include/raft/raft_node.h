@@ -26,6 +26,8 @@
 
 namespace bustub {
 
+class RaftNodeTestPeer;
+
 /** Draws one election timeout from the inclusive bounds supplied by RaftNode. */
 using ElectionTimeoutSource = std::function<uint64_t(uint64_t, uint64_t)>;
 
@@ -79,6 +81,8 @@ class RaftNode {
   auto LatestSnapshot() const -> std::optional<RaftSnapshot>;
 
  private:
+  friend class RaftNodeTestPeer;
+
   void StartElection();
   void BecomeLeader();
   void ObserveHigherTerm(uint64_t term);

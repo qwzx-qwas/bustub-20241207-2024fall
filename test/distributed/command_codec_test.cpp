@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 
+#include "common/byte_codec.h"
 #include "distributed/command.h"
 #include "gtest/gtest.h"
 #include "type/value_factory.h"
@@ -52,11 +53,34 @@ auto Hex(std::string_view text) -> std::vector<std::byte> {
   return result;
 }
 
+auto LiteralInsert(table_oid_t table_oid, std::string_view key_hex, std::string_view tuple_hex) -> ReplicatedCommand {
+  return InsertRowCommand{table_oid, EncodedPrimaryKeyV1{1, TypeId::INTEGER, Hex(key_hex)}, Hex(tuple_hex)};
+}
+
 auto Insert(table_oid_t table_oid, int32_t key, std::string value) -> ReplicatedCommand {
   Schema schema({Column("id", TypeId::INTEGER), Column("value", TypeId::VARCHAR, 64)});
   Tuple tuple({ValueFactory::GetIntegerValue(key), ValueFactory::GetVarcharValue(value)}, &schema);
   return InsertRowCommand{table_oid, PrimaryKeyCodecV1::Encode(ValueFactory::GetIntegerValue(key)),
                           TupleCodecV1::Encode(tuple, schema)};
+}
+
+void PutU32At(std::vector<std::byte> *bytes, size_t offset, uint32_t value) {
+  if (bytes == nullptr || offset + sizeof(uint32_t) > bytes->size()) {
+    throw std::runtime_error("invalid test frame offset");
+  }
+  (*bytes)[offset] = static_cast<std::byte>((value >> 24U) & 0xffU);
+  (*bytes)[offset + 1] = static_cast<std::byte>((value >> 16U) & 0xffU);
+  (*bytes)[offset + 2] = static_cast<std::byte>((value >> 8U) & 0xffU);
+  (*bytes)[offset + 3] = static_cast<std::byte>(value & 0xffU);
+}
+
+auto CanonicalDmlGolden() -> std::vector<std::byte> {
+  return Hex(
+      "42434d444241543100000001000000cd0000000000000009000000000000000100000000000000040000000300000003"
+      "0000003300000001000000010000000400000004ffffffff0000001b00000001000000020000000400ffffffff00000007"
+      "0000000001610000000300000033000000010000000100000004000000040000002a0000001b0000000100000002000000"
+      "04000000002a000000070000000001620000000300000033000000020000000100000004000000040000002a0000001b00"
+      "0000010000000200000004000000002a00000007000000000163bd7d94c6");
 }
 
 }  // namespace
@@ -98,26 +122,18 @@ TEST(PrimaryKeyCodecV1Test, VarcharIsRawBinaryIdentity) {
   EXPECT_EQ(multibyte.bytes_, Bytes({0, 0, 0, 3, 0xe4, 0xb8, 0xad}));
 }
 
-TEST(CommandBatchCodecTest, CanonicalSortRoundTripAndChecksum) {
-  const std::vector<ReplicatedCommand> commands{Insert(2, 42, "c"), Insert(1, 42, "b"), Insert(1, -1, "a")};
-  auto first = CommandBuilder::Build(9, 1, 4, commands);
-  auto second = CommandBuilder::Build(9, 1, 4, {Insert(1, -1, "a"), Insert(2, 42, "c"), Insert(1, 42, "b")});
+// M2 consumer gate: no CommandBuilder or SQL producer is needed to fix the wire contract.
+TEST(CommandBatchCodecTest, FixedConsumerFrameRejectsMalformedInput) {
+  const auto minus_one = LiteralInsert(1, "ffffffff", "00000001000000020000000400ffffffff00000007000000000161");
+  const auto table_one_forty_two =
+      LiteralInsert(1, "0000002a", "000000010000000200000004000000002a00000007000000000162");
+  const auto table_two_forty_two =
+      LiteralInsert(2, "0000002a", "000000010000000200000004000000002a00000007000000000163");
+  const TransactionCommandBatch literal_consumer_batch{
+      1, 9, 1, 4, {minus_one, table_one_forty_two, table_two_forty_two}};
   // Hand-assembled from the canonical V1 DML order and the three literal tuple/key encodings below.
-  const auto golden =
-      Hex("42434d444241543100000001000000cd0000000000000009000000000000000100000000000000040000000300000003"
-          "0000003300000001000000010000000400000004ffffffff0000001b00000001000000020000000400ffffffff00000007"
-          "0000000001610000000300000033000000010000000100000004000000040000002a0000001b0000000100000002000000"
-          "04000000002a000000070000000001620000000300000033000000020000000100000004000000040000002a0000001b00"
-          "0000010000000200000004000000002a00000007000000000163bd7d94c6");
-  EXPECT_EQ(CommandBatchCodec::Encode(first), golden);
-  EXPECT_EQ(CommandBatchCodec::Encode(second), golden);
-  std::mt19937 generator(0x5eed);
-  for (size_t iteration = 0; iteration < 64; iteration++) {
-    auto permutation = commands;
-    std::shuffle(permutation.begin(), permutation.end(), generator);
-    EXPECT_EQ(CommandBatchCodec::Encode(CommandBuilder::Build(9, 1, 4, std::move(permutation))), golden)
-        << "permutation iteration " << iteration;
-  }
+  const auto golden = CanonicalDmlGolden();
+  EXPECT_EQ(CommandBatchCodec::Encode(literal_consumer_batch), golden);
   const auto decoded = CommandBatchCodec::Decode(golden);
   EXPECT_EQ(decoded.format_version_, 1);
   EXPECT_EQ(decoded.client_id_, 9);
@@ -143,12 +159,43 @@ TEST(CommandBatchCodecTest, CanonicalSortRoundTripAndChecksum) {
   auto corrupt = golden;
   corrupt.back() ^= std::byte{1};
   EXPECT_THROW(CommandBatchCodec::Decode(corrupt), std::runtime_error);
-  EXPECT_THROW(CommandBuilder::Build(9, 2, 4, {Insert(1, 42, "x"), Insert(1, 42, "y")}), std::runtime_error);
 
-  TransactionCommandBatch unsorted{1, 9, 2, 4, {Insert(2, 42, "c"), Insert(1, -1, "a")}};
+  auto bad_version = golden;
+  PutU32At(&bad_version, 8, 2);
+  EXPECT_THROW(CommandBatchCodec::Decode(bad_version), std::runtime_error);
+
+  auto unknown_command = golden;
+  constexpr size_t frame_header_size = 16;
+  constexpr size_t batch_prefix_size = sizeof(uint64_t) * 3 + sizeof(uint32_t);
+  PutU32At(&unknown_command, frame_header_size + batch_prefix_size, 0x7fffffffU);
+  PutU32At(&unknown_command, unknown_command.size() - sizeof(uint32_t),
+           Crc32c(unknown_command.data() + frame_header_size,
+                  unknown_command.size() - frame_header_size - sizeof(uint32_t)));
+  EXPECT_THROW(CommandBatchCodec::Decode(unknown_command), std::runtime_error);
+
+  TransactionCommandBatch unsorted{1, 9, 2, 4, {table_two_forty_two, minus_one}};
   EXPECT_THROW(CommandBatchCodec::Encode(unsorted), std::runtime_error);
 }
 
+// M5 producer gate: permutation/collision behavior converges on the independent M2 frame above.
+TEST(CommandBuilderTest, CanonicalizesPermutationsAndRejectsDuplicateKeys) {
+  const std::vector<ReplicatedCommand> commands{Insert(2, 42, "c"), Insert(1, 42, "b"), Insert(1, -1, "a")};
+  const auto golden = CanonicalDmlGolden();
+  EXPECT_EQ(CommandBatchCodec::Encode(CommandBuilder::Build(9, 1, 4, commands)), golden);
+  EXPECT_EQ(CommandBatchCodec::Encode(
+                CommandBuilder::Build(9, 1, 4, {Insert(1, -1, "a"), Insert(2, 42, "c"), Insert(1, 42, "b")})),
+            golden);
+  std::mt19937 generator(0x5eed);
+  for (size_t iteration = 0; iteration < 64; iteration++) {
+    auto permutation = commands;
+    std::shuffle(permutation.begin(), permutation.end(), generator);
+    EXPECT_EQ(CommandBatchCodec::Encode(CommandBuilder::Build(9, 1, 4, std::move(permutation))), golden)
+        << "permutation iteration " << iteration;
+  }
+  EXPECT_THROW(CommandBuilder::Build(9, 2, 4, {Insert(1, 42, "x"), Insert(1, 42, "y")}), std::runtime_error);
+}
+
+// M5 full command-set and stable-value producer extension.
 TEST(CommandBatchCodecTest, ExplicitOidDdlAndTupleCodec) {
   CreateTableCommand create{7,
                             11,
@@ -156,10 +203,12 @@ TEST(CommandBatchCodecTest, ExplicitOidDdlAndTupleCodec) {
                             {{"id", TypeId::INTEGER, 4, false}, {"name", TypeId::VARCHAR, 64, true}},
                             {0, TypeId::INTEGER, 1}};
   const auto batch = CommandBuilder::Build(3, 1, 10, {create});
+  const TransactionCommandBatch literal_consumer_batch{1, 3, 1, 10, {create}};
   const auto create_golden =
       Hex("42434d4442415431000000010000006800000000000000030000000000000001000000000000000a0000000100000001"
           "00000044000000070000000b000000086163636f756e747300000002000000026964000000040000000400000000046e61"
           "6d65000000070000004001000000000000000400000001249bb01e");
+  EXPECT_EQ(CommandBatchCodec::Encode(literal_consumer_batch), create_golden);
   EXPECT_EQ(CommandBatchCodec::Encode(batch), create_golden);
   const auto decoded = CommandBatchCodec::Decode(create_golden);
   EXPECT_EQ(decoded.format_version_, 1);
@@ -199,7 +248,9 @@ TEST(CommandBatchCodecTest, ExplicitOidDdlAndTupleCodec) {
   // list must retain client/session identity in a stable frame.
   const auto empty_golden =
       Hex("42434d4442415431000000010000001c00000000000000030000000000000002000000000000000b000000000c278af1");
+  const TransactionCommandBatch literal_empty_dml{1, 3, 2, 11, {}};
   const auto empty_dml = CommandBuilder::Build(3, 2, 11, {});
+  EXPECT_EQ(CommandBatchCodec::Encode(literal_empty_dml), empty_golden);
   EXPECT_EQ(CommandBatchCodec::Encode(empty_dml), empty_golden);
   const auto decoded_empty = CommandBatchCodec::Decode(empty_golden);
   EXPECT_EQ(decoded_empty.format_version_, 1);

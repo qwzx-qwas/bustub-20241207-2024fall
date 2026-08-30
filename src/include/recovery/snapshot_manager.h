@@ -16,8 +16,8 @@
 
 #include "buffer/buffer_pool_manager.h"
 #include "catalog/catalog.h"
+#include "common/state_visibility.h"
 #include "distributed/session_table.h"
-#include "distributed/state_visibility.h"
 #include "recovery/node_directory.h"
 #include "recovery/state_manifest.h"
 #include "storage/disk/disk_manager.h"

@@ -17,7 +17,6 @@
 #include <utility>
 #include <vector>
 
-#include "recovery/command_log.h"
 #include "recovery/durable_storage.h"
 #include "recovery/log_codec.h"
 
@@ -26,6 +25,14 @@ namespace bustub {
 struct LogStoreOptions {
   static constexpr size_t MAXIMUM_JOURNAL_BYTES = 512U * 1024U * 1024U;
   size_t maximum_journal_bytes_{512U * 1024U * 1024U};
+};
+
+struct LogStoreRecoveryProbe {
+  uint64_t snapshot_base_index_{0};
+  uint64_t snapshot_base_term_{0};
+  uint64_t last_log_index_{0};
+  std::optional<uint64_t> recovery_boundary_term_;
+  std::optional<uint64_t> latest_boundary_term_;
 };
 
 /**
@@ -37,6 +44,11 @@ struct LogStoreOptions {
  */
 class LogStore {
  public:
+  /** Parse and validate the committed journal without cleaning or rewriting any file. */
+  static auto ProbeRecovery(const std::filesystem::path &directory, std::shared_ptr<DurableStorage> storage,
+                            uint64_t effective_commit_index, uint64_t recovery_boundary_index,
+                            uint64_t latest_boundary_index, LogStoreOptions options = {}) -> LogStoreRecoveryProbe;
+
   static auto Open(const std::filesystem::path &directory, std::shared_ptr<DurableStorage> storage,
                    uint64_t effective_commit_index, uint64_t published_snapshot_index = 0,
                    uint64_t published_snapshot_term = 0, LogStoreOptions options = {}) -> std::unique_ptr<LogStore>;

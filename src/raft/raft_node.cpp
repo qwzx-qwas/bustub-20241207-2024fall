@@ -15,8 +15,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "distributed/command.h"
-
 namespace bustub {
 namespace {
 
@@ -466,8 +464,35 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     return;
   }
 
-  const bool retain_suffix =
-      log_store_->TermAt(staged->last_included_index_) == std::optional<uint64_t>{staged->last_included_term_};
+  const auto preinstall_term = log_store_->TermAt(staged->last_included_index_);
+  const bool retain_suffix = preinstall_term == std::optional<uint64_t>{staged->last_included_term_};
+  if (hard_state_.commit_index_ > staged->last_included_index_ && !retain_suffix) {
+    // The snapshot cannot replace an already-committed suffix unless its
+    // boundary is proved to be on the same log. Reject it before publishing
+    // CURRENT, advancing HARD_STATE, rebasing the log, or touching the FSM.
+    // Cleaning the non-authoritative download is safe; a failed cleanup still
+    // leaves the node unable to continue without a restart.
+    try {
+      snapshot_store_->CancelStaged(request.snapshot_id_);
+    } catch (...) {
+      FailStop();
+      throw;
+    }
+    FailStop();
+    throw std::runtime_error("Raft snapshot boundary cannot preserve the committed suffix");
+  }
+  try {
+    state_machine_->ValidateSnapshotFile(*staged_payload, staged->last_included_index_);
+  } catch (const std::exception &) {
+    try {
+      snapshot_store_->CancelStaged(request.snapshot_id_);
+    } catch (...) {
+      FailStop();
+      throw;
+    }
+    Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
+    return;
+  }
   try {
     snapshot_store_->PublishFile(staged->last_included_index_, staged->last_included_term_, staged_payload->path_,
                                  retain_suffix);
@@ -542,13 +567,7 @@ auto RaftNode::Propose(EntryType type, std::vector<std::byte> payload) -> std::o
   if (!LeaderReady()) {
     return std::nullopt;
   }
-  if (type == EntryType::KV_COMMAND) {
-    static_cast<void>(KvCommandCodec::Decode(payload));
-  } else if (type == EntryType::COMMAND_BATCH) {
-    static_cast<void>(CommandBatchCodec::Decode(payload));
-  } else {
-    throw std::runtime_error("invalid Raft client proposal type");
-  }
+  state_machine_->ValidateProposalPayload(type, payload);
   if (log_store_->LastLogIndex() != hard_state_.commit_index_ || last_applied_ != hard_state_.commit_index_ ||
       published_applied_index_ != hard_state_.commit_index_) {
     throw std::runtime_error("V1 allows only one unresolved Raft proposal");

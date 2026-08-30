@@ -60,7 +60,7 @@ TEST(StableStoreTest, HardStateV1MatchesFixedGoldenFrameAndLiteralFields) {
   EXPECT_EQ(decoded.commit_index_, 0x3132333435363738ULL);
 }
 
-// M3-T01: term, vote, and commit survive as one checksummed generation.
+// M2-T07: the shared term/vote/commit format survives as one checksummed generation.
 TEST(StableStoreTest, AtomicGenerationRoundTrip) {
   auto storage = std::make_shared<PosixDurableStorage>();
   const auto directory = std::filesystem::temp_directory_path() / ("bustub-stable-store-" + std::to_string(getpid()));
@@ -80,7 +80,7 @@ TEST(StableStoreTest, AtomicGenerationRoundTrip) {
   storage->RemoveTree(directory);
 }
 
-// M3-T02: a corrupt formal generation is fail-stop; an unacknowledged tmp is ignored.
+// M2-T08: a corrupt formal generation is fail-stop; an unacknowledged tmp is ignored.
 TEST(StableStoreTest, RejectsFormalCorruptionAndIgnoresTmp) {
   auto storage = std::make_shared<PosixDurableStorage>();
   const auto directory = std::filesystem::temp_directory_path() / ("bustub-stable-corrupt-" + std::to_string(getpid()));
@@ -101,7 +101,7 @@ TEST(StableStoreTest, RejectsFormalCorruptionAndIgnoresTmp) {
   storage->RemoveTree(directory);
 }
 
-// M3-T02: all named HARD_STATE publication failures share the old-or-new recovery oracle.
+// M2-T09: all named HARD_STATE publication failures share the old-or-new recovery oracle.
 TEST(StableStoreTest, NamedPowerLossMatrix) {
   const HardState old_state{1, 1, 1, NodeId{1}, 0};
   const HardState new_state{1, 2, 2, NodeId{2}, 1};

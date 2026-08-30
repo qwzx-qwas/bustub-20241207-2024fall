@@ -30,6 +30,9 @@ auto CheckedAdd(size_t lhs, size_t rhs, const char *message) -> size_t {
 auto EncodedBatchSize(const std::vector<ReplicatedLogEntry> &entries, size_t maximum_size) -> size_t {
   size_t encoded_size = 0;
   for (const auto &entry : entries) {
+    if (entry.term_ != 0) {
+      throw std::runtime_error("term-0 command log cannot store a nonzero Raft term");
+    }
     if (entry.payload_.size() > LogCodec::MAX_PAYLOAD_BYTES) {
       throw std::runtime_error("replicated log entry exceeds the payload limit");
     }
@@ -76,7 +79,7 @@ auto CommandLog::Open(const std::filesystem::path &directory, std::shared_ptr<Du
                       CommandLogOptions options) -> std::unique_ptr<CommandLog> {
   if (directory.empty() || storage == nullptr || options.segment_max_bytes_ < MINIMUM_LOG_FRAME_BYTES ||
       options.batch_max_bytes_ < MINIMUM_LOG_FRAME_BYTES || effective_commit_index < snapshot_base_index ||
-      (snapshot_base_index == 0 && snapshot_base_term != 0)) {
+      snapshot_base_term != 0) {
     throw std::runtime_error("invalid command log configuration");
   }
   storage->CreateDirectories(directory);
@@ -125,7 +128,8 @@ void CommandLog::Recover(uint64_t effective_commit_index) {
     size_t offset = 0;
     while (offset < bytes.size()) {
       auto decoded = LogCodec::DecodeOne(bytes, offset);
-      if (decoded.status_ != LogDecodeStatus::COMPLETE || decoded.entry_->index_ != expected_index) {
+      if (decoded.status_ != LogDecodeStatus::COMPLETE || decoded.entry_->index_ != expected_index ||
+          decoded.entry_->term_ != 0) {
         if (expected_index <= effective_commit_index) {
           throw std::runtime_error("committed command log is corrupt at index " + std::to_string(expected_index));
         }

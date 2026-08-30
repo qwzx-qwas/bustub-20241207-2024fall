@@ -252,7 +252,7 @@ TEST(CatalogSnapshotTest, RestoreRejectsDuplicatePrimaryKeyButAllowsDuplicateSec
   }
 }
 
-// M5-T03: distributed recovery rejects ambiguous logical identity before any state is opened to clients.
+// M0-T05: replicated-V1 restore rejects ambiguous logical identity before any state is opened to clients.
 TEST(CatalogSnapshotTest, ReplicatedAdmissionRequiresExactlyOneMatchingPrimaryIndex) {
   const Schema schema({Column("id", TypeId::INTEGER)});
   CatalogSnapshot missing_primary;

@@ -11,6 +11,7 @@
 #include <array>
 #include <filesystem>
 #include <iomanip>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -21,9 +22,23 @@
 #include "common/byte_codec.h"
 #include "gtest/gtest.h"
 #include "raft/in_memory_raft_transport.h"
+#include "raft/persistent_state.h"
 #include "raft/raft_node.h"
 
 namespace bustub {
+
+class RaftNodeTestPeer {
+ public:
+  static void AdvanceDurableCommitWithoutApply(RaftNode *node, uint64_t commit_index) {
+    node->PersistHardState(node->hard_state_.current_term_, node->hard_state_.voted_for_, commit_index);
+    node->AdvanceLogCommitOrStop(commit_index);
+  }
+
+  static void RebaseLogWithoutInstallingStateMachine(RaftNode *node, uint64_t index, uint64_t term) {
+    node->InstallLogSnapshotBaseDurably(index, term, true);
+  }
+};
+
 namespace {
 
 auto MakeFixedElectionTimeoutSource(uint64_t timeout_ms) -> ElectionTimeoutSource {
@@ -249,32 +264,12 @@ auto RunInstallSnapshotCrash(const std::vector<std::byte> &payload, std::optiona
   machine.reset();
   storage->PowerLoss();
 
-  auto stable = StableStore::Open(raft_directory, storage);
-  auto snapshots = SnapshotStore::Open(raft_directory / "snapshots", storage);
-  const auto latest = snapshots->Latest();
-  const auto latest_index = latest.has_value() ? latest->last_included_index_ : 0;
-  const auto recovery = snapshots->OldestRetained();
-  const auto recovery_index = recovery.has_value() ? recovery->last_included_index_ : 0;
-  const auto recovery_term = recovery.has_value() ? recovery->last_included_term_ : 0;
-  const auto effective_commit = std::max(stable->State().commit_index_, latest_index);
   auto recovered_machine = std::make_shared<KvStateMachine>();
-  std::unique_ptr<LogStore> log;
-  try {
-    log = LogStore::Open(raft_directory / "log", storage, effective_commit, recovery_index, recovery_term);
-  } catch (...) {
-    if (!latest.has_value() || effective_commit != latest->last_included_index_) {
-      throw;
-    }
-    // Mirror production startup: validate the complete state-machine image
-    // before an exact Snapshot@commit is allowed to replace a damaged bridge.
-    recovered_machine->InstallSnapshotFile(snapshots->PayloadFile(*latest), latest->last_included_index_);
-    log = LogStore::RebuildFromVerifiedSnapshot(raft_directory / "log", storage, effective_commit,
-                                                latest->last_included_index_, latest->last_included_term_);
-    snapshots->RetainOnlyLatest();
-  }
+  auto recovered_state = RecoverRaftPersistentState(raft_directory, storage, recovered_machine);
   auto recovered = std::make_unique<RaftNode>(
       RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "install-crash", MakeFixedElectionTimeoutSource(100)}, transport,
-      std::move(stable), std::move(log), recovered_machine, std::move(snapshots));
+      std::move(recovered_state.stable_store_), std::move(recovered_state.log_store_), recovered_machine,
+      std::move(recovered_state.snapshot_store_));
   InstallRecoveryState state{recovered->CommitIndex(), recovered->LastApplied(), recovered_machine->Get("installed")};
   recovered.reset();
   storage->DisableFailure();
@@ -282,9 +277,446 @@ auto RunInstallSnapshotCrash(const std::vector<std::byte> &payload, std::optiona
   return {std::move(state), events, fault_triggered};
 }
 
+auto PutEntry(uint64_t index, uint64_t term, std::string key, std::string value) -> ReplicatedLogEntry {
+  return {1, index, term, EntryType::KV_COMMAND,
+          KvCommandCodec::Encode({1, KvOperation::PUT, std::move(key), std::move(value)})};
+}
+
+auto OldRecoverySnapshotPayload() -> std::vector<std::byte> {
+  KvStateMachine machine;
+  machine.Apply(PutEntry(1, 1, "inventory", "old"));
+  return machine.CreateSnapshot();
+}
+
+auto LatestRecoverySnapshotPayload() -> std::vector<std::byte> {
+  KvStateMachine machine;
+  machine.Apply(PutEntry(1, 1, "inventory", "old"));
+  machine.Apply(PutEntry(2, 1, "phase", "prepared"));
+  machine.Apply(PutEntry(3, 2, "inventory", "snapshot"));
+  return machine.CreateSnapshot();
+}
+
+auto IntermediateRecoverySnapshotPayload() -> std::vector<std::byte> {
+  KvStateMachine machine;
+  machine.Apply(PutEntry(1, 1, "inventory", "old"));
+  machine.Apply(PutEntry(2, 1, "phase", "prepared"));
+  return machine.CreateSnapshot();
+}
+
+struct RaftAuthorityFiles {
+  std::vector<std::byte> log_;
+  std::vector<std::byte> hard_state_;
+  std::vector<std::byte> current_;
+
+  friend auto operator==(const RaftAuthorityFiles &lhs, const RaftAuthorityFiles &rhs) -> bool {
+    return lhs.log_ == rhs.log_ && lhs.hard_state_ == rhs.hard_state_ && lhs.current_ == rhs.current_;
+  }
+};
+
+class LiveInstallSnapshotFixture {
+ public:
+  LiveInstallSnapshotFixture(std::string_view suffix, uint64_t boundary_term)
+      : root_(std::filesystem::temp_directory_path() /
+              ("bustub-raft-live-install-" + std::to_string(getpid()) + "-" + std::string(suffix))),
+        storage_(std::make_shared<PowerLossStorage>(root_)),
+        transport_(std::make_shared<InMemoryRaftTransport>()),
+        machine_(std::make_shared<KvStateMachine>()) {
+    storage_->DisableFailure();
+    storage_->RemoveTree(root_);
+    const auto raft_directory = RaftDirectory();
+    auto log = LogStore::Open(raft_directory / "log", storage_, 0);
+    log->Append({PutEntry(1, 1, "inventory", "old"), PutEntry(2, 1, "phase", "prepared"),
+                 PutEntry(3, boundary_term, "inventory", "snapshot"), PutEntry(4, 3, "inventory", "suffix")});
+    auto stable = StableStore::Open(raft_directory, storage_);
+    stable->Update(3, std::nullopt, 1);
+    auto snapshots = SnapshotStore::Open(raft_directory / "snapshots", storage_);
+    static_cast<void>(snapshots->Publish(1, 1, OldRecoverySnapshotPayload(), true));
+    storage_->SyncDirectory(raft_directory);
+    storage_->SyncDirectory(root_);
+    snapshots.reset();
+    stable.reset();
+    log.reset();
+
+    snapshots = SnapshotStore::Open(raft_directory / "snapshots", storage_);
+    log = LogStore::Open(raft_directory / "log", storage_, 1, 1, 1);
+    node_ = std::make_unique<RaftNode>(
+        RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "live-install", MakeFixedElectionTimeoutSource(100)}, transport_,
+        StableStore::Open(raft_directory, storage_), std::move(log), machine_, std::move(snapshots));
+    if (node_->CommitIndex() != 1 || node_->LastApplied() != 1 || machine_->Data() != OldData() ||
+        node_->Log().LastLogIndex() != 4) {
+      throw std::runtime_error("live InstallSnapshot fixture did not construct its nonempty baseline");
+    }
+  }
+
+  ~LiveInstallSnapshotFixture() {
+    node_.reset();
+    storage_->DisableFailure();
+    storage_->RemoveTree(root_);
+  }
+
+  static auto OldData() -> std::map<std::string, std::string> { return {{"inventory", "old"}}; }
+
+  auto Node() -> RaftNode & { return *node_; }
+  auto Machine() -> KvStateMachine & { return *machine_; }
+  auto Transport() -> InMemoryRaftTransport & { return *transport_; }
+
+  void AdvanceDurableCommitWithoutApply(uint64_t commit_index) {
+    RaftNodeTestPeer::AdvanceDurableCommitWithoutApply(node_.get(), commit_index);
+  }
+
+  void RebaseLogWithoutInstallingStateMachine(uint64_t index, uint64_t term) {
+    RaftNodeTestPeer::RebaseLogWithoutInstallingStateMachine(node_.get(), index, term);
+  }
+
+  void Install(std::string snapshot_id, uint64_t request_id, uint64_t snapshot_index, uint64_t snapshot_term,
+               const std::vector<std::byte> &payload) {
+    node_->Receive(2, InstallSnapshotRequest{3, 2, request_id, std::move(snapshot_id), snapshot_index, snapshot_term, 0,
+                                             payload.size(), Crc32c(payload), true, payload});
+  }
+
+  auto AuthorityFiles() -> RaftAuthorityFiles {
+    const auto raft_directory = RaftDirectory();
+    return {storage_->ReadFile(raft_directory / "log" / "LOG-MUTATIONS", LogStoreOptions::MAXIMUM_JOURNAL_BYTES),
+            storage_->ReadFile(raft_directory / "HARD_STATE", 4096),
+            storage_->ReadFile(raft_directory / "snapshots" / "CURRENT", 4096)};
+  }
+
+ private:
+  auto RaftDirectory() const -> std::filesystem::path { return root_ / "raft"; }
+
+  std::filesystem::path root_;
+  std::shared_ptr<PowerLossStorage> storage_;
+  std::shared_ptr<InMemoryRaftTransport> transport_;
+  std::shared_ptr<KvStateMachine> machine_;
+  std::unique_ptr<RaftNode> node_;
+};
+
+auto TakeOnlyInstallSnapshotResponse(LiveInstallSnapshotFixture *fixture) -> InstallSnapshotResponse {
+  auto envelopes = fixture->Transport().TakeAll();
+  if (envelopes.size() != 1 || envelopes.front().from_ != 1 || envelopes.front().to_ != 2 ||
+      !std::holds_alternative<InstallSnapshotResponse>(envelopes.front().message_)) {
+    throw std::runtime_error("live InstallSnapshot did not produce exactly one response to its sender");
+  }
+  return std::get<InstallSnapshotResponse>(envelopes.front().message_);
+}
+
+class CrossFileRecoveryDisk {
+ public:
+  explicit CrossFileRecoveryDisk(std::string_view suffix)
+      : root_(std::filesystem::temp_directory_path() /
+              ("bustub-raft-cross-file-" + std::to_string(getpid()) + "-" + std::string(suffix))),
+        storage_(std::make_shared<PowerLossStorage>(root_)) {
+    storage_->DisableFailure();
+    storage_->RemoveTree(root_);
+  }
+
+  ~CrossFileRecoveryDisk() {
+    storage_->DisableFailure();
+    storage_->RemoveTree(root_);
+  }
+
+  void Prepare(uint64_t boundary_term, bool include_committed_suffix, uint64_t hard_commit,
+               bool invalid_latest_payload = false, uint64_t old_snapshot_term = 1) {
+    const auto raft_directory = RaftDirectory();
+    auto log = LogStore::Open(raft_directory / "log", storage_, 0);
+    std::vector<ReplicatedLogEntry> entries{PutEntry(1, 1, "inventory", "old"), PutEntry(2, 1, "phase", "prepared"),
+                                            PutEntry(3, boundary_term, "inventory", "snapshot")};
+    if (include_committed_suffix) {
+      entries.push_back(PutEntry(4, 3, "inventory", "suffix"));
+    }
+    log->Append(entries);
+    auto stable = StableStore::Open(raft_directory, storage_);
+    stable->Update(3, std::nullopt, hard_commit);
+    auto snapshots = SnapshotStore::Open(raft_directory / "snapshots", storage_);
+    static_cast<void>(snapshots->Publish(1, old_snapshot_term, OldRecoverySnapshotPayload(), true));
+    const auto latest_payload = invalid_latest_payload
+                                    ? std::vector<std::byte>{std::byte{0x7f}, std::byte{0x01}, std::byte{0x02}}
+                                    : LatestRecoverySnapshotPayload();
+    static_cast<void>(snapshots->Publish(3, 2, latest_payload, true));
+    storage_->SyncDirectory(raft_directory);
+    storage_->SyncDirectory(root_);
+  }
+
+  auto RaftDirectory() const -> std::filesystem::path { return root_ / "raft"; }
+  auto Storage() const -> const std::shared_ptr<PowerLossStorage> & { return storage_; }
+
+ private:
+  std::filesystem::path root_;
+  std::shared_ptr<PowerLossStorage> storage_;
+};
+
+auto OpenRecoveredKvNode(const std::filesystem::path &raft_directory, const std::shared_ptr<PowerLossStorage> &storage,
+                         const std::shared_ptr<KvStateMachine> &machine) -> std::unique_ptr<RaftNode> {
+  auto recovered = RecoverRaftPersistentState(raft_directory, storage, machine);
+  return std::make_unique<RaftNode>(
+      RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "cross-file-recovery", MakeFixedElectionTimeoutSource(100)},
+      std::make_shared<InMemoryRaftTransport>(), std::move(recovered.stable_store_), std::move(recovered.log_store_),
+      machine, std::move(recovered.snapshot_store_));
+}
+
+struct RecoveryRepairOracleState {
+  uint64_t current_term_;
+  uint64_t commit_index_;
+  uint64_t last_applied_;
+  uint64_t log_base_index_;
+  uint64_t log_base_term_;
+  uint64_t last_log_index_;
+  uint64_t latest_generation_;
+  uint64_t oldest_generation_;
+  uint64_t latest_index_;
+  uint64_t latest_term_;
+  bool index_four_present_;
+  std::map<std::string, std::string> data_;
+
+  friend auto operator==(const RecoveryRepairOracleState &lhs, const RecoveryRepairOracleState &rhs) -> bool {
+    return lhs.current_term_ == rhs.current_term_ && lhs.commit_index_ == rhs.commit_index_ &&
+           lhs.last_applied_ == rhs.last_applied_ && lhs.log_base_index_ == rhs.log_base_index_ &&
+           lhs.log_base_term_ == rhs.log_base_term_ && lhs.last_log_index_ == rhs.last_log_index_ &&
+           lhs.latest_generation_ == rhs.latest_generation_ && lhs.oldest_generation_ == rhs.oldest_generation_ &&
+           lhs.latest_index_ == rhs.latest_index_ && lhs.latest_term_ == rhs.latest_term_ &&
+           lhs.index_four_present_ == rhs.index_four_present_ && lhs.data_ == rhs.data_;
+  }
+};
+
+struct RecoveryRepairRun {
+  RecoveryRepairOracleState recovered_state_;
+  RecoveryRepairOracleState second_reopen_state_;
+  StorageEventTopology events_;
+  bool fault_triggered_;
+  bool latest_installed_before_first_durable_event_;
+};
+
+auto ObserveRecoveryRepair(const std::filesystem::path &raft_directory,
+                           const std::shared_ptr<PowerLossStorage> &storage) -> RecoveryRepairOracleState {
+  auto machine = std::make_shared<KvStateMachine>();
+  auto recovered = RecoverRaftPersistentState(raft_directory, storage, machine);
+  const auto latest = recovered.snapshot_store_->Latest();
+  const auto oldest = recovered.snapshot_store_->OldestRetained();
+  if (!latest.has_value() || !oldest.has_value()) {
+    throw std::runtime_error("recovery repair did not retain an authoritative snapshot");
+  }
+  auto node = std::make_unique<RaftNode>(
+      RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "recovery-repair-matrix", MakeFixedElectionTimeoutSource(100)},
+      std::make_shared<InMemoryRaftTransport>(), std::move(recovered.stable_store_), std::move(recovered.log_store_),
+      machine, std::move(recovered.snapshot_store_));
+  return {node->CurrentTerm(),
+          node->CommitIndex(),
+          node->LastApplied(),
+          node->Log().SnapshotBaseIndex(),
+          node->Log().SnapshotBaseTerm(),
+          node->Log().LastLogIndex(),
+          latest->generation_,
+          oldest->generation_,
+          latest->last_included_index_,
+          latest->last_included_term_,
+          node->Log().EntryAt(4).has_value(),
+          machine->Data()};
+}
+
+auto RunRecoveryRepairCrash(std::optional<StorageFaultPlan> plan) -> RecoveryRepairRun {
+  const auto suffix = plan.has_value() ? plan->Name() : std::string{"complete"};
+  CrossFileRecoveryDisk disk("repair-matrix-" + suffix);
+  // H=1, latest S=3/T=2, local TermAt(3)=1, previous generation retained,
+  // and a real index-4 suffix force the exact-cover verified-rebuild path.
+  disk.Prepare(1, true, 1);
+  auto baseline_stable = StableStore::Open(disk.RaftDirectory(), disk.Storage());
+  auto baseline_snapshots = SnapshotStore::Open(disk.RaftDirectory() / "snapshots", disk.Storage());
+  const auto baseline_latest = baseline_snapshots->Latest();
+  const auto baseline_oldest = baseline_snapshots->OldestRetained();
+  const auto baseline_log = LogStore::ProbeRecovery(disk.RaftDirectory() / "log", disk.Storage(), 3, 1, 3);
+  if (baseline_stable->State().commit_index_ != 1 || !baseline_latest.has_value() ||
+      baseline_latest->generation_ != 2 || baseline_latest->last_included_index_ != 3 ||
+      baseline_latest->last_included_term_ != 2 || baseline_latest->payload_size_ == 0 ||
+      !baseline_oldest.has_value() || baseline_oldest->generation_ != 1 || baseline_oldest->last_included_index_ != 1 ||
+      baseline_oldest->payload_size_ == 0 || baseline_log.snapshot_base_index_ != 0 ||
+      baseline_log.last_log_index_ != 4 || baseline_log.recovery_boundary_term_ != std::optional<uint64_t>{1} ||
+      baseline_log.latest_boundary_term_ != std::optional<uint64_t>{1}) {
+    throw std::runtime_error("recovery repair matrix did not construct its required nonempty mismatch baseline");
+  }
+  baseline_snapshots.reset();
+  baseline_stable.reset();
+  disk.Storage()->ResetEventHistory();
+  if (plan.has_value()) {
+    disk.Storage()->FailAt(*plan);
+  }
+
+  auto attempt_machine = std::make_shared<KvStateMachine>();
+  std::optional<RecoveredRaftPersistentState> attempted;
+  bool threw = false;
+  try {
+    attempted.emplace(RecoverRaftPersistentState(disk.RaftDirectory(), disk.Storage(), attempt_machine));
+  } catch (...) {
+    threw = true;
+    if (!plan.has_value() || !disk.Storage()->FaultTriggered()) {
+      throw;
+    }
+  }
+  const std::map<std::string, std::string> latest_data{{"inventory", "snapshot"}, {"phase", "prepared"}};
+  const bool latest_installed = attempt_machine->LastApplied() == 3 && attempt_machine->Data() == latest_data;
+  const auto events = disk.Storage()->Events();
+  const auto fault_triggered = disk.Storage()->FaultTriggered();
+  if ((plan.has_value() && (!threw || !fault_triggered)) || (!plan.has_value() && threw)) {
+    throw std::runtime_error("recovery repair fault plan did not produce the required outcome");
+  }
+
+  attempted.reset();
+  attempt_machine.reset();
+  disk.Storage()->DisableFailure();
+  disk.Storage()->PowerLoss();
+  const auto recovered = ObserveRecoveryRepair(disk.RaftDirectory(), disk.Storage());
+  disk.Storage()->PowerLoss();
+  const auto reopened = ObserveRecoveryRepair(disk.RaftDirectory(), disk.Storage());
+  return {recovered, reopened, events, fault_triggered, latest_installed};
+}
+
 }  // namespace
 
-// M3-T04: a fixed seed produces a replayable timeout sequence while retaining the production interval contract.
+TEST(RaftNodeTest, LiveInstallSnapshotFailStopsBeforeAuthorityMutationOnCommittedBoundaryMismatch) {
+  LiveInstallSnapshotFixture fixture("committed-mismatch", 1);
+  fixture.AdvanceDurableCommitWithoutApply(4);
+  ASSERT_EQ(fixture.Node().CommitIndex(), 4);
+  ASSERT_EQ(fixture.Node().LastApplied(), 1);
+  ASSERT_EQ(fixture.Node().PublishedAppliedIndex(), 1);
+  ASSERT_EQ(fixture.Node().Log().TermAt(3), std::optional<uint64_t>{1});
+  const auto authority_before = fixture.AuthorityFiles();
+  const auto data_before = fixture.Machine().Data();
+  const auto applied_before = fixture.Machine().LastApplied();
+
+  EXPECT_THROW(fixture.Install("committed-mismatch", 401, 3, 2, LatestRecoverySnapshotPayload()), std::runtime_error);
+
+  EXPECT_EQ(fixture.Node().Role(), RaftRole::STOPPED);
+  EXPECT_EQ(fixture.Node().CommitIndex(), 4);
+  EXPECT_EQ(fixture.Node().LastApplied(), 1);
+  EXPECT_EQ(fixture.Node().PublishedAppliedIndex(), 1);
+  EXPECT_EQ(fixture.Machine().LastApplied(), applied_before);
+  EXPECT_EQ(fixture.Machine().Data(), data_before);
+  EXPECT_TRUE(fixture.AuthorityFiles() == authority_before);
+  EXPECT_EQ(fixture.Transport().Pending(), 0);
+}
+
+TEST(RaftNodeTest, LiveInstallSnapshotFailStopsBeforeAuthorityMutationWhenCommittedBoundaryIsMissing) {
+  LiveInstallSnapshotFixture fixture("committed-missing", 2);
+  fixture.AdvanceDurableCommitWithoutApply(4);
+  fixture.RebaseLogWithoutInstallingStateMachine(3, 2);
+  ASSERT_EQ(fixture.Node().CommitIndex(), 4);
+  ASSERT_EQ(fixture.Node().LastApplied(), 1);
+  ASSERT_EQ(fixture.Node().PublishedAppliedIndex(), 1);
+  ASSERT_EQ(fixture.Node().Log().SnapshotBaseIndex(), 3);
+  ASSERT_EQ(fixture.Node().Log().TermAt(2), std::nullopt);
+  ASSERT_TRUE(fixture.Node().Log().EntryAt(4).has_value());
+  const auto authority_before = fixture.AuthorityFiles();
+  const auto data_before = fixture.Machine().Data();
+  const auto applied_before = fixture.Machine().LastApplied();
+
+  EXPECT_THROW(fixture.Install("committed-missing", 402, 2, 1, IntermediateRecoverySnapshotPayload()),
+               std::runtime_error);
+
+  EXPECT_EQ(fixture.Node().Role(), RaftRole::STOPPED);
+  EXPECT_EQ(fixture.Node().CommitIndex(), 4);
+  EXPECT_EQ(fixture.Node().LastApplied(), 1);
+  EXPECT_EQ(fixture.Node().PublishedAppliedIndex(), 1);
+  EXPECT_EQ(fixture.Machine().LastApplied(), applied_before);
+  EXPECT_EQ(fixture.Machine().Data(), data_before);
+  EXPECT_TRUE(fixture.AuthorityFiles() == authority_before);
+  EXPECT_EQ(fixture.Transport().Pending(), 0);
+}
+
+TEST(RaftNodeTest, LiveInstallSnapshotPreservesMatchingCommittedSuffixAndAppliesIt) {
+  LiveInstallSnapshotFixture fixture("committed-match", 2);
+  fixture.AdvanceDurableCommitWithoutApply(4);
+  ASSERT_EQ(fixture.Node().CommitIndex(), 4);
+  ASSERT_EQ(fixture.Node().LastApplied(), 1);
+
+  fixture.Install("committed-match", 403, 3, 2, LatestRecoverySnapshotPayload());
+
+  const auto response = TakeOnlyInstallSnapshotResponse(&fixture);
+  EXPECT_EQ(response.term_, 3);
+  EXPECT_EQ(response.request_id_, 403);
+  EXPECT_TRUE(response.success_);
+  EXPECT_FALSE(response.stale_);
+  EXPECT_TRUE(response.complete_);
+  EXPECT_EQ(response.match_index_, 3);
+  EXPECT_EQ(fixture.Node().Role(), RaftRole::FOLLOWER);
+  EXPECT_EQ(fixture.Node().CommitIndex(), 4);
+  EXPECT_EQ(fixture.Node().LastApplied(), 4);
+  EXPECT_EQ(fixture.Node().PublishedAppliedIndex(), 4);
+  EXPECT_EQ(fixture.Node().Log().SnapshotBaseIndex(), 1);
+  EXPECT_EQ(fixture.Node().Log().LastLogIndex(), 4);
+  ASSERT_TRUE(fixture.Node().Log().EntryAt(4).has_value());
+  EXPECT_EQ(fixture.Node().Log().EntryAt(4)->term_, 3);
+  EXPECT_EQ(fixture.Machine().LastApplied(), 4);
+  EXPECT_EQ(fixture.Machine().Data(),
+            (std::map<std::string, std::string>{{"inventory", "suffix"}, {"phase", "prepared"}}));
+  const auto latest = fixture.Node().LatestSnapshot();
+  ASSERT_TRUE(latest.has_value());
+  EXPECT_EQ(latest->last_included_index_, 3);
+  EXPECT_EQ(latest->last_included_term_, 2);
+  EXPECT_GT(latest->payload_size_, 0);
+}
+
+TEST(RaftNodeTest, LiveInstallSnapshotMayReplaceMismatchedUncommittedSuffixWhenSnapshotCoversCommit) {
+  LiveInstallSnapshotFixture fixture("covering-mismatch", 1);
+  ASSERT_EQ(fixture.Node().CommitIndex(), 1);
+  ASSERT_EQ(fixture.Node().LastApplied(), 1);
+  ASSERT_EQ(fixture.Node().Log().TermAt(3), std::optional<uint64_t>{1});
+
+  fixture.Install("covering-mismatch", 404, 3, 2, LatestRecoverySnapshotPayload());
+
+  const auto response = TakeOnlyInstallSnapshotResponse(&fixture);
+  EXPECT_EQ(response.term_, 3);
+  EXPECT_EQ(response.request_id_, 404);
+  EXPECT_TRUE(response.success_);
+  EXPECT_FALSE(response.stale_);
+  EXPECT_TRUE(response.complete_);
+  EXPECT_EQ(response.match_index_, 3);
+  EXPECT_EQ(fixture.Node().Role(), RaftRole::FOLLOWER);
+  EXPECT_EQ(fixture.Node().CommitIndex(), 3);
+  EXPECT_EQ(fixture.Node().LastApplied(), 3);
+  EXPECT_EQ(fixture.Node().PublishedAppliedIndex(), 3);
+  EXPECT_EQ(fixture.Node().Log().SnapshotBaseIndex(), 3);
+  EXPECT_EQ(fixture.Node().Log().SnapshotBaseTerm(), 2);
+  EXPECT_EQ(fixture.Node().Log().LastLogIndex(), 3);
+  EXPECT_FALSE(fixture.Node().Log().EntryAt(4).has_value());
+  EXPECT_EQ(fixture.Machine().LastApplied(), 3);
+  EXPECT_EQ(fixture.Machine().Data(),
+            (std::map<std::string, std::string>{{"inventory", "snapshot"}, {"phase", "prepared"}}));
+  const auto latest = fixture.Node().LatestSnapshot();
+  ASSERT_TRUE(latest.has_value());
+  EXPECT_EQ(latest->last_included_index_, 3);
+  EXPECT_EQ(latest->last_included_term_, 2);
+  EXPECT_GT(latest->payload_size_, 0);
+}
+
+TEST(RaftNodeTest, LiveInstallSnapshotRejectsInvalidInnerStateBeforeExactCoverAuthorityMutation) {
+  LiveInstallSnapshotFixture fixture("exact-cover-invalid-inner", 1);
+  fixture.AdvanceDurableCommitWithoutApply(3);
+  ASSERT_EQ(fixture.Node().CommitIndex(), 3);
+  ASSERT_EQ(fixture.Node().LastApplied(), 1);
+  ASSERT_EQ(fixture.Node().PublishedAppliedIndex(), 1);
+  ASSERT_EQ(fixture.Node().Log().TermAt(3), std::optional<uint64_t>{1});
+  const auto authority_before = fixture.AuthorityFiles();
+  const auto data_before = fixture.Machine().Data();
+  const auto applied_before = fixture.Machine().LastApplied();
+  const std::vector<std::byte> invalid_inner_snapshot{std::byte{0x7f}, std::byte{0x01}, std::byte{0x02}};
+
+  fixture.Install("exact-cover-invalid-inner", 405, 3, 2, invalid_inner_snapshot);
+
+  const auto response = TakeOnlyInstallSnapshotResponse(&fixture);
+  EXPECT_EQ(response.term_, 3);
+  EXPECT_EQ(response.request_id_, 405);
+  EXPECT_FALSE(response.success_);
+  EXPECT_FALSE(response.stale_);
+  EXPECT_FALSE(response.complete_);
+  EXPECT_EQ(fixture.Node().Role(), RaftRole::FOLLOWER);
+  EXPECT_EQ(fixture.Node().CommitIndex(), 3);
+  EXPECT_EQ(fixture.Node().LastApplied(), 1);
+  EXPECT_EQ(fixture.Node().PublishedAppliedIndex(), 1);
+  EXPECT_EQ(fixture.Machine().LastApplied(), applied_before);
+  EXPECT_EQ(fixture.Machine().Data(), data_before);
+  EXPECT_TRUE(fixture.AuthorityFiles() == authority_before);
+}
+
+// M3-T05: a fixed seed produces a replayable timeout sequence while retaining the production interval contract.
 TEST(RaftNodeTest, SeededElectionTimeoutSourceIsDeterministicAndBounded) {
   auto first = MakeSeededElectionTimeoutSource(0x5eed);
   auto replay = MakeSeededElectionTimeoutSource(0x5eed);
@@ -349,6 +781,23 @@ TEST(RaftNodeTest, FailedLocalProposalAppendSendsNothingAndCannotCommit) {
   }
 }
 
+TEST(RaftNodeTest, ProposalPayloadAdmissionRejectsMalformedAndWrongTypeWithoutAppending) {
+  FaultInjectedNode fixture("proposal-payload-admission");
+  fixture.ElectReady();
+  fixture.Storage().ResetEventHistory();
+  const auto valid_kv = KvCommandCodec::Encode({1, KvOperation::PUT, "admission", "must-not-append"});
+
+  EXPECT_THROW(fixture.Node().Propose(EntryType::KV_COMMAND, {std::byte{0x01}, std::byte{0x02}}), std::runtime_error);
+  EXPECT_THROW(fixture.Node().Propose(EntryType::COMMAND_BATCH, valid_kv), std::runtime_error);
+
+  EXPECT_EQ(fixture.Node().Role(), RaftRole::LEADER);
+  EXPECT_EQ(fixture.Node().CommitIndex(), 1);
+  EXPECT_EQ(fixture.Node().LastApplied(), 1);
+  EXPECT_EQ(fixture.Node().Log().LastLogIndex(), 1);
+  EXPECT_EQ(fixture.Transport().Pending(), 0);
+  EXPECT_TRUE(fixture.Storage().Events().empty());
+}
+
 TEST(RaftNodeTest, RejectsASecondProposalUntilTheFirstProposalIsResolved) {
   FaultInjectedNode fixture("single-unresolved-proposal");
   fixture.ElectReady();
@@ -401,6 +850,248 @@ TEST(RaftNodeTest, InstallSnapshotCrashMatrixRecoversOnlyCompleteOldOrNewState) 
   VerifyAtomicDurableTransition(
       InstallRecoveryState{0, 0, std::nullopt}, InstallRecoveryState{1, 1, std::string{"snapshot-value"}},
       expected_events, [&](std::optional<StorageFaultPlan> plan) { return RunInstallSnapshotCrash(payload, plan); });
+}
+
+TEST(RaftNodeTest, RecoverPersistentStateNamedPowerLossMatrixConvergesByCrossFileOracle) {
+  const StorageEventTopology expected_events{
+      {StorageFaultPoint::BEFORE_WRITE, 1, "raft/HARD_STATE.tmp", {}},
+      {StorageFaultPoint::AFTER_FSYNC, 1, "raft/HARD_STATE.tmp", {}},
+      {StorageFaultPoint::AFTER_RENAME, 1, "raft/HARD_STATE", "raft/HARD_STATE.tmp"},
+      {StorageFaultPoint::AFTER_DIR_FSYNC, 1, "raft", {}},
+      {StorageFaultPoint::BEFORE_WRITE, 2, "raft/log/LOG-MUTATIONS.tmp", {}},
+      {StorageFaultPoint::AFTER_FSYNC, 2, "raft/log/LOG-MUTATIONS.tmp", {}},
+      {StorageFaultPoint::AFTER_RENAME, 2, "raft/log/LOG-MUTATIONS", "raft/log/LOG-MUTATIONS.tmp"},
+      {StorageFaultPoint::AFTER_DIR_FSYNC, 2, "raft/log", {}},
+      {StorageFaultPoint::BEFORE_WRITE, 3, "raft/snapshots/SNAPSHOT-00000000000000000001", {}},
+      {StorageFaultPoint::AFTER_DIR_FSYNC, 3, "raft/snapshots", {}},
+  };
+  const RecoveryRepairOracleState expected_state{3, 3, 3, 3, 2,     3,
+                                                 2, 2, 3, 2, false, {{"inventory", "snapshot"}, {"phase", "prepared"}}};
+
+  const auto complete = RunRecoveryRepairCrash(std::nullopt);
+  EXPECT_FALSE(complete.fault_triggered_);
+  EXPECT_TRUE(complete.latest_installed_before_first_durable_event_);
+  EXPECT_TRUE(complete.recovered_state_ == expected_state);
+  EXPECT_TRUE(complete.second_reopen_state_ == expected_state);
+  ASSERT_EQ(complete.events_.size(), expected_events.size());
+  for (size_t index = 0; index < expected_events.size(); index++) {
+    SCOPED_TRACE(index);
+    EXPECT_TRUE(complete.events_[index] == expected_events[index]);
+  }
+
+  for (size_t index = 0; index < expected_events.size(); index++) {
+    const auto &event = expected_events[index];
+    const StorageFaultPlan plan{event.point_, event.occurrence_};
+    SCOPED_TRACE(plan.Name());
+    const auto failed = RunRecoveryRepairCrash(plan);
+    EXPECT_TRUE(failed.fault_triggered_);
+    EXPECT_TRUE(failed.latest_installed_before_first_durable_event_);
+    EXPECT_TRUE(failed.recovered_state_ == expected_state);
+    EXPECT_TRUE(failed.second_reopen_state_ == expected_state);
+    ASSERT_EQ(failed.events_.size(), index + 1);
+    EXPECT_TRUE(std::equal(expected_events.begin(), expected_events.begin() + static_cast<ptrdiff_t>(index + 1),
+                           failed.events_.begin()));
+  }
+}
+
+TEST(RaftNodeTest, CoveringLatestSnapshotNormalizesMismatchedBridgeAfterNamedPruneCrash) {
+  CrossFileRecoveryDisk disk("covering-latest");
+  disk.Prepare(1, false, 3);
+  auto snapshots = SnapshotStore::Open(disk.RaftDirectory() / "snapshots", disk.Storage());
+  disk.Storage()->FailAt({StorageFaultPoint::BEFORE_WRITE, 1});
+  EXPECT_THROW(snapshots->RetainOnlyLatest(), std::runtime_error);
+  ASSERT_TRUE(disk.Storage()->FaultTriggered());
+  ASSERT_EQ(disk.Storage()->Events().size(), 1);
+  EXPECT_EQ(disk.Storage()->Events().front(),
+            (StorageEvent{StorageFaultPoint::BEFORE_WRITE, 1, "raft/snapshots/SNAPSHOT-00000000000000000001", {}}));
+  snapshots.reset();
+  disk.Storage()->PowerLoss();
+
+  auto machine = std::make_shared<KvStateMachine>();
+  auto node = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), machine);
+  EXPECT_EQ(node->CommitIndex(), 3);
+  EXPECT_EQ(node->LastApplied(), 3);
+  EXPECT_EQ(machine->Get("inventory"), std::optional<std::string>{"snapshot"});
+  EXPECT_EQ(machine->Get("phase"), std::optional<std::string>{"prepared"});
+  EXPECT_EQ(node->Log().SnapshotBaseIndex(), 3);
+  EXPECT_EQ(node->Log().SnapshotBaseTerm(), 2);
+  EXPECT_EQ(node->Log().LastLogIndex(), 3);
+  node.reset();
+
+  auto retained = SnapshotStore::Open(disk.RaftDirectory() / "snapshots", disk.Storage());
+  ASSERT_TRUE(retained->Latest().has_value());
+  ASSERT_TRUE(retained->OldestRetained().has_value());
+  EXPECT_EQ(retained->Latest()->generation_, 2);
+  EXPECT_EQ(retained->OldestRetained()->generation_, 2);
+  retained.reset();
+
+  auto reopened_machine = std::make_shared<KvStateMachine>();
+  auto reopened = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), reopened_machine);
+  EXPECT_EQ(reopened->CommitIndex(), 3);
+  EXPECT_EQ(reopened->LastApplied(), 3);
+  EXPECT_EQ(reopened_machine->Get("inventory"), std::optional<std::string>{"snapshot"});
+  EXPECT_EQ(reopened->Log().SnapshotBaseIndex(), 3);
+  EXPECT_EQ(reopened->Log().LastLogIndex(), 3);
+}
+
+TEST(RaftNodeTest, CoveringLatestSnapshotPreservesMatchingRecoveryBridge) {
+  CrossFileRecoveryDisk disk("covering-matching");
+  disk.Prepare(2, true, 3);
+  auto machine = std::make_shared<KvStateMachine>();
+  auto node = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), machine);
+  EXPECT_EQ(node->CommitIndex(), 3);
+  EXPECT_EQ(node->LastApplied(), 3);
+  EXPECT_EQ(machine->Get("inventory"), std::optional<std::string>{"snapshot"});
+  EXPECT_EQ(node->Log().SnapshotBaseIndex(), 1);
+  EXPECT_EQ(node->Log().TermAt(3), std::optional<uint64_t>{2});
+  EXPECT_EQ(node->Log().TermAt(4), std::optional<uint64_t>{3});
+  EXPECT_EQ(node->Log().LastLogIndex(), 4);
+
+  const auto latest = node->LatestSnapshot();
+  ASSERT_TRUE(latest.has_value());
+  node.reset();
+  auto retained = SnapshotStore::Open(disk.RaftDirectory() / "snapshots", disk.Storage());
+  ASSERT_TRUE(retained->OldestRetained().has_value());
+  ASSERT_TRUE(retained->Latest().has_value());
+  EXPECT_EQ(retained->OldestRetained()->generation_, 1);
+  EXPECT_EQ(retained->Latest()->generation_, 2);
+  EXPECT_EQ(retained->Latest()->snapshot_id_, latest->snapshot_id_);
+  retained.reset();
+
+  auto reopened_machine = std::make_shared<KvStateMachine>();
+  auto reopened = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), reopened_machine);
+  EXPECT_EQ(reopened->CommitIndex(), 3);
+  EXPECT_EQ(reopened->LastApplied(), 3);
+  EXPECT_EQ(reopened_machine->Get("inventory"), std::optional<std::string>{"snapshot"});
+  EXPECT_EQ(reopened->Log().SnapshotBaseIndex(), 1);
+  EXPECT_EQ(reopened->Log().TermAt(4), std::optional<uint64_t>{3});
+  EXPECT_EQ(reopened->Log().LastLogIndex(), 4);
+}
+
+TEST(RaftNodeTest, CoveringLatestPromotesMatchingBoundaryWhenPreviousBridgeDisagrees) {
+  CrossFileRecoveryDisk disk("matching-latest-bad-previous");
+  disk.Prepare(2, true, 3, false, 9);
+  auto machine = std::make_shared<KvStateMachine>();
+  auto node = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), machine);
+  EXPECT_EQ(node->CommitIndex(), 3);
+  EXPECT_EQ(node->LastApplied(), 3);
+  EXPECT_EQ(machine->Get("inventory"), std::optional<std::string>{"snapshot"});
+  EXPECT_EQ(node->Log().SnapshotBaseIndex(), 3);
+  EXPECT_EQ(node->Log().SnapshotBaseTerm(), 2);
+  EXPECT_EQ(node->Log().TermAt(4), std::optional<uint64_t>{3});
+  EXPECT_EQ(node->Log().LastLogIndex(), 4);
+  node.reset();
+
+  auto retained = SnapshotStore::Open(disk.RaftDirectory() / "snapshots", disk.Storage());
+  ASSERT_TRUE(retained->Latest().has_value());
+  ASSERT_TRUE(retained->OldestRetained().has_value());
+  EXPECT_EQ(retained->Latest()->generation_, 2);
+  EXPECT_EQ(retained->OldestRetained()->generation_, 2);
+  retained.reset();
+
+  auto reopened_machine = std::make_shared<KvStateMachine>();
+  auto reopened = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), reopened_machine);
+  EXPECT_EQ(reopened->CommitIndex(), 3);
+  EXPECT_EQ(reopened->LastApplied(), 3);
+  EXPECT_EQ(reopened->Log().TermAt(4), std::optional<uint64_t>{3});
+  EXPECT_EQ(reopened->Log().LastLogIndex(), 4);
+}
+
+TEST(RaftNodeTest, CommitBeyondLatestPromotesMatchingBoundaryAndReplaysSuffix) {
+  CrossFileRecoveryDisk disk("committed-matching-latest-bad-previous");
+  disk.Prepare(2, true, 4, false, 9);
+  auto machine = std::make_shared<KvStateMachine>();
+  auto node = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), machine);
+  EXPECT_EQ(node->CommitIndex(), 4);
+  EXPECT_EQ(node->LastApplied(), 4);
+  EXPECT_EQ(machine->Get("inventory"), std::optional<std::string>{"suffix"});
+  EXPECT_EQ(node->Log().SnapshotBaseIndex(), 3);
+  EXPECT_EQ(node->Log().SnapshotBaseTerm(), 2);
+  EXPECT_EQ(node->Log().TermAt(4), std::optional<uint64_t>{3});
+
+  auto retained = SnapshotStore::Open(disk.RaftDirectory() / "snapshots", disk.Storage());
+  ASSERT_TRUE(retained->Latest().has_value());
+  ASSERT_TRUE(retained->OldestRetained().has_value());
+  EXPECT_EQ(retained->Latest()->generation_, 2);
+  EXPECT_EQ(retained->OldestRetained()->generation_, 2);
+}
+
+TEST(RaftNodeTest, CommitBeyondLatestFailsClosedForMismatchedOrMissingSuffix) {
+  for (const auto &[suffix, boundary_term, include_suffix] :
+       std::array<std::tuple<std::string_view, uint64_t, bool>, 2>{std::tuple{"mismatched", uint64_t{1}, true},
+                                                                   std::tuple{"missing", uint64_t{2}, false}}) {
+    SCOPED_TRACE(suffix);
+    CrossFileRecoveryDisk disk(suffix);
+    disk.Prepare(boundary_term, include_suffix, 4);
+    const auto log_path = disk.RaftDirectory() / "log" / "LOG-MUTATIONS";
+    const auto stable_path = disk.RaftDirectory() / "HARD_STATE";
+    const auto current_path = disk.RaftDirectory() / "snapshots" / "CURRENT";
+    const auto log_before = disk.Storage()->ReadFile(log_path, static_cast<size_t>(disk.Storage()->FileSize(log_path)));
+    const auto stable_before =
+        disk.Storage()->ReadFile(stable_path, static_cast<size_t>(disk.Storage()->FileSize(stable_path)));
+    const auto current_before =
+        disk.Storage()->ReadFile(current_path, static_cast<size_t>(disk.Storage()->FileSize(current_path)));
+    auto machine = std::make_shared<KvStateMachine>();
+    EXPECT_THROW(RecoverRaftPersistentState(disk.RaftDirectory(), disk.Storage(), machine), std::runtime_error);
+    EXPECT_EQ(machine->LastApplied(), 0);
+    EXPECT_EQ(disk.Storage()->ReadFile(log_path, static_cast<size_t>(disk.Storage()->FileSize(log_path))), log_before);
+    EXPECT_EQ(disk.Storage()->ReadFile(stable_path, static_cast<size_t>(disk.Storage()->FileSize(stable_path))),
+              stable_before);
+    EXPECT_EQ(disk.Storage()->ReadFile(current_path, static_cast<size_t>(disk.Storage()->FileSize(current_path))),
+              current_before);
+
+    auto stable = StableStore::Open(disk.RaftDirectory(), disk.Storage());
+    EXPECT_EQ(stable->State().commit_index_, 4);
+    auto snapshots = SnapshotStore::Open(disk.RaftDirectory() / "snapshots", disk.Storage());
+    ASSERT_TRUE(snapshots->Latest().has_value());
+    ASSERT_TRUE(snapshots->OldestRetained().has_value());
+    EXPECT_EQ(snapshots->Latest()->last_included_index_, 3);
+    EXPECT_EQ(snapshots->OldestRetained()->last_included_index_, 1);
+  }
+}
+
+TEST(RaftNodeTest, MatchingSuffixStillRejectsInvalidInnerSnapshotBeforeAnyDurableRepair) {
+  CrossFileRecoveryDisk disk("invalid-inner-snapshot");
+  disk.Prepare(2, true, 4, true);
+  const auto log_path = disk.RaftDirectory() / "log" / "LOG-MUTATIONS";
+  const auto stable_path = disk.RaftDirectory() / "HARD_STATE";
+  const auto current_path = disk.RaftDirectory() / "snapshots" / "CURRENT";
+  const auto log_before = disk.Storage()->ReadFile(log_path, static_cast<size_t>(disk.Storage()->FileSize(log_path)));
+  const auto stable_before =
+      disk.Storage()->ReadFile(stable_path, static_cast<size_t>(disk.Storage()->FileSize(stable_path)));
+  const auto current_before =
+      disk.Storage()->ReadFile(current_path, static_cast<size_t>(disk.Storage()->FileSize(current_path)));
+
+  auto machine = std::make_shared<KvStateMachine>();
+  EXPECT_THROW(RecoverRaftPersistentState(disk.RaftDirectory(), disk.Storage(), machine), std::runtime_error);
+  EXPECT_EQ(machine->LastApplied(), 0);
+  EXPECT_EQ(disk.Storage()->ReadFile(log_path, static_cast<size_t>(disk.Storage()->FileSize(log_path))), log_before);
+  EXPECT_EQ(disk.Storage()->ReadFile(stable_path, static_cast<size_t>(disk.Storage()->FileSize(stable_path))),
+            stable_before);
+  EXPECT_EQ(disk.Storage()->ReadFile(current_path, static_cast<size_t>(disk.Storage()->FileSize(current_path))),
+            current_before);
+}
+
+TEST(RaftNodeTest, CommitBeyondLatestReplaysOnlyAProvenMatchingSuffix) {
+  CrossFileRecoveryDisk disk("matching-suffix");
+  disk.Prepare(2, true, 4);
+  auto machine = std::make_shared<KvStateMachine>();
+  auto node = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), machine);
+  EXPECT_EQ(node->CommitIndex(), 4);
+  EXPECT_EQ(node->LastApplied(), 4);
+  EXPECT_EQ(machine->Get("inventory"), std::optional<std::string>{"suffix"});
+  EXPECT_EQ(machine->Get("phase"), std::optional<std::string>{"prepared"});
+  EXPECT_EQ(node->Log().SnapshotBaseIndex(), 1);
+  EXPECT_EQ(node->Log().TermAt(3), std::optional<uint64_t>{2});
+  EXPECT_EQ(node->Log().TermAt(4), std::optional<uint64_t>{3});
+  node.reset();
+
+  auto reopened_machine = std::make_shared<KvStateMachine>();
+  auto reopened = OpenRecoveredKvNode(disk.RaftDirectory(), disk.Storage(), reopened_machine);
+  EXPECT_EQ(reopened->CommitIndex(), 4);
+  EXPECT_EQ(reopened->LastApplied(), 4);
+  EXPECT_EQ(reopened_machine->Get("inventory"), std::optional<std::string>{"suffix"});
+  EXPECT_EQ(reopened->Log().SnapshotBaseIndex(), 1);
 }
 
 TEST(RaftNodeTest, DuplicateVoteOldTermAndLogFreshnessAreFailClosed) {
@@ -459,7 +1150,7 @@ TEST(RaftNodeTest, SplitVoteAndOutOfOrderResponsesCannotAdvanceState) {
   EXPECT_EQ(fixture.Transport().Pending(), 1);
 }
 
-// M3-T05: injected fixed timeouts and logical time elect one Leader; production never uses these fixed values.
+// M3-T06: injected fixed timeouts and logical time elect one Leader; production never uses these fixed values.
 TEST(RaftNodeTest, ElectionReplicationMajorityCommitAndApply) {
   ThreeNodeKvCluster cluster("election");
   cluster.ElectOne();
@@ -482,7 +1173,7 @@ TEST(RaftNodeTest, ElectionReplicationMajorityCommitAndApply) {
   }
 }
 
-// M3-T06: an isolated old Leader's uncommitted suffix is atomically replaced by the next Leader.
+// M3-T07: an isolated old Leader's uncommitted suffix is atomically replaced by the next Leader.
 TEST(RaftNodeTest, OldLeaderConflictingSuffixIsReplaced) {
   ThreeNodeKvCluster cluster("old-leader");
   cluster.ElectOne();
@@ -871,7 +1562,7 @@ TEST(RaftNodeTest, CorruptLatestSnapshotRecoversPreviousPlusBridgeLog) {
   EXPECT_EQ(cluster.Machine(1).Get("c"), "four");
 }
 
-// M6-T01: each linearizable read needs its own current-term quorum round; old and ordinary ACKs are unusable.
+// M3-T08: each linearizable read needs its own current-term quorum round; old and ordinary ACKs are unusable.
 TEST(RaftNodeTest, ReadIndexUsesUniqueContextAndCannotReuseHeartbeatAcks) {
   ThreeNodeKvCluster cluster("read-index");
   cluster.ElectOne();

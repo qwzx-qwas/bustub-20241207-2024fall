@@ -16,7 +16,6 @@
 
 #include "buffer/buffer_pool_manager.h"
 #include "catalog/catalog.h"
-#include "distributed/sql_command_preparer.h"
 #include "storage/disk/disk_manager.h"
 
 namespace bustub {
@@ -153,27 +152,6 @@ auto SingleNodeCommandRuntime::Commit(const TransactionCommandBatch &batch) -> s
   return CommitLocked(batch);
 }
 
-auto SingleNodeCommandRuntime::CommitSql(const std::string &sql, uint64_t client_id, uint64_t request_id)
-    -> std::vector<std::byte> {
-  std::lock_guard write_lock(write_mutex_);
-  {
-    auto visible = visibility_.LockShared();
-    const auto disposition = recovered_->sessions_->Classify(client_id, request_id);
-    if (disposition == RequestDisposition::RETRY_LAST) {
-      const auto response = recovered_->sessions_->GetLastResponse(client_id);
-      if (!response.has_value()) {
-        throw std::runtime_error("retry session has no committed response");
-      }
-      return *response;
-    }
-    if (disposition != RequestDisposition::NEW_REQUEST) {
-      throw std::runtime_error("SQL request id is old or contains a session sequence gap");
-    }
-  }
-  const auto batch = SqlCommandPreparer(recovered_->catalog_.get()).Prepare(sql, client_id, request_id);
-  return CommitLocked(batch);
-}
-
 auto SingleNodeCommandRuntime::CommitLocked(const TransactionCommandBatch &batch) -> std::vector<std::byte> {
   {
     auto visible = visibility_.LockShared();
@@ -203,7 +181,7 @@ auto SingleNodeCommandRuntime::CommitLocked(const TransactionCommandBatch &batch
   }
   const auto index = hard_state.commit_index_ + 1;
   ReplicatedLogEntry entry{1, index, 0, EntryType::COMMAND_BATCH, CommandBatchCodec::Encode(batch)};
-  // M1 durability order: log bytes -> durable commit point -> one atomic-visible FSM Apply -> client response.
+  // M2 durability order: log bytes -> durable commit point -> one atomic-visible FSM Apply -> client response.
   command_log_->Append({entry});
   stable_store_->Update(0, std::nullopt, index);
   state_machine_->Apply(entry);

@@ -97,7 +97,7 @@ auto PublishDistinctManifestGenerations(const std::filesystem::path &state_direc
   }
   source.AdvanceSchemaEpoch();
   SessionTable sessions;
-  sessions.RecordCommitted(51, 1, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 2, 5}));
+  sessions.RestoreRecords({{51, SessionRecord{1, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 5})}}});
   if (!table->table_
            ->InsertTuple({5, false},
                          Tuple({ValueFactory::GetIntegerValue(1), ValueFactory::GetIntegerValue(100)}, &schema))
@@ -115,7 +115,7 @@ auto PublishDistinctManifestGenerations(const std::filesystem::path &state_direc
   const auto manifest1 = MakeManifest(1, 5, snapshot1_name, snapshot1, storage.get(), state_directory);
   store.Publish(manifest1);
 
-  sessions.RecordCommitted(51, 2, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 3, 9}));
+  sessions.RestoreRecords({{51, SessionRecord{2, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 0, 9})}}});
   if (!table->table_
            ->InsertTuple({9, false},
                          Tuple({ValueFactory::GetIntegerValue(2), ValueFactory::GetIntegerValue(900)}, &schema))
@@ -139,7 +139,7 @@ TEST(StateManifestTest, V1CodecMatchesFixedGoldenBytes) {
   const StateManifest manifest{1,
                                0x0102030405060708ULL,
                                0x1112131415161718ULL,
-                               0x2122232425262728ULL,
+                               0,
                                0x3132333435363738ULL,
                                "state/gen-7/db.bustub",
                                "state/gen-7/catalog.bin",
@@ -149,17 +149,17 @@ TEST(StateManifestTest, V1CodecMatchesFixedGoldenBytes) {
                                0x55667788U,
                                0x11223344U,
                                0x99aabbccU};
-  // Independently assembled from the V1 field table: 131-byte payload and literal CRC-32C 0x40071f75.
+  // Independently assembled from the V1 field table: 131-byte payload and literal CRC-32C 0xbff0d490.
   // Neither the expected frame nor its checksum invokes the production codec at test runtime.
   const auto golden = Bytes({
       0x42, 0x53, 0x54, 0x4d, 0x41, 0x4e, 0x30, 0x31, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x83, 0x01, 0x02, 0x03,
-      0x04, 0x05, 0x06, 0x07, 0x08, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
-      0x27, 0x28, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x00, 0x00, 0x00, 0x15, 0x73, 0x74, 0x61, 0x74, 0x65,
+      0x04, 0x05, 0x06, 0x07, 0x08, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x00, 0x00, 0x00, 0x15, 0x73, 0x74, 0x61, 0x74, 0x65,
       0x2f, 0x67, 0x65, 0x6e, 0x2d, 0x37, 0x2f, 0x64, 0x62, 0x2e, 0x62, 0x75, 0x73, 0x74, 0x75, 0x62, 0x00, 0x00, 0x00,
       0x17, 0x73, 0x74, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x65, 0x6e, 0x2d, 0x37, 0x2f, 0x63, 0x61, 0x74, 0x61, 0x6c, 0x6f,
       0x67, 0x2e, 0x62, 0x69, 0x6e, 0x00, 0x00, 0x00, 0x17, 0x73, 0x74, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x65, 0x6e, 0x2d,
       0x37, 0x2f, 0x73, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x2e, 0x62, 0x69, 0x6e, 0xa1, 0xb2, 0xc3, 0xd4, 0x10, 0x20,
-      0x30, 0x40, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x99, 0xaa, 0xbb, 0xcc, 0x40, 0x07, 0x1f, 0x75,
+      0x30, 0x40, 0x55, 0x66, 0x77, 0x88, 0x11, 0x22, 0x33, 0x44, 0x99, 0xaa, 0xbb, 0xcc, 0xbf, 0xf0, 0xd4, 0x90,
   });
   ASSERT_EQ(golden.size(), 151);
   EXPECT_EQ(StateManifestCodec::Encode(manifest), golden);
@@ -168,7 +168,7 @@ TEST(StateManifestTest, V1CodecMatchesFixedGoldenBytes) {
   EXPECT_EQ(decoded.format_version_, 1);
   EXPECT_EQ(decoded.generation_, 0x0102030405060708ULL);
   EXPECT_EQ(decoded.last_included_index_, 0x1112131415161718ULL);
-  EXPECT_EQ(decoded.last_included_term_, 0x2122232425262728ULL);
+  EXPECT_EQ(decoded.last_included_term_, 0);
   EXPECT_EQ(decoded.schema_epoch_, 0x3132333435363738ULL);
   EXPECT_EQ(decoded.database_file_, "state/gen-7/db.bustub");
   EXPECT_EQ(decoded.catalog_file_, "state/gen-7/catalog.bin");
@@ -178,9 +178,19 @@ TEST(StateManifestTest, V1CodecMatchesFixedGoldenBytes) {
   EXPECT_EQ(decoded.session_checksum_, 0x55667788U);
   EXPECT_EQ(decoded.next_table_oid_, 0x11223344U);
   EXPECT_EQ(decoded.next_index_oid_, 0x99aabbccU);
+
+  auto nonzero_term = manifest;
+  nonzero_term.last_included_term_ = 1;
+  EXPECT_THROW(StateManifestCodec::Encode(nonzero_term), std::runtime_error);
+
+  auto forged_nonzero_term = golden;
+  forged_nonzero_term[39] = std::byte{1};
+  PutU32At(&forged_nonzero_term, forged_nonzero_term.size() - sizeof(uint32_t),
+           Crc32c(forged_nonzero_term.data() + 16, forged_nonzero_term.size() - 20));
+  EXPECT_THROW(StateManifestCodec::Decode(forged_nonzero_term), std::runtime_error);
 }
 
-// M1-T01: CURRENT publication selects a complete generation and falls back only with a valid bridge log.
+// M1-T01: CURRENT publication selects a complete generation and falls back to a complete prior snapshot boundary.
 TEST(StateManifestTest, PublishValidateAndLatestDamageFallback) {
   DiskManagerUnlimitedMemory source_disk;
   BufferPoolManager source_bpm(32, &source_disk);
@@ -237,9 +247,29 @@ TEST(StateManifestTest, PublishValidateAndLatestDamageFallback) {
   corrupt_catalog.back() ^= std::byte{1};
   storage->WriteFile(state_directory / manifest2.catalog_file_, corrupt_catalog);
   storage->SyncFile(state_directory / manifest2.catalog_file_);
-  auto fallback = store.SelectRecoveryPoint([](uint64_t snapshot_index) { return snapshot_index <= 1; });
+  auto fallback = store.SelectRecoveryPoint();
   ASSERT_TRUE(fallback.has_value());
   EXPECT_EQ(fallback->manifest_.generation_, 1);
+
+  storage->RemoveTree(state_directory);
+}
+
+// M2-T12: a physically complete generation is eligible only when the runtime proves its bridge to durable commit.
+TEST(StateManifestTest, RecoverySelectionFiltersSnapshotsWithoutBridge) {
+  auto storage = std::make_shared<PosixDurableStorage>();
+  const auto state_directory =
+      std::filesystem::temp_directory_path() / ("bustub-manifest-bridge-" + std::to_string(getpid()));
+  storage->RemoveTree(state_directory);
+  storage->CreateDirectories(state_directory);
+  const auto [manifest1, manifest2] = PublishDistinctManifestGenerations(state_directory, storage);
+  StateManifestStore store(state_directory, storage);
+
+  const auto fallback_boundary = manifest1.last_included_index_;
+  const auto fallback = store.SelectRecoveryPoint(
+      [fallback_boundary](uint64_t snapshot_index) { return snapshot_index == fallback_boundary; });
+  ASSERT_TRUE(fallback.has_value());
+  EXPECT_EQ(fallback->manifest_.generation_, manifest1.generation_);
+  EXPECT_NE(fallback->manifest_.generation_, manifest2.generation_);
   EXPECT_FALSE(store.SelectRecoveryPoint([](uint64_t) { return false; }).has_value());
 
   storage->RemoveTree(state_directory);
@@ -319,6 +349,36 @@ TEST(StateManifestTest, LatestSessionBeyondSnapshotBoundaryFallsBackToOlderGener
   ASSERT_TRUE(selected.has_value());
   EXPECT_EQ(selected->manifest_.generation_, manifest1.generation_);
   EXPECT_EQ(selected->manifest_.last_included_index_, 5);
+  storage->RemoveTree(state_directory);
+}
+
+// M1-T03: a term-0 recovery point rejects an otherwise self-consistent Session image carrying a Raft term.
+TEST(StateManifestTest, LatestSessionWithNonzeroTermFallsBackToOlderGeneration) {
+  auto storage = std::make_shared<PosixDurableStorage>();
+  const auto state_directory =
+      std::filesystem::temp_directory_path() / ("bustub-manifest-session-term-fallback-" + std::to_string(getpid()));
+  storage->RemoveTree(state_directory);
+  storage->CreateDirectories(state_directory);
+  const auto [manifest1, manifest2] = PublishDistinctManifestGenerations(state_directory, storage);
+
+  SessionTable foreign_sessions;
+  foreign_sessions.RestoreRecords(
+      {{51, SessionRecord{2, WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 7, 9})}}});
+  const auto session_path = state_directory / manifest2.session_file_;
+  storage->WriteFile(session_path, SessionSnapshotCodec::Encode(foreign_sessions));
+  storage->SyncFile(session_path);
+  auto invalid_latest = manifest2;
+  invalid_latest.session_checksum_ = storage->ChecksumFile(session_path);
+  const auto manifest_path = state_directory / StateManifestStore::ManifestFileName(manifest2.generation_);
+  storage->WriteFile(manifest_path, StateManifestCodec::Encode(invalid_latest));
+  storage->SyncFile(manifest_path);
+
+  StateManifestStore store(state_directory, storage);
+  EXPECT_FALSE(store.Validate(invalid_latest));
+  const auto selected = store.SelectRecoveryPoint([](uint64_t) { return true; });
+  ASSERT_TRUE(selected.has_value());
+  EXPECT_EQ(selected->manifest_.generation_, manifest1.generation_);
+  EXPECT_EQ(selected->manifest_.last_included_index_, manifest1.last_included_index_);
   storage->RemoveTree(state_directory);
 }
 

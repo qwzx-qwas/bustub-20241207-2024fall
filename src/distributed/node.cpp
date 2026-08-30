@@ -25,6 +25,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "raft/persistent_state.h"
+
 namespace bustub {
 namespace {
 
@@ -180,33 +182,7 @@ void DistributedNode::Initialize() {
   std::sort(voters.begin(), voters.end());
   directory_->EnsureIdentity(config_.node_id_, config_.group_id_, voters);
   state_machine_ = BusTubRaftStateMachine::Open(directory_.get(), storage_, config_.buffer_pool_size_);
-  auto stable_store = StableStore::Open(directory_->RaftDirectory(), storage_);
-  auto snapshot_store = SnapshotStore::Open(directory_->RaftDirectory() / "snapshots", storage_);
-  const auto latest_snapshot = snapshot_store->Latest();
-  const auto snapshot_index = latest_snapshot.has_value() ? latest_snapshot->last_included_index_ : 0;
-  const auto recovery_snapshot = snapshot_store->OldestRetained();
-  const auto snapshot_base_index = recovery_snapshot.has_value() ? recovery_snapshot->last_included_index_ : 0;
-  const auto snapshot_base_term = recovery_snapshot.has_value() ? recovery_snapshot->last_included_term_ : 0;
-  const auto effective_commit = std::max(stable_store->State().commit_index_, snapshot_index);
-  std::unique_ptr<LogStore> log_store;
-  try {
-    log_store =
-        LogStore::Open(directory_->LogDirectory(), storage_, effective_commit, snapshot_base_index, snapshot_base_term);
-  } catch (...) {
-    if (!latest_snapshot.has_value() || effective_commit != latest_snapshot->last_included_index_) {
-      throw;
-    }
-    // The latest snapshot is allowed to replace a damaged bridge only when it
-    // covers every committed index. Fully decode, rebuild Catalog/indexes and
-    // validate Session@S before destructively rebasing the journal; the outer
-    // SnapshotStore checksum alone is not a sufficient recovery oracle.
-    state_machine_->InstallSnapshotFile(snapshot_store->PayloadFile(*latest_snapshot),
-                                        latest_snapshot->last_included_index_);
-    log_store = LogStore::RebuildFromVerifiedSnapshot(directory_->LogDirectory(), storage_, effective_commit,
-                                                      latest_snapshot->last_included_index_,
-                                                      latest_snapshot->last_included_term_);
-    snapshot_store->RetainOnlyLatest();
-  }
+  auto recovered = RecoverRaftPersistentState(directory_->RaftDirectory(), storage_, state_machine_);
 
   std::map<NodeId, TcpEndpoint> raft_peers;
   for (const auto &[peer_id, peer] : config_.peers_) {
@@ -214,11 +190,12 @@ void DistributedNode::Initialize() {
   }
   transport_ = std::make_shared<TcpRaftTransport>(config_.node_id_, config_.group_id_, config_.raft_listen_,
                                                   std::move(raft_peers));
-  raft_node_ = std::make_unique<RaftNode>(
-      RaftNodeConfig{config_.node_id_, std::move(voters), config_.election_timeout_min_ms_,
-                     config_.election_timeout_max_ms_, config_.heartbeat_interval_ms_, config_.group_id_,
-                     MakeRandomElectionTimeoutSource()},
-      transport_, std::move(stable_store), std::move(log_store), state_machine_, std::move(snapshot_store));
+  raft_node_ =
+      std::make_unique<RaftNode>(RaftNodeConfig{config_.node_id_, std::move(voters), config_.election_timeout_min_ms_,
+                                                config_.election_timeout_max_ms_, config_.heartbeat_interval_ms_,
+                                                config_.group_id_, MakeRandomElectionTimeoutSource()},
+                                 transport_, std::move(recovered.stable_store_), std::move(recovered.log_store_),
+                                 state_machine_, std::move(recovered.snapshot_store_));
 }
 
 DistributedNode::~DistributedNode() { Stop(); }

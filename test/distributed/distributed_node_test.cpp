@@ -400,7 +400,7 @@ TEST(DistributedNodeTest, TcpWriteReadLeaderChangeRetryAndReopenCatchup) {
             (std::vector<std::vector<std::string>>{{"2", "two", "27"}}));
 }
 
-// M7-E2E05: a follower whose next index was compacted receives a canonical snapshot over real TCP, then applies S+1.
+// E2E-05 TCP prerequisite: an in-process follower receives a canonical snapshot over real TCP, then applies S+1.
 TEST(DistributedNodeTest, TcpSnapshotCatchupThenSuffixApply) {
   ThreeNodeInProcessCluster cluster(4);
   const auto leader = cluster.AwaitLeader();
@@ -446,7 +446,7 @@ TEST(DistributedNodeTest, TcpSnapshotCatchupThenSuffixApply) {
   // Applying request 4 after Snapshot@4 also proves that requests 1..3 were restored in SessionTable: an empty
   // session table would classify request 4 as a sequence gap and fail-stop before this read could succeed.
 
-  // M7-E2E15: replay the complete Snapshot@4 only after this Follower has applied suffix index 5.
+  // E2E-15 TCP prerequisite: replay Snapshot@4 only after this Follower has applied suffix index 5.
   const auto delayed_snapshot = cluster.LatestSnapshot(leader);
   ASSERT_EQ(delayed_snapshot.last_included_index_, 4);
   const auto current_before = cluster.SnapshotCurrentBytes(lagging_follower);
@@ -483,7 +483,7 @@ TEST(DistributedNodeTest, TcpSnapshotCatchupThenSuffixApply) {
             (std::vector<std::vector<std::string>>{{"3", "after-stale"}}));
 }
 
-// M7-E2E07: every process rebuilds from Snapshot@S plus a committed suffix, then allocates subsequent DDL OIDs.
+// E2E-07 TCP prerequisite: every in-process node rebuilds from Snapshot@S plus a committed suffix, then advances OIDs.
 TEST(DistributedNodeTest, FullClusterRestartPreservesSessionsAndContinuesDdl) {
   ThreeNodeInProcessCluster cluster(4);
   auto leader = cluster.AwaitLeader();
@@ -539,7 +539,7 @@ TEST(DistributedNodeTest, FullClusterRestartPreservesSessionsAndContinuesDdl) {
   }
 }
 
-// M7-E2E11: with every peer stopped, startup must reject the damaged latest image and replay the retained bridge.
+// E2E-11 TCP prerequisite: with every peer stopped, startup rejects damaged latest state and replays the bridge.
 TEST(DistributedNodeTest, CorruptLatestSnapshotFallsBackAndReplaysBridge) {
   ThreeNodeInProcessCluster cluster(2);
   const auto leader = cluster.AwaitLeader();
@@ -629,7 +629,7 @@ TEST(DistributedNodeTest, FullyCoveringLatestSnapshotRebuildsDamagedBridgeLatest
             (std::vector<std::vector<std::string>>{{"1", "from-latest"}}));
 }
 
-// M7-E2E02/E2E09: a former quorum's ACKs authorize neither a new write nor a new ReadIndex after isolation.
+// E2E-02/E2E-09 TCP prerequisite: former quorum ACKs authorize neither a new write nor ReadIndex after isolation.
 TEST(DistributedNodeTest, IsolatedLeaderTimesOutAndItsUncommittedSuffixIsReplaced) {
   ThreeNodeInProcessCluster cluster;
   const auto old_leader = cluster.AwaitLeader();
@@ -824,7 +824,7 @@ TEST(DistributedNodeTest, LiveOldLeaderClearsOverwrittenProposalAfterRetryCommit
             (std::vector<std::vector<std::string>>{{"7", "committed-after-heal"}}));
 }
 
-// M7-E2E12: real TCP reads racing a large multi-command Apply may observe only the complete old or new batch.
+// E2E-12 TCP prerequisite: real TCP reads racing a large Apply observe only the complete old or new batch.
 TEST(DistributedNodeTest, ConcurrentReadsObserveOnlyWholeMultiRowBatch) {
   ThreeNodeInProcessCluster cluster;
   const auto leader = cluster.AwaitLeader();

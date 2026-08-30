@@ -15,11 +15,16 @@ run_minority_and_fresh_read() (
     raft_start_message_proxy "${node_id}" "$((port_base + 300 + node_id))" \
       "${artifact_root}/minority/proxy-${node_id}"
   done
-  raft_timeline_step "E2E-02/06/09: bidirectionally isolate the live old Leader while peers retain a majority link"
+  raft_timeline_step "E2E-02/06/09: prepare one live Leader and majority-preserving message proxies"
   raft_start_all_nodes
   leader=$(raft_find_leader)
   raft_client_call_eventually "${leader}" write --client-id 1000 --request-id 1 \
     --sql "CREATE TABLE minority(id int PRIMARY KEY, value varchar(32));"
+  raft_timeline_step "E2E-09 prerequisite: complete one fresh ReadIndex round before isolating the live Leader"
+  fresh_before_partition=$(raft_client_call_strict "${leader}" read --request-id 100000 \
+    --consistency linearizable --sql "SELECT count(*) AS row_count FROM minority;")
+  raft_assert_query_exact "${fresh_before_partition}" $'row_count\n0'
+  raft_timeline_step "E2E-02/09: bidirectionally isolate the live old Leader while peers retain a majority link"
   touch "${artifact_root}/minority/proxy-${leader}/drop"
   for node_id in 1 2 3
   do

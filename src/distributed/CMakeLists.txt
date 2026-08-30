@@ -7,8 +7,8 @@ add_library(
   command_codec.cpp
   node.cpp
   raft_state_machine.cpp
+  single_node_sql_runtime.cpp
   sql_command_preparer.cpp
-  state_visibility.cpp
   session_table.cpp)
 
 set(ALL_OBJECT_FILES

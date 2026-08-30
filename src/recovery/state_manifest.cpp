@@ -99,8 +99,7 @@ auto StateManifestCodec::IsSafeRelativePath(const std::string &value) -> bool {
 }
 
 auto StateManifestCodec::Encode(const StateManifest &manifest) -> std::vector<std::byte> {
-  if (manifest.format_version_ != FORMAT_VERSION || manifest.generation_ == 0 ||
-      (manifest.last_included_index_ == 0 && manifest.last_included_term_ != 0) ||
+  if (manifest.format_version_ != FORMAT_VERSION || manifest.generation_ == 0 || manifest.last_included_term_ != 0 ||
       !IsSafeRelativePath(manifest.database_file_) || !IsSafeRelativePath(manifest.catalog_file_) ||
       !IsSafeRelativePath(manifest.session_file_) || manifest.database_file_ == manifest.catalog_file_ ||
       manifest.database_file_ == manifest.session_file_ || manifest.catalog_file_ == manifest.session_file_) {
@@ -197,7 +196,7 @@ auto StateManifestStore::Validate(const StateManifest &manifest) const -> bool {
     }
     SessionTable sessions;
     SessionSnapshotCodec::DecodeInto(storage_->ReadFile(session, 64U * 1024U * 1024U), &sessions);
-    sessions.ValidateSnapshotBoundary(manifest.last_included_index_);
+    sessions.ValidateSnapshotBoundary(manifest.last_included_index_, 0);
     return true;
   } catch (const std::exception &) {
     return false;

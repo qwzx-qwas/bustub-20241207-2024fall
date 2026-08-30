@@ -305,6 +305,13 @@ void BusTubRaftStateMachine::InitializeEmpty() {
   state_ = std::move(state);
 }
 
+void BusTubRaftStateMachine::ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const {
+  if (type != EntryType::COMMAND_BATCH) {
+    throw std::runtime_error("unsupported proposal type for BusTub state machine");
+  }
+  ValidateProposal(CommandBatchCodec::Decode(payload));
+}
+
 void BusTubRaftStateMachine::Apply(const ReplicatedLogEntry &entry) {
   std::lock_guard lifecycle(lifecycle_mutex_);
   fsm_->Apply(entry);
@@ -384,6 +391,27 @@ auto BusTubRaftStateMachine::BuildWorkingState(const BusTubSnapshotBundleFileVie
       ReadExact(storage_.get(), bundle.catalog_, CatalogSnapshotCodec::MAX_CATALOG_BYTES, "catalog snapshot");
   const auto sessions = ReadExact(storage_.get(), bundle.sessions_, 64U * 1024U * 1024U, "session snapshot");
   return OpenWorkingState(bundle.last_included_index_, catalog, sessions, directory);
+}
+
+void BusTubRaftStateMachine::ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {
+  auto bundle = BusTubSnapshotBundleCodec::DecodeFile(payload, storage_.get());
+  if (bundle.last_included_index_ != last_included_index || last_included_index >= TXN_START_ID) {
+    throw std::runtime_error("BusTub streamed snapshot bundle index mismatch");
+  }
+
+  std::filesystem::path candidate_directory;
+  {
+    std::lock_guard lifecycle(lifecycle_mutex_);
+    candidate_directory = runtime_directory_ / GenerationName(next_generation_++);
+  }
+  try {
+    auto candidate = BuildWorkingState(bundle, candidate_directory);
+    candidate.reset();
+    storage_->RemoveTree(candidate_directory);
+  } catch (...) {
+    storage_->RemoveTree(candidate_directory);
+    throw;
+  }
 }
 
 void BusTubRaftStateMachine::InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {

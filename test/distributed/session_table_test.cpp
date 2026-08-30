@@ -35,6 +35,7 @@ auto SessionFrame(const std::vector<std::byte> &payload) -> std::vector<std::byt
 
 }  // namespace
 
+// M0 fixed response framing.
 TEST(SessionTableTest, WriteResponseHasStableLiteralLayout) {
   const auto expected =
       Bytes({0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07,
@@ -43,6 +44,7 @@ TEST(SessionTableTest, WriteResponseHasStableLiteralLayout) {
   EXPECT_EQ(WriteResponseCodec::Decode(expected), (WriteResponseV1{1, WriteStatus::COMMITTED, 7, 11, 13}));
 }
 
+// M2 exact-once transition semantics.
 TEST(SessionTableTest, SequenceGapTooOldAndExactRetryAreDistinct) {
   SessionTable sessions;
   EXPECT_EQ(sessions.Classify(41, 0), RequestDisposition::TOO_OLD);
@@ -82,7 +84,7 @@ TEST(SessionTableTest, RejectedFirstRequestGapHasNoSessionSideEffect) {
 TEST(SessionTableTest, SnapshotBoundaryRejectsFutureCommittedResponse) {
   SessionTable sessions;
   const auto response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 6, 7});
-  sessions.RecordCommitted(77, 1, response);
+  sessions.RestoreRecords({{77, SessionRecord{1, response}}});
 
   EXPECT_NO_THROW(sessions.ValidateSnapshotBoundary(7));
   EXPECT_NO_THROW(sessions.ValidateSnapshotBoundary(9));
@@ -94,7 +96,8 @@ TEST(SessionTableTest, SnapshotBoundaryRejectsFutureCommittedResponse) {
   EXPECT_EQ(*record, response);
 }
 
-TEST(SessionTableTest, SnapshotMatchesGoldenFrameAndRestoresIndependentClientSequences) {
+// M0 persistence gate: the frame is fixed without calling the M2 transition API.
+TEST(SessionTableTest, SnapshotMatchesGoldenFrameAndRestoresIndependentClientRecords) {
   const auto response_ten =
       Bytes({0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04});
@@ -139,6 +142,17 @@ TEST(SessionTableTest, SnapshotMatchesGoldenFrameAndRestoresIndependentClientSeq
   EXPECT_EQ(decoded_twenty.term_, 7);
   EXPECT_EQ(decoded_twenty.commit_index_, 11);
 
+  EXPECT_EQ(restored.GetLastResponse(10), response_ten);
+  EXPECT_EQ(restored.GetLastResponse(20), response_twenty);
+}
+
+// M2 cumulative gate: persisted M0 records feed the exact-once classifier after recovery.
+TEST(SessionTableTest, RestoredRecordsDriveExactOnceClassification) {
+  const auto response_ten = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 2, 4});
+  const auto response_twenty = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 3, 7, 11});
+  SessionTable restored;
+  restored.RestoreRecords({{10, SessionRecord{1, response_ten}}, {20, SessionRecord{3, response_twenty}}});
+
   EXPECT_EQ(restored.Classify(10, 1), RequestDisposition::RETRY_LAST);
   EXPECT_EQ(restored.Classify(10, 2), RequestDisposition::NEW_REQUEST);
   EXPECT_EQ(restored.Classify(10, 3), RequestDisposition::GAP);
@@ -146,14 +160,12 @@ TEST(SessionTableTest, SnapshotMatchesGoldenFrameAndRestoresIndependentClientSeq
   EXPECT_EQ(restored.Classify(20, 3), RequestDisposition::RETRY_LAST);
   EXPECT_EQ(restored.Classify(20, 4), RequestDisposition::NEW_REQUEST);
   EXPECT_EQ(restored.Classify(20, 5), RequestDisposition::GAP);
-  EXPECT_EQ(restored.GetLastResponse(10), response_ten);
-  EXPECT_EQ(restored.GetLastResponse(20), response_twenty);
 }
 
 TEST(SessionTableTest, MalformedSnapshotIsRejectedWithoutReplacingLiveSessions) {
   const auto response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 2, 4});
   SessionTable target;
-  target.RecordCommitted(99, 1, response);
+  target.RestoreRecords({{99, SessionRecord{1, response}}});
 
   ByteWriter duplicate;
   duplicate.PutU32(2);

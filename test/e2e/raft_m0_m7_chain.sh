@@ -38,7 +38,7 @@ if len(data) < 28 or data[:8] != b"BRCURR01" or struct.unpack(">I", data[8:12])[
 print(struct.unpack(">Q", data[20:28])[0])' "$1"
 }
 
-raft_timeline_step "M0-M2: start one persistent three-process cluster and validate admission has no Catalog side effects"
+raft_timeline_step "Cumulative prerequisites: start fresh distributed state and validate admission has no Catalog side effects"
 raft_start_all_nodes
 leader=$(raft_find_leader)
 
@@ -82,7 +82,7 @@ initial_index_lookup=$(raft_client_call_strict "${leader}" read --request-id 101
 raft_assert_query_exact "${initial_index_lookup}" \
   $'accounts.id\taccounts.name\taccounts.balance\n1\tshared\t10\n2\tshared\t20'
 
-raft_timeline_step "M3-M5: commit a non-idempotent write, drop its entire response, kill the Leader, and retry exactly once"
+raft_timeline_step "M6: commit a non-idempotent write, drop its entire response, kill the Leader, and retry exactly once"
 drop_result="${artifact_root}/dropped-balance-response.txt"
 drop_port=$((port_base + 250))
 original_response_bytes=$(raft_client_write_with_dropped_response "${leader}" "${drop_port}" "${drop_result}" \
@@ -117,7 +117,7 @@ then
   exit 1
 fi
 
-raft_timeline_step "M6-M7: keep the old Leader offline and publish a canonical snapshot larger than one 64 KiB chunk"
+raft_timeline_step "M7: keep the old Leader offline and publish a canonical snapshot larger than one 64 KiB chunk"
 raft_client_call_strict "${new_leader}" write --client-id 600 --request-id 1 \
   --sql "CREATE TABLE chain_bulk(id int PRIMARY KEY, tag varchar(48));" >/dev/null
 
@@ -492,4 +492,4 @@ do
   raft_assert_query_exact "${final_ledger_index}" "${expected_ledger_index}"
 done
 
-echo "M0-M7 continuous production chain passed; artifacts: ${artifact_root}"
+echo "M3-M7 distributed cumulative production chain passed; artifacts: ${artifact_root}"

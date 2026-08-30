@@ -4,10 +4,42 @@
 
 ## 当前状态与停止边界
 
-- `raft_implementation_plan.md` 的 M0–M7 已全部执行完成；当前没有未完成阶段。
-- 用户要求 M7 完成后停止，因此不得自行进入 V2 或任何新阶段，下一步是等待用户命令。
+- `raft_implementation_plan.md` 的 M0–M7 已全部执行完成，已提交/推送基线为
+  `ec11bb0f9f15d1e5abaedb64ea44dee5c6606e66`；当前没有半执行的功能阶段。
+- 2026-08-30 的方案结构复审只修正里程碑归属、文档/实现一致性和 CI 门禁，不是 M8。
+  M8 在方案中仍未分配；先冻结唯一功能、协议版本、排除范围和退出门禁，才能实施。
 - 若后续会话恢复，先阅读本文件、`raft_implementation_plan.md` 与
-  `docs/testing/raft_test_matrix.md`，并核对 `git status`；不需要重做 M7，除非源码再次改变或用户明确要求。
+  `docs/testing/raft_test_matrix.md`，并核对 `git status`；基线验收数字不得自动为后续源码改动背书。
+
+## 基线后方案复审维护（2026-08-30）
+
+- 方案已改为 A–D 架构工作流 + 横切规则，唯一执行轴是 M0–M7；权威表给出每个里程碑的唯一交付、主测试层和排除范围。
+- M0–M2 `CommandLog/SnapshotManager/StateManifest` 是 term-0 恢复验证模式；M3+ `LogStore/SnapshotStore`
+  是 distributed authority；StableStore 的磁盘格式有意跨 M2/M3 复用。V1 没有 mode marker/迁移器，
+  因此“分布式模式使用全新目录”是受支持部署前提，现有检查不能冒充完整的原地升级检测。
+- 删除了 SnapshotManager 中只写不读、与 Manifest 三个 checksum 重复的 `CHECKSUMS`；
+  命名掉电 topology 已同步更新。GitHub Actions push/PR filter 已从 `master` 改为默认分支 `main`，
+  checkout 已统一 v4。
+- `StateVisibilityLatch` 已从 distributed 下沉到 common/M1，M5 只复用它组装批量发布；M2 runtime 的
+  `CommitSql` 实现移到 M5 translation unit，recovery target 不再编译依赖 `SqlCommandPreparer`。
+- 新增 production/test 共用的 `RecoverRaftPersistentState` 和只读 `LogStore::ProbeRecovery`，修复
+  latest snapshot 已覆盖/衔接 durable commit、但 previous bridge 不匹配时启动错误 fail-stop 的缺口。
+  恢复先验证完整 FSM、`max(H,S)`、boundary term 和 committed suffix，再决定 rebuild/promote/fail-closed；
+  恢复器自己的 HardState/journal/prune 10 个命名事件均完成 PowerLoss 与两次冷启 oracle。
+- startup helper 落地后的中间检查点曾以 Clang 14 Debug + ASan（`detect_leaks=0`）通过 8 个二进制/60 个测试：SnapshotManager 4、
+  term-0 runtime 1、SQL adapter 3、BusTub FSM 4、Raft BusTub FSM 4、LogStore 10、RaftNode 25、
+  DistributedNode 9。受限沙箱内的 loopback 分配拒绝未进入测试逻辑；相同 DistributedNode 命令获准在
+  沙箱外运行后 9/9 通过。该 8/60 发生在后续 live InstallSnapshot、application-neutral proposal、测试分层和
+  term-0 nested Session 修正之前，只是历史中间证据。
+- 当前工作树的最终定向 Clang 14 Debug + ASan 回归通过 17 个二进制/108 个测试；其中 StateManifest 9/9、
+  RaftNode 31/31、DistributedNode 9/9。term-0 publisher/recovery 现在同时拒绝外层和内嵌 Session response
+  的非零 term；M4 KV inner snapshot 与 M5 BusTub bundle 测试归属已拆开。未重跑全量 M7，不得冒充新的
+  122/122、40/40、正式 E2E 或 TSan 证据。
+- 本轮全部修改/新增 C/C++ 通过 Clang 14 format dry-run 与仓库参数 cpplint；3 个 shell 通过 `bash -n`，
+  CI YAML、`git diff --check` 和 production 反向依赖扫描通过。清理审计修复并复跑了会漏删 DiskManager
+  `.log` 的 `table_heap_reopen_test`（1/1）。早期 431,479,634-byte 审计构建树已删除；本轮再精确删除
+  1,039,771,113-byte 外部 ASan 构建树和旧 0-byte reopen 日志。复扫后 `/tmp/bustub-*`、后台进程、
+  源码树生成/ignored 文件均为空；只剩 44 个已跟踪修改、2 个正式删除和 4 个正式新增源码文件。
 
 ## 最终实现范围
 
@@ -19,8 +51,9 @@
 - 完成 BusTub replicated CommandBatch、固定 wire codec、显式 DDL OID、主键准入、secondary UNIQUE 拒绝、
   canonical mutation 排序、SessionTable 去重、原子发布水位，以及正式 `bustub-node`/`bustub-client`。
 - 完成 M6/M7 三进程外部 harness、E2E-01 至 E2E-15 映射、运维/协议/测试文档和分离的 CI 门禁；四条
-  聚焦时间线与一条连续 M0–M7 链路复用一个测试专用 process harness，不再复制启动、Leader 定位、客户端
-  交付重试和停止逻辑。
+  聚焦时间线与一条历史文件名为 `raft_m0_m7_chain.sh` 的 M3–M7 distributed 累计链路复用一个测试专用
+  process harness，不再复制启动、Leader 定位、客户端交付重试和停止逻辑。term-0 物理恢复由独立门禁验证，
+  该累计链路不执行目录格式迁移。
 - `magic/version/length/CRC` 与既有 `magic/body/CRC` 验证已抽成公共 framing helper，各协议保留独立类型与
   原有字节布局。正式快照已改为文件切片和有界分块，不再把数据库 bundle 整体装入 128 MiB vector。
 - 在验收中补齐单机兼容缺口：二级索引更新和历史键可见性、B+Tree 非唯一全扫描去重、窗口函数、
@@ -28,8 +61,8 @@
 
 ## 历史完整验收证据（旧修订）
 
-以下结果对应各自记录时的修订，不能追溯性覆盖后来新增的 oracle；当前权威结果见文末
-“最终修复收口交接（2026-08-30，当前权威）”。
+以下结果对应各自记录时的修订，不能追溯性覆盖后来新增的 oracle；M0–M7 基线权威结果见文末
+“最终修复收口交接（2026-08-30，M0–M7 基线权威）”。
 
 - Clang 14 Debug + ASan/UBSan：发现 61 个 GTest 二进制，60 个有效测试全部通过；仅
   `trie_debug_test` 因课程仓库故意缺少 Gradescope 隐藏答案而跳过。
@@ -56,8 +89,9 @@
   已删除三个 ready `DurableFuture` 适配层及所有对应的立即 `.get()`；没有引入异步 completion 或存储调度器。
 - `test/recovery/power_loss_storage.h` 现在是共享的命名故障注入框架，事件固定为 `before_write`、
   `after_fsync`、`after_rename`、`after_dir_fsync`，并按事件类型记录 occurrence 与路径历史。
-- Snapshot 发布、StableStore、CommandLog、LogStore ReplaceSuffix 和 InstallSnapshotBase 都使用同一 old-or-new
-  恢复 oracle。LogStore 新建 journal 时补充父目录同步，以保证新文件名本身越过 durability barrier。
+- Snapshot 发布、StableStore、CommandLog 和 LogStore 原子替换共享 old-or-new oracle；
+  InstallSnapshot 只共享命名事件框架，它使用 `max(H,S)`、pre-install term/suffix 和 committed-range
+  连续性的跨文件 oracle。LogStore 新建 journal 时补充父目录同步，以保证新文件名本身越过 durability barrier。
 - Clang 14 ASan/UBSan 针对性验证通过：`stable_store_test` 3/3、`log_store_test` 6/6、
   `command_log_test` 6/6、`snapshot_manager_test` 3/3、`single_node_runtime_test` 1/1、`raft_node_test` 8/8。
   `log_store_test` 和 `single_node_runtime_test` 首次均在 `Running main` 前空输出退出 139，按既有门禁各重试
@@ -182,7 +216,8 @@ Catalog、Session 和 BusTub snapshot bundle。后者同时要求 aggregate Enco
 五条正式进程证据均为该修订源码的单次场景运行：
 
 - M6：真实响应整帧丢失、Leader KILL、相同请求 byte-identical retry、非幂等 `+7` 只发生一次、精确有序行、
-  stale/read/NOOP 水位和旧节点追赶。
+  stale/read 水位和旧节点追赶。当时把一次后续客户端写后的水位称作 NOOP 证据并不精确；基线后复审已把
+  该断言移到 replacement Leader ready 后、任何新 proposal 前。
 - M7 snapshot crash：1600 行；命中实际 `capture-*` 后 KILL，单节点先恢复；精确核对 id 1/2/1600、secondary
   lookup、Catalog 名称、Session 原响应 bytes/index、无新 log 和无二次 `+7`。
 - M7 transfer/replay：记录 3 块、135,485 字节，要求 `last_included_index == S < suffix`；完整旧帧重放得到
@@ -191,9 +226,10 @@ Catalog、Session 和 BusTub snapshot bundle。后者同时要求 aggregate Enco
   解析并精确选择前一代 index、bridge replay；进程调度只验证所有实际读为完整旧/新集合，确定性 Apply 临界区
   由 `BusTubStateMachineTest.ReaderBlocksUntilDataIndexSessionAndWatermarkPublishTogether` 的 test-owned gate 覆盖，未向 production
   增加暂停 Apply 的测试 RPC。
-- 连续链路：同一 durable state 从 M0 走到 M7；记录 5 块、266,737 字节、Snapshot@12 term 2，覆盖准入无
-  副作用、响应丢失、切主 exact-once、snapshot+suffix、多块追赶、stale replay、真实 node.conf 身份拒绝、
-  3/1/2 全停全启和恢复后 BIGINT PK/secondary index/OID 继续分配。
+- distributed 累计链路：从全新集群目录开始，在同一份 M3–M7 durable state 上记录 5 块、266,737 字节、
+  Snapshot@12 term 2，覆盖准入无副作用、响应丢失、切主 exact-once、snapshot+suffix、多块追赶、
+  stale replay、真实 node.conf 身份拒绝、3/1/2 全停全启和恢复后 BIGINT PK/secondary index/OID 继续分配；
+  它累计复验早期逻辑性质，但不迁移 term-0 文件。
 
 该轮 Release 严格门禁：26/26 组件二进制、102 个具体测试、0 failed、0 disabled、每个二进制一个 process
 attempt、`process_retries=0`；五条进程场景也没有整场或节点启动重试。`eventually` 仅可在命名的网络/Leader
@@ -212,7 +248,7 @@ production 源码无测试反向依赖，`/tmp` 的 `bustub*` 候选与后台 no
 
 停止边界不变：M7 完成后无自动下一步，不进入 M8/V2；等待用户新命令。
 
-## 最终修复收口交接（2026-08-30，当前权威）
+## 最终修复收口交接（2026-08-30，M0–M7 基线权威）
 
 ### 当前执行位置
 
@@ -230,7 +266,7 @@ M0–M7 已按方案完成，当前没有半执行阶段。恢复执行时已先
 - `raft_message_proxy.py` 主动恢复 `SIGTERM` 终止语义，解决继承 ignored signal 后 harness 无法正常回收的
   问题。最终十条进程场景没有 cleanup 强杀、退出异常、进程或端口残留。
 
-### 当前源码验收
+### 基线源码验收
 
 - ASan/UBSan component gate：26/26 binaries、122/122 tests，0 failed/errors/disabled/not-run，26 个 JSON/log
   均非空可解析，`process_retries=0`，sanitizer markers 为 0。
@@ -238,8 +274,8 @@ M0–M7 已按方案完成，当前没有半执行阶段。恢复执行时已先
   lock-order-inversion。
 - Release SQLLogicTest：40/40，0 failed；`leaderboard-q1-index` 669.72 秒自然结束，无重跑。
 - ASan/UBSan 与 Release 各自运行五条正式三进程 E2E，各 24 个 timeline、全部 fresh 且单次通过。两种构建
-  都记录 transfer 的 3 块/135,485 bytes/Snapshot@4 term 1，以及连续链路的 5 块/266,737 bytes/
-  Snapshot@12 term 2。
+  都记录 transfer 的 3 块/135,485 bytes/Snapshot@4 term 1，以及同一份 M3–M7 distributed durable state
+  累计链路的 5 块/266,737 bytes/Snapshot@12 term 2。
 - 全源码树 Clang 14 format dry-run 与仓库 cpplint、全部 6 个 shell 语法、4 个 Python AST、
   `git diff --check`、production→test 反向依赖检查均通过。
 
@@ -255,12 +291,13 @@ sanitizer/assertion/timeout/protocol 失败。
 2,676,096,997 bytes（2.492 GiB），未保留不可再生副本。复扫没有 `/tmp` 任务前缀、后台
 `bustub-node`/`bustub-client`/proxy、18,100–31,899 监听端口或源码树 ignored/generated 文件。
 
-最终 `git status --short --untracked-files=all` 为 208 项正式交付：103 个 tracked 修改、105 个新增文件、
-0 删除；新增文件的扩展名和路径均属于源码、注册测试、共享 harness/tool 或文档。仓库占用 570,615,493
+基线提交前 `git status --short --untracked-files=all` 的 208 项正式交付（103 个 tracked 修改、
+105 个新增文件、0 删除）已全部收入 `ec11bb0`；该数字不再表示后续工作树状态。仓库当时占用 570,615,493
 bytes。`bustub-20241207-2024fall/` 的 1,347 个文件均已跟踪，占 36,074,734 bytes，是课程基线而非临时复制，
 已保留。
 
 ### 下一次恢复
 
-无自动下一步。先读本节、方案文档的同名 2026-08-30 权威段和测试矩阵，再核对 `git status`；M7 已完成，
-不得自行进入 M8/V2。只有源码改变或用户明确要求重新验收时才重建，构建仍放到源码树外并执行同一清理门禁。
+无自动下一功能步骤。先读本节、方案文档的基线权威段和测试矩阵，再核对 `git status`；
+M8 只能在方案先冻结唯一功能定义后开始。任何后续源码改动都需按影响范围重新验证，
+构建仍放到源码树外并执行同一清理门禁。

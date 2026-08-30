@@ -137,8 +137,9 @@ add_dependencies(check-tests sqllogictest)
 
 # This is deliberately separate from the ordinary unit/SQLLogicTest targets: it
 # owns real loopback ports, starts three production node processes, and carries
-# one durable state from M0 through M7. The script creates a fresh artifact root
-# for every CTest process and rejects reuse.
+# one fresh distributed durable state through the M3-M7 assembly while cumulatively
+# rechecking earlier logical properties. It does not migrate term-0 files. The script
+# creates a fresh artifact root for every CTest process and rejects reuse.
 add_test(
         NAME RaftProcessChain
         COMMAND bash "${PROJECT_SOURCE_DIR}/test/e2e/raft_m0_m7_chain.sh" "${CMAKE_BINARY_DIR}" 24100)

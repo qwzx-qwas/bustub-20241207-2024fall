@@ -99,13 +99,15 @@ void SessionTable::RecordCommitted(uint64_t client_id, uint64_t request_id,
   sessions_.insert_or_assign(client_id, SessionRecord{request_id, encoded_response});
 }
 
-void SessionTable::ValidateSnapshotBoundary(uint64_t last_included_index) const {
+void SessionTable::ValidateSnapshotBoundary(uint64_t last_included_index,
+                                            std::optional<uint64_t> required_response_term) const {
   std::shared_lock lock(mutex_);
   for (const auto &[client_id, record] : sessions_) {
     const auto response = WriteResponseCodec::Decode(record.encoded_response_);
     if (client_id == 0 || record.last_request_id_ == 0 || response.request_id_ != record.last_request_id_ ||
-        response.commit_index_ > last_included_index) {
-      throw std::runtime_error("session response lies beyond the snapshot boundary");
+        response.commit_index_ > last_included_index ||
+        (required_response_term.has_value() && response.term_ != *required_response_term)) {
+      throw std::runtime_error("session response is incompatible with the snapshot boundary");
     }
   }
 }

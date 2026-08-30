@@ -46,8 +46,10 @@ TEST(CanonicalSnapshotTest, MaterializesSelfContainedCommittedState) {
   source.AdvanceSchemaEpoch();
 
   SessionTable sessions;
-  const auto encoded_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 3, 11});
-  sessions.RecordCommitted(99, 1, encoded_response);
+  const auto encoded_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 11});
+  // M0/M1 fixture: restore a pre-existing persisted record without exercising
+  // the M2 exact-once transition API.
+  sessions.RestoreRecords({{99, SessionRecord{1, encoded_response}}});
 
   PosixDurableStorage storage;
   const auto root = std::filesystem::temp_directory_path() / ("bustub-canonical-snapshot-" + std::to_string(getpid()));

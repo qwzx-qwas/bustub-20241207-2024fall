@@ -15,9 +15,9 @@
 #include <vector>
 
 #include "catalog/catalog.h"
+#include "common/state_visibility.h"
 #include "distributed/command.h"
 #include "distributed/session_table.h"
-#include "distributed/state_visibility.h"
 #include "recovery/log_codec.h"
 
 namespace bustub {

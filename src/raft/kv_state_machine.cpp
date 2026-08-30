@@ -54,6 +54,13 @@ auto KvCommandCodec::Decode(const std::vector<std::byte> &bytes) -> KvCommand {
   return command;
 }
 
+void KvStateMachine::ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const {
+  if (type != EntryType::KV_COMMAND) {
+    throw std::runtime_error("unsupported proposal type for KV state machine");
+  }
+  static_cast<void>(KvCommandCodec::Decode(payload));
+}
+
 void KvStateMachine::Apply(const ReplicatedLogEntry &entry) {
   if (entry.index_ != last_applied_ + 1) {
     throw std::runtime_error("KV state machine apply is not continuous");
@@ -127,6 +134,19 @@ void KvStateMachine::InstallSnapshot(const std::vector<std::byte> &payload, uint
 void KvStateMachine::CreateSnapshotFile(const std::filesystem::path &path) const {
   PosixDurableStorage storage;
   storage.WriteFile(path, CreateSnapshot());
+}
+
+void KvStateMachine::ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {
+  if (payload.size_ > KV_MAX_SNAPSHOT_BYTES) {
+    throw std::runtime_error("KV snapshot exceeds its in-memory teaching-state limit");
+  }
+  PosixDurableStorage storage;
+  const auto bytes = storage.ReadFileRange(payload.path_, payload.offset_, static_cast<size_t>(payload.size_));
+  if (bytes.size() != payload.size_) {
+    throw std::runtime_error("KV snapshot file was truncated");
+  }
+  KvStateMachine candidate;
+  candidate.InstallSnapshot(bytes, last_included_index);
 }
 
 void KvStateMachine::InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {

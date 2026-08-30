@@ -264,7 +264,7 @@ TEST(LogStoreTest, SnapshotBaseConsumesAlreadyDurableExternalCommit) {
   storage->RemoveTree(directory);
 }
 
-// M7-T01: establishing a snapshot base atomically rewrites away obsolete physical mutation history.
+// M4-T06: establishing a snapshot base atomically rewrites away obsolete physical mutation history.
 TEST(LogStoreTest, SnapshotBasePhysicallyCompactsJournal) {
   auto storage = std::make_shared<PosixDurableStorage>();
   const auto directory = TestDirectory("snapshot-compact");

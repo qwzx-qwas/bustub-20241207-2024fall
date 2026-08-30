@@ -3,6 +3,7 @@ add_library(
   OBJECT
   kv_state_machine.cpp
   log_store.cpp
+  persistent_state.cpp
   raft_node.cpp
   rpc_codec.cpp
   snapshot_store.cpp

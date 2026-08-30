@@ -20,8 +20,8 @@
 
 #include "buffer/buffer_pool_manager.h"
 #include "catalog/catalog.h"
+#include "common/state_visibility.h"
 #include "distributed/session_table.h"
-#include "distributed/state_visibility.h"
 #include "gtest/gtest.h"
 #include "power_loss_storage.h"  // NOLINT(build/include_subdir)
 #include "recovery/node_directory.h"
@@ -70,7 +70,8 @@ TEST(NodeDirectoryTest, FirstCreationSynchronizesEveryNewAncestorEntry) {
   storage->RemoveTree(anchor);
 }
 
-// M1-T03: immutable publication, two-generation retention, and recovery rebuild a usable working database.
+// M2-IT02 (cumulatively rechecking M1): runtime-directed pruning keeps two bridged generations and recovery rebuilds
+// a usable database plus exact-once Session state.
 TEST(SnapshotManagerTest, PublishPruneAndRecover) {
   auto storage = std::make_shared<PosixDurableStorage>();
   const auto root = std::filesystem::temp_directory_path() / ("bustub-snapshot-manager-" + std::to_string(getpid()));
@@ -100,8 +101,8 @@ TEST(SnapshotManagerTest, PublishPruneAndRecover) {
                  ValueFactory::GetIntegerValue(static_cast<int32_t>(generation * 10))},
                 &schema);
     ASSERT_TRUE(table->table_->InsertTuple({static_cast<timestamp_t>(generation * 10), false}, tuple).has_value());
-    final_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, generation, generation, generation * 10});
-    sessions.RecordCommitted(700, generation, final_response);
+    final_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, generation, 0, generation * 10});
+    sessions.RestoreRecords({{700, SessionRecord{generation, final_response}}});
     snapshots.CreateSnapshot(source, sessions, &latch, generation, generation * 10, 0);
   }
 
@@ -174,7 +175,7 @@ TEST(SnapshotManagerTest, PublishPruneAndRecover) {
   storage->RemoveTree(root);
 }
 
-// M2-IT02: every named durability event in snapshot/CURRENT publication uses the shared old-or-new recovery oracle.
+// M1-IT02: every named durability event in snapshot/CURRENT publication uses the shared old-or-new recovery oracle.
 TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
   const auto run = [](std::optional<StorageFaultPlan> fault) -> AtomicDurabilityRun<uint64_t> {
     const auto suffix = fault.has_value() ? fault->Name() : "complete";
@@ -209,9 +210,9 @@ TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
     }
     source.AdvanceSchemaEpoch();
     SessionTable sessions;
-    const auto old_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 3, 1});
-    const auto new_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 4, 2});
-    sessions.RecordCommitted(91, 1, old_response);
+    const auto old_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 1});
+    const auto new_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 0, 2});
+    sessions.RestoreRecords({{91, SessionRecord{1, old_response}}});
     StateVisibilityLatch latch;
 
     auto node_directory = NodeDirectory::Open(root, storage);
@@ -223,7 +224,7 @@ TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
              .has_value()) {
       throw std::runtime_error("test source generation-two tuple insertion failed");
     }
-    sessions.RecordCommitted(91, 2, new_response);
+    sessions.RestoreRecords({{91, SessionRecord{2, new_response}}});
     storage->ResetEventHistory();
     if (fault.has_value()) {
       storage->FailAt(*fault);
@@ -280,12 +281,8 @@ TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
       }
     }
     const auto response = recovered->sessions_->GetLastResponse(91);
-    if (!response.has_value() ||
-        (generation == 1 && (rows != old_rows || *response != old_response ||
-                             recovered->sessions_->Classify(91, 1) != RequestDisposition::RETRY_LAST)) ||
-        (generation == 2 && (rows != new_rows || *response != new_response ||
-                             recovered->sessions_->Classify(91, 2) != RequestDisposition::RETRY_LAST)) ||
-        (generation != 1 && generation != 2)) {
+    if (!response.has_value() || (generation == 1 && (rows != old_rows || *response != old_response)) ||
+        (generation == 2 && (rows != new_rows || *response != new_response)) || (generation != 1 && generation != 2)) {
       throw std::runtime_error("power-loss recovery produced a mixed database/Catalog/Session generation");
     }
     recovered.reset();
@@ -301,19 +298,17 @@ TEST(SnapshotManagerTest, PublicationPowerLossMatrix) {
       {StorageFaultPoint::AFTER_FSYNC, 1, "state/SNAPSHOT-00000000000000000002.tmp/db.bustub", {}},
       {StorageFaultPoint::AFTER_FSYNC, 2, "state/SNAPSHOT-00000000000000000002.tmp/catalog.bin", {}},
       {StorageFaultPoint::AFTER_FSYNC, 3, "state/SNAPSHOT-00000000000000000002.tmp/session.bin", {}},
-      {StorageFaultPoint::BEFORE_WRITE, 4, "state/SNAPSHOT-00000000000000000002.tmp/CHECKSUMS", {}},
-      {StorageFaultPoint::AFTER_FSYNC, 4, "state/SNAPSHOT-00000000000000000002.tmp/CHECKSUMS", {}},
       {StorageFaultPoint::AFTER_DIR_FSYNC, 1, "state/SNAPSHOT-00000000000000000002.tmp", {}},
       {StorageFaultPoint::AFTER_RENAME, 1, "state/SNAPSHOT-00000000000000000002",
        "state/SNAPSHOT-00000000000000000002.tmp"},
       {StorageFaultPoint::AFTER_DIR_FSYNC, 2, "state", {}},
-      {StorageFaultPoint::BEFORE_WRITE, 5, "state/MANIFEST-00000000000000000002.tmp", {}},
-      {StorageFaultPoint::AFTER_FSYNC, 5, "state/MANIFEST-00000000000000000002.tmp", {}},
+      {StorageFaultPoint::BEFORE_WRITE, 4, "state/MANIFEST-00000000000000000002.tmp", {}},
+      {StorageFaultPoint::AFTER_FSYNC, 4, "state/MANIFEST-00000000000000000002.tmp", {}},
       {StorageFaultPoint::AFTER_RENAME, 2, "state/MANIFEST-00000000000000000002",
        "state/MANIFEST-00000000000000000002.tmp"},
       {StorageFaultPoint::AFTER_DIR_FSYNC, 3, "state", {}},
-      {StorageFaultPoint::BEFORE_WRITE, 6, "state/CURRENT.tmp", {}},
-      {StorageFaultPoint::AFTER_FSYNC, 6, "state/CURRENT.tmp", {}},
+      {StorageFaultPoint::BEFORE_WRITE, 5, "state/CURRENT.tmp", {}},
+      {StorageFaultPoint::AFTER_FSYNC, 5, "state/CURRENT.tmp", {}},
       {StorageFaultPoint::AFTER_RENAME, 3, "state/CURRENT", "state/CURRENT.tmp"},
       {StorageFaultPoint::AFTER_DIR_FSYNC, 4, "state", {}},
   };
@@ -346,19 +341,19 @@ TEST(SnapshotManagerTest, LogicalCaptureWaitsForReaderBarrier) {
   ASSERT_NE(primary_index, nullptr);
   source.AdvanceSchemaEpoch();
   SessionTable sessions;
-  const auto response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 2, 4});
-  sessions.RecordCommitted(42, 1, response);
+  const auto response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 1, 0, 4});
+  sessions.RestoreRecords({{42, SessionRecord{1, response}}});
   StateVisibilityLatch latch;
   SnapshotManager snapshots(node_directory.get(), storage);
 
   auto reader = latch.LockShared();
   auto publication =
-      std::async(std::launch::async, [&] { return snapshots.CreateSnapshot(source, sessions, &latch, 1, 4, 2); });
+      std::async(std::launch::async, [&] { return snapshots.CreateSnapshot(source, sessions, &latch, 1, 4, 0); });
   EXPECT_EQ(publication.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
   reader.unlock();
   const auto manifest = publication.get();
   EXPECT_EQ(manifest.last_included_index_, 4);
-  EXPECT_EQ(manifest.last_included_term_, 2);
+  EXPECT_EQ(manifest.last_included_term_, 0);
 
   auto recovered = snapshots.Recover([](uint64_t index) { return index == 4; }, 16);
   ASSERT_NE(recovered, nullptr);
@@ -376,9 +371,21 @@ TEST(SnapshotManagerTest, LogicalCaptureWaitsForReaderBarrier) {
   ASSERT_TRUE(recovered->sessions_->GetLastResponse(42).has_value());
   EXPECT_EQ(*recovered->sessions_->GetLastResponse(42), response);
 
-  const auto future_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 3, 5});
-  sessions.RecordCommitted(42, 2, future_response);
+  // SnapshotManager is the term-0 publisher. Distributed snapshots and their
+  // nonzero Raft terms belong to SnapshotStore and must not enter this format.
   EXPECT_THROW(snapshots.CreateSnapshot(source, sessions, &latch, 2, 4, 2), std::runtime_error);
+  EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002"));
+  EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002.tmp"));
+
+  const auto nonzero_term_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 3, 4});
+  sessions.RestoreRecords({{42, SessionRecord{2, nonzero_term_response}}});
+  EXPECT_THROW(snapshots.CreateSnapshot(source, sessions, &latch, 2, 4, 0), std::runtime_error);
+  EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002"));
+  EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002.tmp"));
+
+  const auto future_response = WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, 2, 0, 5});
+  sessions.RestoreRecords({{42, SessionRecord{2, future_response}}});
+  EXPECT_THROW(snapshots.CreateSnapshot(source, sessions, &latch, 2, 4, 0), std::runtime_error);
   EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002"));
   EXPECT_FALSE(storage->Exists(node_directory->StateDirectory() / "SNAPSHOT-00000000000000000002.tmp"));
 

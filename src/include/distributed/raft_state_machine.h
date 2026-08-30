@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "catalog/catalog_snapshot.h"
+#include "common/state_visibility.h"
 #include "distributed/bustub_state_machine.h"
 #include "raft/state_machine.h"
 #include "recovery/canonical_snapshot.h"
@@ -63,9 +64,11 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   static auto Open(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage = nullptr,
                    size_t buffer_pool_size = 128) -> std::shared_ptr<BusTubRaftStateMachine>;
 
+  void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const override;
   void Apply(const ReplicatedLogEntry &entry) override;
   auto LastApplied() const -> uint64_t override;
   void CreateSnapshotFile(const std::filesystem::path &path) const override;
+  void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
   void InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
 
   auto PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id) const -> TransactionCommandBatch;

@@ -36,19 +36,21 @@ auto AccountKey(int32_t id) -> EncodedPrimaryKeyV1 {
 }
 
 auto CreateAccounts(uint64_t request_id) -> TransactionCommandBatch {
-  return CommandBuilder::Build(
-      41, request_id, 0,
-      {CreateTableCommand{0,
-                          0,
-                          "accounts",
-                          {{"id", TypeId::INTEGER, 4, false}, {"name", TypeId::VARCHAR, 32, true}},
-                          {0, TypeId::INTEGER, 1}}});
+  return {1,
+          41,
+          request_id,
+          0,
+          {CreateTableCommand{0,
+                              0,
+                              "accounts",
+                              {{"id", TypeId::INTEGER, 4, false}, {"name", TypeId::VARCHAR, 32, true}},
+                              {0, TypeId::INTEGER, 1}}}};
 }
 
 }  // namespace
 
-// M1-IT01/M2-IT01: real files recover a canonical snapshot, rebuild indexes before replay, and fall back from a
-// corrupt newest generation while preserving exact SessionTable retry bytes.
+// M2-IT01 (cumulatively rechecking M0/M1): real files recover a canonical snapshot, rebuild indexes before replay,
+// and fall back from a corrupt newest generation while preserving exact SessionTable retry bytes.
 TEST(SingleNodeCommandRuntimeTest, SnapshotSuffixReplayAndCorruptCurrentFallback) {
   auto storage = std::make_shared<PosixDurableStorage>();
   const auto root = RuntimeDirectory();
@@ -62,31 +64,37 @@ TEST(SingleNodeCommandRuntimeTest, SnapshotSuffixReplayAndCorruptCurrentFallback
   EXPECT_EQ(WriteResponseCodec::Decode(runtime->Commit(CreateAccounts(1))).commit_index_, 1);
   const auto schema = AccountsSchema();
   const auto original = AccountTuple(1, "alice");
-  auto insert_one =
-      CommandBuilder::Build(41, 2, 1, {InsertRowCommand{0, AccountKey(1), TupleCodecV1::Encode(original, schema)}});
+  TransactionCommandBatch insert_one{
+      1, 41, 2, 1, {InsertRowCommand{0, AccountKey(1), TupleCodecV1::Encode(original, schema)}}};
   EXPECT_EQ(WriteResponseCodec::Decode(runtime->Commit(insert_one)).commit_index_, 2);
 
-  auto secondary = CommandBuilder::Build(
-      41, 3, 1,
+  TransactionCommandBatch secondary{
+      1,
+      41,
+      3,
+      1,
       {CreateIndexCommand{
-          1, 0, "accounts_name", {1}, IndexType::BPlusTreeIndex, IndexConstraintKind::NON_UNIQUE_SECONDARY}});
+          1, 0, "accounts_name", {1}, IndexType::BPlusTreeIndex, IndexConstraintKind::NON_UNIQUE_SECONDARY}}};
   EXPECT_EQ(WriteResponseCodec::Decode(runtime->Commit(secondary)).commit_index_, 3);
   const auto fallback_manifest = runtime->CreateSnapshot();
   EXPECT_EQ(fallback_manifest.generation_, 2);
   EXPECT_EQ(fallback_manifest.last_included_index_, 3);
 
   const auto replacement = AccountTuple(1, "alice-updated");
-  auto update = CommandBuilder::Build(41, 4, 2,
-                                      {UpdateRowCommand{0, AccountKey(1), 2, TupleCodecV1::Encode(original, schema),
-                                                        TupleCodecV1::Encode(replacement, schema)}});
+  TransactionCommandBatch update{1,
+                                 41,
+                                 4,
+                                 2,
+                                 {UpdateRowCommand{0, AccountKey(1), 2, TupleCodecV1::Encode(original, schema),
+                                                   TupleCodecV1::Encode(replacement, schema)}}};
   EXPECT_EQ(WriteResponseCodec::Decode(runtime->Commit(update)).commit_index_, 4);
   const auto current_manifest = runtime->CreateSnapshot();
   EXPECT_EQ(current_manifest.generation_, 3);
   EXPECT_EQ(current_manifest.last_included_index_, 4);
 
   const auto second = AccountTuple(2, "bob");
-  auto insert_two =
-      CommandBuilder::Build(41, 5, 2, {InsertRowCommand{0, AccountKey(2), TupleCodecV1::Encode(second, schema)}});
+  TransactionCommandBatch insert_two{
+      1, 41, 5, 2, {InsertRowCommand{0, AccountKey(2), TupleCodecV1::Encode(second, schema)}}};
   const auto response_five = runtime->Commit(insert_two);
   EXPECT_EQ(WriteResponseCodec::Decode(response_five).commit_index_, 5);
   runtime.reset();
@@ -135,10 +143,13 @@ TEST(SingleNodeCommandRuntimeTest, SnapshotSuffixReplayAndCorruptCurrentFallback
   EXPECT_EQ(runtime->GetRow(0, AccountKey(2))->first.ts_, 5);
 
   const auto invalid_replacement = AccountTuple(1, "must-not-commit");
-  auto stale_update =
-      CommandBuilder::Build(41, 6, 2,
-                            {UpdateRowCommand{0, AccountKey(1), 999, TupleCodecV1::Encode(replacement, schema),
-                                              TupleCodecV1::Encode(invalid_replacement, schema)}});
+  TransactionCommandBatch stale_update{
+      1,
+      41,
+      6,
+      2,
+      {UpdateRowCommand{0, AccountKey(1), 999, TupleCodecV1::Encode(replacement, schema),
+                        TupleCodecV1::Encode(invalid_replacement, schema)}}};
   EXPECT_THROW(runtime->Commit(stale_update), std::runtime_error);
   EXPECT_EQ(runtime->CommitIndex(), 5);
   EXPECT_EQ(runtime->LastLogIndex(), 5);

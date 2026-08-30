@@ -34,7 +34,7 @@ struct CommandLogOptions {
                           LogCodec::FRAME_BODY_FIXED_BYTES};
 };
 
-/** Segmented durable log used by single-node replay and as the Raft LogStore foundation. */
+/** Segmented durable log used by the term-0 single-node recovery verification path. */
 class CommandLog {
  public:
   static auto Open(const std::filesystem::path &directory, std::shared_ptr<DurableStorage> storage,

@@ -24,9 +24,13 @@ namespace bustub {
 class RaftStateMachine {
  public:
   virtual ~RaftStateMachine() = default;
+  /** Read-only admission check that must complete before a proposal is appended. */
+  virtual void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const = 0;
   virtual void Apply(const ReplicatedLogEntry &entry) = 0;
   virtual auto LastApplied() const -> uint64_t = 0;
   virtual void CreateSnapshotFile(const std::filesystem::path &path) const = 0;
+  /** Fully validate a staged snapshot without replacing published state. */
+  virtual void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) = 0;
   virtual void InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) = 0;
 };
 
@@ -47,12 +51,14 @@ class KvCommandCodec {
 
 class KvStateMachine : public RaftStateMachine {
  public:
+  void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const override;
   void Apply(const ReplicatedLogEntry &entry) override;
   auto LastApplied() const -> uint64_t override { return last_applied_; }
   /** Small-state conveniences retained for direct unit tests. */
   auto CreateSnapshot() const -> std::vector<std::byte>;
   void InstallSnapshot(const std::vector<std::byte> &payload, uint64_t last_included_index);
   void CreateSnapshotFile(const std::filesystem::path &path) const override;
+  void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
   void InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
   auto Get(std::string_view key) const -> std::optional<std::string>;
   auto Data() const -> const std::map<std::string, std::string> & { return data_; }

@@ -13,7 +13,7 @@
 
 namespace bustub {
 
-/** Global V1 publication barrier shared by SQL reads, FSM Apply, snapshots, and MVCC GC. */
+/** Global V1 publication barrier shared by reads, FSM Apply, snapshots, and MVCC GC. */
 class StateVisibilityLatch {
  public:
   auto LockShared() -> std::shared_lock<std::shared_mutex> { return std::shared_lock(mutex_); }

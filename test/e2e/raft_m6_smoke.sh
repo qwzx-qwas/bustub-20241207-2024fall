@@ -50,9 +50,27 @@ proxy_port=$((port_base + 250))
 first_response_bytes=$(raft_client_write_with_dropped_response "${leader}" "${proxy_port}" "${proxy_result}" \
   500 4 "UPDATE accounts SET balance = balance + 7 WHERE id <= 2;")
 
-raft_timeline_step "E2E-03/04/06/09: kill Leader, elect replacement, retry ambiguous request"
+raft_timeline_step "E2E-03/04: kill Leader, elect replacement, retry ambiguous request"
 raft_stop_node "${leader}" KILL
 new_leader=$(raft_find_leader "${leader}")
+
+raft_timeline_step "E2E-13: inspect the ready replacement Leader before any client proposal after election"
+new_leader_status=$(raft_status "${new_leader}" 247)
+noop_index=$(raft_status_field "${new_leader_status}" commit_index)
+if [[ $(raft_status_field "${new_leader_status}" last_applied) != "${noop_index}" ]] || \
+   [[ $(raft_status_field "${new_leader_status}" published_applied_index) != "${noop_index}" ]]
+then
+  echo "ready replacement Leader did not publish its current-term NOOP boundary" >&2
+  exit 1
+fi
+noop_read=$(raft_client_call_strict "${new_leader}" read --request-id 248 --consistency linearizable \
+  --sql "SELECT id, name, balance FROM accounts ORDER BY id;")
+raft_assert_query_exact "${noop_read}" $'accounts.id\taccounts.name\taccounts.balance\n1\tone\t17\n2\ttwo\t27'
+if [[ $(raft_status_field "${noop_read}" read_timestamp) -lt ${noop_index} ]]
+then
+  echo "linearizable read timestamp is behind the replacement Leader NOOP" >&2
+  exit 1
+fi
 
 retry_output=$(raft_client_call_eventually "${new_leader}" write --client-id 500 --request-id 4 \
   --sql "UPDATE accounts SET balance = balance + 7 WHERE id <= 2;")
@@ -69,17 +87,9 @@ raft_assert_query_exact "${once_only}" $'accounts.id\taccounts.name\taccounts.ba
 raft_client_call_eventually "${new_leader}" write --client-id 500 --request-id 5 \
   --sql "DELETE FROM accounts WHERE id = 1;"
 
-new_leader_status=$(raft_status "${new_leader}" 250)
-noop_index=$(raft_status_field "${new_leader_status}" published_applied_index)
 linear_read=$(raft_client_call_eventually "${new_leader}" read --request-id 251 --consistency linearizable \
   --sql "SELECT id, name, balance FROM accounts ORDER BY id;")
 raft_assert_query_exact "${linear_read}" $'accounts.id\taccounts.name\taccounts.balance\n2\ttwo\t27'
-linear_read_ts=$(raft_status_field "${linear_read}" read_timestamp)
-if [[ ${linear_read_ts} -lt ${noop_index} ]]
-then
-  echo "linearizable read timestamp is behind the new-Leader NOOP watermark" >&2
-  exit 1
-fi
 
 raft_timeline_step "E2E-04/08: restart old node, await durable catch-up, then issue explicit stale read"
 raft_start_node "${leader}"
@@ -99,6 +109,9 @@ do
     exit 1
   fi
   raft_assert_query_exact "${stale_read}" $'accounts.id\taccounts.name\taccounts.balance\n2\ttwo\t27'
+  secondary_read=$(raft_client_call_strict "${node_id}" read --request-id "$((400 + node_id))" --consistency stale \
+    --sql "SELECT id, name, balance FROM accounts WHERE name = 'two';")
+  raft_assert_query_exact "${secondary_read}" $'accounts.id\taccounts.name\taccounts.balance\n2\ttwo\t27'
 done
 
 echo "M6 binary smoke passed; artifacts: ${artifact_root}"

@@ -21,16 +21,10 @@
 #include <vector>
 
 #include "catalog/catalog_snapshot.h"
-#include "common/byte_codec.h"
 #include "recovery/canonical_snapshot.h"
 
 namespace bustub {
 namespace {
-
-auto ToBytes(const std::string &value) -> std::vector<std::byte> {
-  const auto *begin = reinterpret_cast<const std::byte *>(value.data());
-  return {begin, begin + value.size()};
-}
 
 auto ParseGenerationName(std::string_view name, std::string_view prefix) -> std::optional<uint64_t> {
   constexpr size_t digits = 20;
@@ -78,7 +72,7 @@ auto SnapshotManager::CreateSnapshot(const Catalog &catalog, const SessionTable 
                                      StateVisibilityLatch *visibility_latch, uint64_t generation,
                                      uint64_t last_included_index, uint64_t last_included_term) -> StateManifest {
   if (node_directory_ == nullptr || storage_ == nullptr || visibility_latch == nullptr || generation == 0 ||
-      (last_included_index == 0 && last_included_term != 0)) {
+      last_included_term != 0) {
     throw std::runtime_error("invalid snapshot request");
   }
   const auto state_directory = node_directory_->StateDirectory();
@@ -97,7 +91,7 @@ auto SnapshotManager::CreateSnapshot(const Catalog &catalog, const SessionTable 
     // M1 snapshot barrier: logical files are complete and closed before readers are admitted again. The caller keeps
     // write proposal admission closed until publication finishes, so later working-state changes cannot enter them.
     auto exclusive = visibility_latch->LockExclusive();
-    sessions.ValidateSnapshotBoundary(last_included_index);
+    sessions.ValidateSnapshotBoundary(last_included_index, 0);
     storage_->CreateDirectories(temporary);
     built = CanonicalSnapshotBuilder::BuildUnsynced(catalog, sessions, paths, storage_.get());
   }
@@ -107,11 +101,6 @@ auto SnapshotManager::CreateSnapshot(const Catalog &catalog, const SessionTable 
   storage_->SyncFile(paths.database_file_);
   storage_->SyncFile(paths.catalog_file_);
   storage_->SyncFile(paths.session_file_);
-  const auto checksums = "db.bustub " + std::to_string(database_checksum) + "\n" + "catalog.bin " +
-                         std::to_string(catalog_checksum) + "\n" + "session.bin " + std::to_string(session_checksum) +
-                         "\n";
-  storage_->WriteFile(temporary / "CHECKSUMS", ToBytes(checksums));
-  storage_->SyncFile(temporary / "CHECKSUMS");
   storage_->SyncDirectory(temporary);
   storage_->Rename(temporary, final);
   storage_->SyncDirectory(state_directory);
@@ -167,7 +156,7 @@ auto SnapshotManager::Recover(const std::function<bool(uint64_t)> &has_bridge_lo
   recovered->sessions_ = std::make_unique<SessionTable>();
   SessionSnapshotCodec::DecodeInto(storage_->ReadFile(state_directory / manifest.session_file_, 64U * 1024U * 1024U),
                                    recovered->sessions_.get());
-  recovered->sessions_->ValidateSnapshotBoundary(manifest.last_included_index_);
+  recovered->sessions_->ValidateSnapshotBoundary(manifest.last_included_index_, 0);
   recovered->last_applied_ = manifest.last_included_index_;
   recovered->published_applied_index_ = manifest.last_included_index_;
   return recovered;

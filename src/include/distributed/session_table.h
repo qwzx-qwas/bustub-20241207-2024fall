@@ -56,8 +56,13 @@ class SessionTable {
   auto GetLastResponse(uint64_t client_id) const -> std::optional<std::vector<std::byte>>;
   void RecordCommitted(uint64_t client_id, uint64_t request_id, const std::vector<std::byte> &encoded_response);
 
-  /** Fail closed if any cached response describes a commit beyond Snapshot@last_included_index. */
-  void ValidateSnapshotBoundary(uint64_t last_included_index) const;
+  /**
+   * Fail closed if any cached response describes a commit beyond Snapshot@last_included_index. A mode-specific
+   * publisher may additionally require every cached response to carry one exact term; distributed snapshots leave
+   * this unset because a snapshot can contain committed responses from several Raft terms.
+   */
+  void ValidateSnapshotBoundary(uint64_t last_included_index,
+                                std::optional<uint64_t> required_response_term = std::nullopt) const;
 
   auto SnapshotRecords() const -> std::map<uint64_t, SessionRecord>;
   void RestoreRecords(std::map<uint64_t, SessionRecord> records);
