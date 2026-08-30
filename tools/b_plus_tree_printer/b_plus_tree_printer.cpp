@@ -14,18 +14,16 @@
 #include <iostream>
 
 #include "buffer/buffer_pool_manager.h"
+#include "catalog/schema.h"
 #include "common/logger.h"
 #include "storage/index/b_plus_tree.h"
-#include "test_util.h"  // NOLINT
 
 using bustub::BPlusTree;
 using bustub::BufferPoolManager;
 using bustub::DiskManager;
-using bustub::Exception;
 using bustub::GenericComparator;
 using bustub::GenericKey;
 using bustub::page_id_t;
-using bustub::ParseCreateStatement;
 using bustub::RID;
 
 auto UsageMessage() -> std::string {
@@ -55,21 +53,14 @@ auto main(int argc, char **argv) -> int {
   bool quit = false;
   int leaf_max_size;
   int internal_max_size;
-  std::unique_ptr<bustub::Schema> key_schema;
 
   std::cout << UsageMessage();
   std::cin >> leaf_max_size;
   std::cin >> internal_max_size;
 
   // create KeyComparator and index schema
-  std::string create_stmt = "a bigint";
-  try {
-    key_schema = ParseCreateStatement(create_stmt);
-  } catch (Exception &ex) {
-    std::cerr << "Failed to parse create statement: " << ex.what() << std::endl;
-  }
-
-  GenericComparator<8> comparator(key_schema.get());
+  bustub::Schema key_schema({bustub::Column("a", bustub::TypeId::BIGINT)});
+  GenericComparator<8> comparator(&key_schema);
 
   auto *disk_manager = new DiskManager("test.bustub");
   auto *bpm = new BufferPoolManager(100, disk_manager);

@@ -116,9 +116,7 @@ auto TimestampType::ToString(const Value &val) const -> std::string {
   tm /= 32;
   auto month = static_cast<uint16_t>(tm);
   const size_t date_str_len = 30;
-  const size_t zone_len = 5;
   char str[date_str_len];
-  char zone[zone_len];
   snprintf(str, date_str_len, "%04d-%02d-%02d %02d:%02d:%02d.%06d", year, month, day, hour, min, sec, micro);
   if (tz >= 0) {
     str[26] = '+';
@@ -128,9 +126,12 @@ auto TimestampType::ToString(const Value &val) const -> std::string {
   if (tz < 0) {
     tz = -tz;
   }
-  snprintf(zone, zone_len, "%02d", tz);  // NOLINT
+  auto zone = std::to_string(tz);
+  if (zone.size() < 2) {
+    zone.insert(zone.begin(), '0');
+  }
   str[27] = 0;
-  return std::string(std::string(str) + std::string(zone));
+  return std::string(str) + zone;
 }
 
 void TimestampType::SerializeTo(const Value &val, char *storage) const {

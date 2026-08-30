@@ -15,8 +15,7 @@ namespace {
 //
 // 举例：对于 SQL "SELECT ... WHERE age > 20"
 // 表达式树：(Comparison: >)
-//            /           \
-//      (Column: age)   (Constant: 20)
+// 子节点：(Column: age), (Constant: 20)
 //
 
 void ExtractUsedColumns(const AbstractExpressionRef &expr, std::unordered_set<uint32_t> &used_cols) {

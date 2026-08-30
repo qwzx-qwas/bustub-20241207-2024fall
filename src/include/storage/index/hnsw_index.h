@@ -170,7 +170,7 @@ class HNSWIndex : public Index {
   std::size_t ef_construction_{32};
   std::size_t ef_search_{16};
   VectorIndexDistanceMetric metric_{VectorIndexDistanceMetric::L2};
-  static constexpr int kMaxLevelCap = 16;
+  static constexpr int MAX_LEVEL_CAP = 16;
 };
 
 template <typename KT, typename VT, typename Cmp>
@@ -197,7 +197,7 @@ auto HNSWIndex<KT, VT, Cmp>::GenerateLevelUnlocked(RID rid, std::uint64_t entry_
 
   std::uint64_t state = mix(static_cast<std::uint64_t>(rid.Get()) ^ (entry_id << 1U));
   int level = 0;
-  while ((state & 0x3ULL) == 0ULL && level < kMaxLevelCap) {
+  while ((state & 0x3ULL) == 0ULL && level < MAX_LEVEL_CAP) {
     level += 1;
     state >>= 2U;
   }

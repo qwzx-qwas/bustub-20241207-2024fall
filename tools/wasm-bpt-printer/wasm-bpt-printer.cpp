@@ -8,6 +8,7 @@
 #include <string>
 #include "binder/binder.h"
 #include "buffer/buffer_pool_manager.h"
+#include "catalog/schema.h"
 #include "common/bustub_instance.h"
 #include "common/exception.h"
 #include "common/logger.h"
@@ -15,17 +16,14 @@
 #include "concurrency/transaction.h"
 #include "linenoise/linenoise.h"
 #include "storage/index/b_plus_tree.h"
-#include "test_util.h"  // NOLINT
 #include "utf8proc/utf8proc.h"
 
 using bustub::BPlusTree;
 using bustub::BufferPoolManager;
 using bustub::DiskManager;
-using bustub::Exception;
 using bustub::GenericComparator;
 using bustub::GenericKey;
 using bustub::page_id_t;
-using bustub::ParseCreateStatement;
 using bustub::RID;
 using bustub::Transaction;
 
@@ -41,20 +39,13 @@ auto UsageMessage() -> std::string {
 using BPT = BPlusTree<GenericKey<8>, RID, GenericComparator<8>>;
 BPT *tree = nullptr;
 BufferPoolManager *bpm = nullptr;
-std::unique_ptr<bustub::Schema> key_schema = nullptr;
+bustub::Schema key_schema({bustub::Column("a", bustub::TypeId::BIGINT)});
 
 extern "C" {
 
 auto BusTubInit(int leaf_max_size, int internal_max_size) -> int {
   // create KeyComparator and index schema
-  std::string create_stmt = "a bigint";
-  try {
-    key_schema = ParseCreateStatement(create_stmt);
-  } catch (Exception &ex) {
-    std::cerr << "Failed to parse create statement: " << ex.what() << std::endl;
-  }
-
-  GenericComparator<8> comparator(key_schema.get());
+  GenericComparator<8> comparator(&key_schema);
 
   auto *disk_manager = new DiskManager("test.bustub");
   bpm = new BufferPoolManager(100, disk_manager);

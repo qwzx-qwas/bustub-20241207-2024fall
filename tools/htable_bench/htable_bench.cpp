@@ -14,6 +14,7 @@
 #include "binder/binder.h"
 #include "buffer/buffer_pool_manager.h"
 #include "buffer/lru_k_replacer.h"
+#include "catalog/schema.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/rid.h"
@@ -22,7 +23,6 @@
 #include "fmt/format.h"
 #include "storage/disk/disk_manager_memory.h"
 #include "storage/index/generic_key.h"
-#include "test_util.h"
 
 #include <sys/time.h>
 
@@ -144,8 +144,8 @@ auto main(int argc, char **argv) -> int {
   fmt::print(stderr, "[info] total_keys={}, duration_ms={}, lru_k_size={}, bpm_size={}\n", TOTAL_KEYS, duration_ms,
              LRU_K_SIZE, BUSTUB_BPM_SIZE);
 
-  auto key_schema = bustub::ParseCreateStatement("a bigint");
-  bustub::GenericComparator<8> comparator(key_schema.get());
+  bustub::Schema key_schema({bustub::Column("a", bustub::TypeId::BIGINT)});
+  bustub::GenericComparator<8> comparator(&key_schema);
 
   bustub::DiskExtendibleHashTable<bustub::GenericKey<8>, bustub::RID, bustub::GenericComparator<8>> index(
       "foo_pk", bpm.get(), comparator, bustub::HashFunction<bustub::GenericKey<8>>(), HTABLE_HEADER_DEPTH,

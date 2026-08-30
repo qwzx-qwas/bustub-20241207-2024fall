@@ -87,6 +87,16 @@ TEST(TypeTests, MinValueTest) {
 }
 
 // NOLINTNEXTLINE
+TEST(TypeTests, TimestampToStringUsesTwoDigitTimezone) {
+  // These literal packed values bypass the VARCHAR timestamp parser, so the
+  // expected strings independently check both signs, zero padding, and bounds.
+  EXPECT_EQ(Value(TypeId::TIMESTAMP, uint64_t{918202411045006007}).ToString(), "2024-01-02 03:04:05.006007-12");
+  EXPECT_EQ(Value(TypeId::TIMESTAMP, uint64_t{929202411045006007}).ToString(), "2024-01-02 03:04:05.006007-01");
+  EXPECT_EQ(Value(TypeId::TIMESTAMP, uint64_t{930202411045006007}).ToString(), "2024-01-02 03:04:05.006007+00");
+  EXPECT_EQ(Value(TypeId::TIMESTAMP, uint64_t{944202411045006007}).ToString(), "2024-01-02 03:04:05.006007+14");
+}
+
+// NOLINTNEXTLINE
 TEST(TypeTests, TemplateTest) {
   std::string temp = "32";
   Value val1(TypeId::INTEGER, 32);

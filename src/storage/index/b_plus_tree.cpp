@@ -830,14 +830,12 @@ auto BPLUSTREE_TYPE::MergeLeaf(WritePageGuard &leaf_guard, WritePageGuard &paren
   // 先看看有没有左兄弟节点
   auto leaf_page_id = leaf_guard.GetPageId();
   auto current_index = parent_page->ValueIndex(leaf_page_id);
-  LeafPage *sibling_page = nullptr;
   WritePageGuard sibling_guard;
 
   if (current_index > 0) {
     // 有左兄弟节点
     page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
     sibling_guard = bpm_->WritePage(left_sibling_page_id);
-    sibling_page = sibling_guard.AsMut<LeafPage>();
 
     MergeLeafHelper(sibling_guard, leaf_guard, parent_guard, current_index - 1);  // NOLINT
     return true;
@@ -908,14 +906,12 @@ auto BPLUSTREE_TYPE::MergeInternal(WritePageGuard &internal_guard, WritePageGuar
   // 默认往左合并
 
   auto current_index = parent_page->ValueIndex(internal_guard.GetPageId());
-  InternalPage *sibling_page = nullptr;
   WritePageGuard sibling_guard;
 
   if (current_index > 0) {
     // 有左兄弟节点
     page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
     sibling_guard = bpm_->WritePage(left_sibling_page_id);
-    sibling_page = sibling_guard.AsMut<InternalPage>();
 
     MergeInternalHelper(sibling_guard, internal_guard, parent_guard, current_index - 1);
     return true;
@@ -926,7 +922,6 @@ auto BPLUSTREE_TYPE::MergeInternal(WritePageGuard &internal_guard, WritePageGuar
   }
   page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
   sibling_guard = bpm_->WritePage(right_sibling_page_id);
-  sibling_page = sibling_guard.AsMut<InternalPage>();
 
   MergeInternalHelper(internal_guard, sibling_guard, parent_guard, current_index);
   return true;
