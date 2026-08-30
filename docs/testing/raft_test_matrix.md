@@ -293,8 +293,10 @@ suspicious untracked generated file. The pre-commit delivery list had 208 formal
 105 new source/test/tool/document files, and no deletions; all were committed in `ec11bb0`. The tracked nested
 1,347-file course baseline was retained.
 
-An independent read-only audit found no blocker under the stated crash-stop, non-Byzantine V1 model. M0-M7 are complete.
-The plan now keeps M8 unallocated until one V2 candidate has a unique scope, protocol version and exit gate.
+At the end of the `ec11bb0` acceptance no blocker was then known under the stated crash-stop, non-Byzantine V1 model.
+A later audit found real startup-recovery, live-InstallSnapshot-preflight, and ownership/fixture gaps; commit `1178cdf`
+fixes them as recorded below. Therefore this section is historical full-acceptance evidence for `ec11bb0`, not a
+no-blocker or full-acceptance certificate for the later maintenance source.
 
 ## Post-baseline plan-audit maintenance (2026-08-30)
 
@@ -336,7 +338,7 @@ the test logic because loopback allocation is forbidden there; the identical app
 This 8/60 checkpoint predates the later live-InstallSnapshot, application-neutral proposal, layered-fixture, and nested
 term-0 Session fixes and therefore does not certify those later edits.
 
-The final targeted working-tree regression used Clang 14 Debug + ASan and passed 17 binaries/108 tests. The set covers
+The final targeted regression for commit `1178cdf` used Clang 14 Debug + ASan and passed 17 binaries/108 tests. The set covers
 the M0 canonical/Catalog/TableHeap contracts, M1/M2 term-0 publication/log/session/runtime path, M3/M4 Raft recovery and
 live InstallSnapshot, and the M5 BusTub/SQL hooks; notably `state_manifest_test` passed 9/9, `raft_node_test` 31/31, and
 `distributed_node_test` 9/9. The loopback target was rejected only at sandbox socket allocation and the identical
@@ -347,3 +349,9 @@ dependency reverse scans passed. The cleanup audit also fixed `table_heap_reopen
 `.log` beside its temporary database, then reran it 1/1. The earlier 431,479,634-byte audit build was already gone; this
 delta removed its exact 1,039,771,113-byte external ASan build and the prior zero-byte reopen log. The post-clean scan
 found no `/tmp/bustub-*`, node/client/proxy process, generated/ignored source-tree file, or unexplained untracked file.
+
+The identified audit blockers are closed in `1178cdf`, but its 17-binary/108-test result is deliberately targeted and is
+not a replacement for the historical 122-test/40-SLT/formal-E2E/TSan acceptance. A new full-M7-acceptance claim for the
+maintenance source requires those full gates to run again. The implementation milestones remain closed with no partially
+executed feature, and the plan keeps M8 unallocated until exactly one ready node has a unique scope, format-impact matrix,
+upgrade policy, test gate, and stop boundary. Candidate tests are not current M0-M7 gates until that node is allocated.

@@ -6,10 +6,48 @@
 
 - `raft_implementation_plan.md` 的 M0–M7 已全部执行完成，已提交/推送基线为
   `ec11bb0f9f15d1e5abaedb64ea44dee5c6606e66`；当前没有半执行的功能阶段。
-- 2026-08-30 的方案结构复审只修正里程碑归属、文档/实现一致性和 CI 门禁，不是 M8。
-  M8 在方案中仍未分配；先冻结唯一功能、协议版本、排除范围和退出门禁，才能实施。
+- 基线后的 recovery/owner/CI 维护已提交为 `1178cdf125bad28d3030ab78b37e641fa10c6158`；本次 M7 后
+  路线图复审开始时该提交尚未 push，`main` 相对 `origin/main` ahead 1 且工作树干净。17 个二进制/108 个
+  定向测试证据绑定 `1178cdf`；它不是新的 122/122、40/40、正式 E2E/TSan 全量 M7 验收。
+- 本次只审查并修订 M7 后方案、交接和测试证据归属，没有开始 M8 源码实现。M8 仍未分配；M0–M7
+  对当前实验项目定位已经是完整终点，后续必须先从候选 DAG 中冻结一个前置已满足的候选节点（ready node）。
 - 若后续会话恢复，先阅读本文件、`raft_implementation_plan.md` 与
   `docs/testing/raft_test_matrix.md`，并核对 `git status`；基线验收数字不得自动为后续源码改动背书。
+
+## M7 后路线图复审（2026-08-30）
+
+- 原候选表把所有项目称为“互相独立”，实际混合了 safety hardening、DB 语义、性能依赖链、离线迁移和
+  会改变项目定位的系统工程。方案现改为非线性候选 DAG：一次里程碑只选择一个 ready node，不能捆入它
+  尚未完成的依赖；共享 overlay、scheduler 或 migration 前置只能有一个 owner。
+- 单 statement secondary UNIQUE、多 statement 原子 batch 和跨 statement secondary UNIQUE deferred checking
+  已拆开；后者依赖前两者的 overlay/final-state 规则且不暗含其他 constraint family。一条 statement 展开多行
+  mutation 不再被误称为多语句事务。
+- 复合 `NOT NULL` key 与新增确定性非空 scalar key type 已拆开；nullable primary key 与主键身份语义冲突，
+  永久排除。payload 绑定也与 client 生命周期/认证拆开，认证不属于 crash-stop、非 Byzantine 当前范围。
+- completion/storage scheduler、多个 in-flight proposal、group commit 和 AppendEntries pipeline 分成依赖明确的
+  性能实验；durable mode marker 与 term-0 离线迁移拆开，迁移只有在真实需要复用旧目录时才立项。
+- mode marker 必须先于任何 mode-owned 文件创建；非空但无 marker 的旧目录默认 fail-closed，不能猜测内容后
+  就地补 marker，只能走显式 offline adoption/migration；迁移还须先冻结 term-0 Snapshot/Session 到 distributed
+  SnapshotStore/LogStore/HardState 的 index、term 与 commit mapping。
+- base backup + WAL、fuzzy/COW/低停顿快照、成熟 Raft 库迁移、动态成员、安全认证、通用路由、rolling
+  upgrade 和分片已移出普通 M8；这些能力只有项目定位改变后才建立新顶层方案。
+- 任一未来阶段都须逐项冻结 client wire、Raft RPC、CommandBatch/log、Catalog、Session、snapshot bundle 和
+  node marker 的格式影响。默认不支持 mixed executable/wire version 或 rolling，且这只是部署前置；没有
+  capability-epoch 握手和真实 old/new binary 测试时，不得声称旧 binary 会协议级 fail-closed。受影响格式只能
+  选择不保留旧状态的 fresh-directory homogeneous deployment，或有三节点目录+identity/config 备份、逐格式
+  转换/crash oracle 的 preserving-state offline upgrade。只有 append log 使用 V1 prefix/V2 suffix；
+  Catalog/Session/snapshot 使用完整新 generation/离线转换，wire/RPC 同代协商，marker 有单独 adoption 规则。
+  cutover marker 必须先于首份 V2 authority byte durable；既有 V1 不认识未来 marker，因此 downgrade 默认是运维禁令。
+- 共同测试门禁要求真实业务结果的独立 oracle、失败无 append/storage/state 副作用，以及至少一条三个正式
+  进程的 E2E；格式变化再要求手写非空 golden、exact bytes、未知/未允许组合拒绝及允许升级序列的正向测试，
+  磁盘/持久化变化再要求两次冷启和命名 crash event。不能靠同一 codec encode/decode 自循环证明正确；
+  修改并发路径强制 TSan，只有性能目标强制性能基线；所有候选还须跑定向 ASan/UBSan、受影响既有 gate，
+  并把新测试注册进 CMake/CI。
+- 推荐但尚未分配的首个候选是“写重试 payload 绑定”：在 state-dependent prepare 前对稳定 write-intent
+  bytes 计算版本化 fingerprint，并随首次 batch、Session 和 snapshot 持久化。它不包含认证、并发 proposal
+  或迁移；只对 `request_id == last_request_id` 重放 cached response，更老 ID 仍为 `TOO_OLD`。V1 Session 无原
+  payload，不能回填 digest，实验项目优先考虑 fresh-directory homogeneous deployment。测试必须用手写 intent、
+  标准 fingerprint vector、literal Session fixture 和真实 raw request，不能调用 production fingerprint 生成期望值。
 
 ## 基线后方案复审维护（2026-08-30）
 
@@ -31,7 +69,7 @@
   DistributedNode 9。受限沙箱内的 loopback 分配拒绝未进入测试逻辑；相同 DistributedNode 命令获准在
   沙箱外运行后 9/9 通过。该 8/60 发生在后续 live InstallSnapshot、application-neutral proposal、测试分层和
   term-0 nested Session 修正之前，只是历史中间证据。
-- 当前工作树的最终定向 Clang 14 Debug + ASan 回归通过 17 个二进制/108 个测试；其中 StateManifest 9/9、
+- 提交 `1178cdf` 的最终定向 Clang 14 Debug + ASan 回归通过 17 个二进制/108 个测试；其中 StateManifest 9/9、
   RaftNode 31/31、DistributedNode 9/9。term-0 publisher/recovery 现在同时拒绝外层和内嵌 Session response
   的非零 term；M4 KV inner snapshot 与 M5 BusTub bundle 测试归属已拆开。未重跑全量 M7，不得冒充新的
   122/122、40/40、正式 E2E 或 TSan 证据。
@@ -39,7 +77,8 @@
   CI YAML、`git diff --check` 和 production 反向依赖扫描通过。清理审计修复并复跑了会漏删 DiskManager
   `.log` 的 `table_heap_reopen_test`（1/1）。早期 431,479,634-byte 审计构建树已删除；本轮再精确删除
   1,039,771,113-byte 外部 ASan 构建树和旧 0-byte reopen 日志。复扫后 `/tmp/bustub-*`、后台进程、
-  源码树生成/ignored 文件均为空；只剩 44 个已跟踪修改、2 个正式删除和 4 个正式新增源码文件。
+  源码树生成/ignored 文件均为空；提交前盘点的 44 个已跟踪修改、2 个正式删除和 4 个正式新增源码文件
+  均已收入 `1178cdf`，不再是当前工作树状态。
 
 ## 最终实现范围
 
@@ -61,8 +100,8 @@
 
 ## 历史完整验收证据（旧修订）
 
-以下结果对应各自记录时的修订，不能追溯性覆盖后来新增的 oracle；M0–M7 基线权威结果见文末
-“最终修复收口交接（2026-08-30，M0–M7 基线权威）”。
+以下结果对应各自记录时的修订，不能追溯性覆盖后来新增的 oracle；`ec11bb0` 的历史全量验收结果见文末
+“最终修复收口交接（2026-08-30，历史 M0–M7 全量验收基线）”。
 
 - Clang 14 Debug + ASan/UBSan：发现 61 个 GTest 二进制，60 个有效测试全部通过；仅
   `trie_debug_test` 因课程仓库故意缺少 Gradescope 隐藏答案而跳过。
@@ -248,12 +287,13 @@ production 源码无测试反向依赖，`/tmp` 的 `bustub*` 候选与后台 no
 
 停止边界不变：M7 完成后无自动下一步，不进入 M8/V2；等待用户新命令。
 
-## 最终修复收口交接（2026-08-30，M0–M7 基线权威）
+## 最终修复收口交接（2026-08-30，历史 M0–M7 全量验收基线）
 
-### 当前执行位置
+### `ec11bb0` 当时的执行位置
 
-M0–M7 已按方案完成，当前没有半执行阶段。恢复执行时已先核对本文件、方案、测试矩阵、工作树和上次现场，
-没有跳到 M8/V2。除非源码再次变化或用户明确要求，不需要重做 M7；下一步仍是等待用户命令。
+`ec11bb0` 当时已按方案完成 M0–M7 且没有半执行阶段，恢复执行时没有跳到 M8/V2。后续源码确已由
+`1178cdf` 修改，因此“源码不变则无需重验”的条件已经不成立；阶段实现没有重新打开，但若要声称当前维护
+提交通过完整 M7 acceptance，必须重跑 122/122、40/40、正式 E2E 与 TSan。下一功能步骤仍是等待用户明确命令。
 
 ### 本次最终修复
 
@@ -298,6 +338,7 @@ bytes。`bustub-20241207-2024fall/` 的 1,347 个文件均已跟踪，占 36,074
 
 ### 下一次恢复
 
-无自动下一功能步骤。先读本节、方案文档的基线权威段和测试矩阵，再核对 `git status`；
-M8 只能在方案先冻结唯一功能定义后开始。任何后续源码改动都需按影响范围重新验证，
+无自动下一功能步骤。先读本节、方案的“M7 后非线性路线图与准入”和测试矩阵，再核对 `git status`；
+若用户决定继续，只从候选 DAG 选择一个 ready node 并冻结格式/升级/测试门禁，不能把“推荐候选”当成已分配 M8。
+任何后续源码改动都需按影响范围重新验证，
 构建仍放到源码树外并执行同一清理门禁。
