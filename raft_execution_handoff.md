@@ -107,6 +107,14 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
   `murmur3/libfort/utf8proc/backward-cpp/libpg_query/linenoise` 六个根均仍声明 3.0；现分别提升为 3.5，
   不使用 `CMAKE_POLICY_VERSION_MINIMUM` 全局绕过，也不改未构建的 vendor 示例。fresh 本地 CMake 3.28
   已完整遍历全部子目录并成功生成。
+- run `33315282437` 已证明上述 CMake 4.3 配置修复在 macOS 14 ARM64 生效，随后 build 暴露
+  `PosixDurableStorage::SyncFile` 直接调用 Linux-only `fdatasync`。修复在 Linux/其他 POSIX 保留
+  `fdatasync`，在 macOS 改用 Apple 的强持久化屏障 `fcntl(F_FULLFSYNC)`；两者以及目录 `fsync` 均重试
+  `EINTR`，目录同步错误仍 fail-closed。Apple 文档明确指出普通 `fsync` 可能不刷新设备 cache，故不以它
+  代替 `F_FULLFSYNC`：<https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html>、
+  <https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html>。
+  本地 `-j1` Release recovery 编译、直接 clang-tidy、项目配置 cpplint 和真实 canonical snapshot 2/2
+  已通过；新的 macOS branch 尚须由下一次远端 ARM64 build 验证，不能由本地 Linux 结果代替。
 - 只有包含 `20f1af2` 的最终文档 HEAD 所触发 workflow 全部必需 jobs 终态成功，才能把这次 CI 收敛记为
   完成；远端 run ID/结果由最终交接报告记录，不为了回填动态编号再制造 docs-only CI 循环。
 

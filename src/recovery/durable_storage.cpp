@@ -197,9 +197,25 @@ void PosixDurableStorage::SyncFile(const std::filesystem::path &path) {
   if (fd.Get() < 0) {
     ThrowSystemError("open for sync", path);
   }
-  if (fdatasync(fd.Get()) != 0) {
+#if defined(__APPLE__)
+  // fsync(2) alone may leave data in a drive's volatile write cache on macOS.
+  // F_FULLFSYNC provides the durability boundary required by Raft storage.
+  int result;
+  do {
+    result = fcntl(fd.Get(), F_FULLFSYNC, 0);
+  } while (result != 0 && errno == EINTR);
+  if (result != 0) {
+    ThrowSystemError("fcntl F_FULLFSYNC", path);
+  }
+#else
+  int result;
+  do {
+    result = fdatasync(fd.Get());
+  } while (result != 0 && errno == EINTR);
+  if (result != 0) {
     ThrowSystemError("fdatasync", path);
   }
+#endif
 }
 
 void PosixDurableStorage::SyncDirectory(const std::filesystem::path &path) {
@@ -207,7 +223,11 @@ void PosixDurableStorage::SyncDirectory(const std::filesystem::path &path) {
   if (fd.Get() < 0) {
     ThrowSystemError("open directory for sync", path);
   }
-  if (fsync(fd.Get()) != 0) {
+  int result;
+  do {
+    result = fsync(fd.Get());
+  } while (result != 0 && errno == EINTR);
+  if (result != 0) {
     ThrowSystemError("fsync directory", path);
   }
 }

@@ -1800,7 +1800,16 @@ bottle 依据：<https://github.blog/changelog/2025-09-19-github-actions-macos-1
 `murmur3`、`libfort`、`utf8proc`、`backward-cpp`、`libpg_query` 与 `linenoise` 均有相同问题。六个根的
 `cmake_minimum_required` 分别提升到 CMake 4 仍支持的 3.5；不通过全局
 `CMAKE_POLICY_VERSION_MINIMUM` 掩盖旧声明，也不修改未纳入构建的 vendor 示例/测试。fresh 本地
-CMake 3.28 配置已遍历全部子目录并成功生成，CMake 4.3 由下一远端 run 作最终验证。
+CMake 3.28 配置已遍历全部子目录并成功生成。run `33315282437` 随后证明 macOS CMake 4.3 配置通过，
+ARM64 build 则暴露 Linux-only `fdatasync`。文件 durability 屏障现按平台明确分流：Linux/其他 POSIX
+继续在 `EINTR` 重试后使用 `fdatasync`；macOS 使用 `fcntl(F_FULLFSYNC)`，因为 Apple 明确说明普通
+`fsync` 可能不刷新设备 write cache，而 `F_FULLFSYNC` 才要求刷新到物理介质。目录 rename 屏障仍使用
+`fsync`，只补 `EINTR` 重试，不忽略错误或降级语义。依据：
+<https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html>、
+<https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html>。
+本地单线程 Release `bustub_recovery` 增量编译、该 translation unit clang-tidy、项目配置 cpplint 与
+真实 `canonical_snapshot_test` 2/2 已通过；macOS 分支必须由修复提交触发的新 ARM64 run 最终验证，
+不得把本地 Linux 结果当作该分支已通过。
 
 ### 方案结构复审与基线维护（2026-08-30）
 
