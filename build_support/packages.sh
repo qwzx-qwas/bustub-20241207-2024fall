@@ -8,7 +8,7 @@
 ##
 ## Supported environments:
 ##  * Ubuntu 22.04 (x86-64)
-##  * macOS 13 Ventura (x86-64 or ARM)
+##  * macOS 14 Sonoma (ARM64)
 ## =================================================================
 
 main() {

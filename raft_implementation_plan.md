@@ -1786,6 +1786,14 @@ C/C++ 文件通过 format/cpplint，E2E shell 通过 `bash -n`，`git diff --che
 全部绑定到该节点；若三个节点都不满足则明确失败，损坏开始后不再切换目标。修复后的 fresh Release
 matrix 单次通过 E2E-02/06/07/09/11/12。
 
+连续 workflow 的 `macos-13` job 始终停在无 runner 的 queued 状态。GitHub 官方公告确认该 image 已于
+2025-12-04 退役，并要求迁移到 `macos-14` 或 `macos-15`；这不是测试结果，也不能通过继续等待变绿。
+为保持项目固定的 LLVM 14 format/tidy 语义并使用 Homebrew 仍提供对应 bottle 的平台，CI 迁移到受支持的
+`macos-14` ARM64，工具路径从 Intel Homebrew 的 `/usr/local` 改为 Apple Silicon 的 `/opt/homebrew`。
+所有原有 build、format、lint、tidy 与 public-test 步骤不变，并新增 ARM64 编译覆盖。官方退役及 LLVM 14
+bottle 依据：<https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/>、
+<https://formulae.brew.sh/formula/llvm%4014>。
+
 ### 方案结构复审与基线维护（2026-08-30）
 
 本次复审将五个大章改为 A–D 架构工作流 + 横切规则，并以一张 M0–M7 表作为唯一执行轴。
