@@ -122,6 +122,14 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
   本地串行 Release 的 TCP/持久目录分布式链 9/9、BusTub exact-once 链 2/2、Raft 核心 31/31。默认
   沙箱运行只在创建 loopback socket 前被权限拒绝，获准回环后的 fresh 运行才是有效 TCP 证据。
   新提交仍须通过 hosted macOS tidy/public tests 和其余完整矩阵。
+- run `33316969138` 已关闭上述 macOS 缺口：ARM64 build、format、lint、全仓 tidy 与 public tests 全部通过；
+  Ubuntu Clang public tests、SQLLogic、ASan/UBSan 六链、Release 六链和 TSan 也通过。唯一失败的 GCC public
+  tests 由 CommandBatch 解码的跨编译器读取顺序缺陷引起：同一函数调用的两个参数都推进 `ByteReader`，而
+  C++ 不规定参数先后，GCC 先读 body 后读 type，最终抛出 `unknown replicated command type`。现已显式按
+  type、body、decode 排序，不改变 wire/durable 格式。本机 GCC 13 上，手写 non-empty V2 golden 用例已从
+  修复前稳定失败变为 codec 6/6；真实 SQL prepare/apply/cold-reopen 3/3、三节点 loopback 9/9 通过，且
+  format、仓库配置 cpplint、直接 tidy 通过。下一恢复点是提交并 SSH 推送这项最小修复，随后只监视其
+  fresh workflow；不得进入 M8 后候选。
 - 只有包含 `20f1af2` 的最终文档 HEAD 所触发 workflow 全部必需 jobs 终态成功，才能把这次 CI 收敛记为
   完成；远端 run ID/结果由最终交接报告记录，不为了回填动态编号再制造 docs-only CI 循环。
 

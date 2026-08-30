@@ -1820,6 +1820,17 @@ ARM64 build 则暴露 Linux-only `fdatasync`。文件 durability 屏障现按平
 三节点链 2/2，Raft durable/election/snapshot 核心 31/31。macOS public tests 仍须由包含该修复的新 run
 验证；不得重跑失败场景来代替新提交的完整门禁。
 
+包含 NodeId 修复的 run `33316969138` 随后一次通过 macOS 14 的 CMake、完整 ARM64 build、format、lint、
+全仓 tidy 和 public tests，至此关闭该平台门禁；同一 run 的 Ubuntu Clang public tests、Release SQLLogic、
+ASan/UBSan 六条进程链、Release 六条进程链和 TSan 也全部通过。唯一失败是 Ubuntu GCC public tests：
+独立手写 non-empty CommandBatchV2 golden frame 与真实 SQL/三节点链都报 `unknown replicated command type`，
+服务层将其表现为 `UNAVAILABLE`。根因是 `CommandBatchCodec::Decode` 在同一个函数调用的两个参数中依次
+推进同一 `ByteReader`；C++ 不规定函数参数先读取 type 还是 body，Clang 恰好读取 type 在先，GCC 则先
+读取 body。修复把 type、length-delimited body 和 decode 拆成三个有序语句，不改变任何格式字节或拒绝边界。
+本地 GCC 13 的同一手写 golden 用例修复前稳定失败、修复后完整 codec 6/6 通过；真实 SQL prepare/apply/
+cold-reopen 3/3 和三节点 loopback 9/9 也通过。修改文件通过 Clang 14 format、仓库配置 cpplint 与直接 tidy；
+仍须由该修复触发的新完整 workflow 验证 GCC runner，不能用本地增量结果代替远端终态。
+
 ### 方案结构复审与基线维护（2026-08-30）
 
 本次复审将五个大章改为 A–D 架构工作流 + 横切规则，并以一张 M0–M7 表作为唯一执行轴。

@@ -584,7 +584,9 @@ auto CommandBatchCodec::Decode(const std::vector<std::byte> &bytes) -> Transacti
     throw std::runtime_error("invalid TransactionCommandBatch command count");
   }
   for (uint32_t index = 0; index < command_count; index++) {
-    batch.commands_.push_back(DecodeCommand(static_cast<CommandType>(body.ReadU32()), ReadBlob(&body)));
+    const auto command_type = static_cast<CommandType>(body.ReadU32());
+    const auto command_body = ReadBlob(&body);
+    batch.commands_.push_back(DecodeCommand(command_type, command_body));
   }
   if (!body.Empty()) {
     throw std::runtime_error("TransactionCommandBatch has trailing bytes");
