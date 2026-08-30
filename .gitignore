@@ -107,6 +107,10 @@ tmp/
 
 # Repository-root runtime artifacts from local recovery / crash tests.
 /bustub-table-reopen-*.log
+/test.bustub
+/test.log
+/expected.log
+/result.log
 /core
 /core.*
 
