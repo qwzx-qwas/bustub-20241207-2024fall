@@ -1,11 +1,11 @@
 #include "execution/executors/vector_knn_scan_executor.h"
 
 #include <algorithm>
-#include <utility>
 #include <tuple>
+#include <utility>
 
-#include "execution/executor_factory.h"
 #include "execution/execution_common.h"
+#include "execution/executor_factory.h"
 #include "type/type_id.h"
 
 namespace bustub {

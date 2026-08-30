@@ -60,6 +60,10 @@ endif()
 # CTest
 enable_testing()
 
+# Repository-owned formatting and lint scripts are intentionally regular files. Invoke them through a discovered
+# interpreter instead of depending on checkout-specific executable bits.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 # clang-format
 
 # attempt to find the binary if user did not specify
@@ -147,7 +151,7 @@ set(BUSTUB_THIRD_PARTY_INCLUDE_DIR
         ${PROJECT_SOURCE_DIR}/third_party/backward-cpp
 )
 
-include_directories(${BUSTUB_SRC_INCLUDE_DIR} ${BUSTUB_TEST_INCLUDE_DIR} ${BUSTUB_THIRD_PARTY_INCLUDE_DIR})
+include_directories(${BUSTUB_SRC_INCLUDE_DIR} ${BUSTUB_THIRD_PARTY_INCLUDE_DIR})
 include_directories(BEFORE src) # This is needed for gtest.
 
 function(disable_target_warnings NAME)
@@ -181,7 +185,7 @@ string(CONCAT BUSTUB_FORMAT_DIRS
 )
 
 # Runs clang format and updates files in place.
-add_custom_target(format ${BUSTUB_BUILD_SUPPORT_DIR}/run_clang_format.py
+add_custom_target(format ${Python3_EXECUTABLE} ${BUSTUB_BUILD_SUPPORT_DIR}/run_clang_format.py
         ${CLANG_FORMAT_BIN}
         ${BUSTUB_BUILD_SUPPORT_DIR}/clang_format_exclusions.txt
         --source_dirs
@@ -191,7 +195,7 @@ add_custom_target(format ${BUSTUB_BUILD_SUPPORT_DIR}/run_clang_format.py
 )
 
 # Runs clang format and exits with a non-zero exit code if any files need to be reformatted
-add_custom_target(check-format ${BUSTUB_BUILD_SUPPORT_DIR}/run_clang_format.py
+add_custom_target(check-format ${Python3_EXECUTABLE} ${BUSTUB_BUILD_SUPPORT_DIR}/run_clang_format.py
         ${CLANG_FORMAT_BIN}
         ${BUSTUB_BUILD_SUPPORT_DIR}/clang_format_exclusions.txt
         --source_dirs
@@ -212,7 +216,7 @@ file(GLOB_RECURSE BUSTUB_LINT_FILES
 # Balancing act: cpplint.py takes a non-trivial time to launch,
 # so process 12 files per invocation, while still ensuring parallelism
 add_custom_target(check-lint echo '${BUSTUB_LINT_FILES}' | xargs -n12 -P8
-        ${CPPLINT_BIN}
+        ${Python3_EXECUTABLE} ${CPPLINT_BIN}
         --verbose=2 --quiet
         --linelength=120
         --filter=-legal/copyright,-build/header_guard,-runtime/references # https://github.com/cpplint/cpplint/issues/148

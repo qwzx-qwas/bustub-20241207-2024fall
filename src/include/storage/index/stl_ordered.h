@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -52,16 +53,29 @@ class STLOrderedIndex : public Index {
   STLOrderedIndex(std::unique_ptr<IndexMetadata> &&metadata, BufferPoolManager *buffer_pool_manager)
       : Index(std::move(metadata)),
         comparator_(StlComparatorWrapper<KT, Cmp>(Cmp(metadata_->GetKeySchema()))),
-        data_(comparator_) {}
+        data_(comparator_),
+        is_primary_key_(metadata_->IsPrimaryKey()),
+        non_unique_entries_(comparator_) {}
 
   auto InsertEntry(const Tuple &key, VT rid, Transaction *transaction) -> bool override {
     KT index_key;
     index_key.SetFromKey(key);
     std::scoped_lock<std::mutex> lck(lock_);
-    if (data_.count(index_key) == 1) {
+    if (is_primary_key_) {
+      if (data_.count(index_key) == 1) {
+        return false;
+      }
+      data_.emplace(index_key, rid);
+      return true;
+    }
+    auto &rids = non_unique_entries_[index_key];
+    if (std::find(rids.begin(), rids.end(), rid) != rids.end()) {
       return false;
     }
-    data_.emplace(index_key, rid);
+    if (rids.empty()) {
+      data_.emplace(index_key, rid);
+    }
+    rids.push_back(rid);
     return true;
   }
 
@@ -69,18 +83,43 @@ class STLOrderedIndex : public Index {
     KT index_key;
     index_key.SetFromKey(key);
     std::scoped_lock<std::mutex> lck(lock_);
-    data_.erase(index_key);
+    if (is_primary_key_) {
+      data_.erase(index_key);
+      return;
+    }
+    const auto iterator = non_unique_entries_.find(index_key);
+    if (iterator == non_unique_entries_.end()) {
+      return;
+    }
+    auto &rids = iterator->second;
+    const auto rid_iterator = std::find(rids.begin(), rids.end(), rid);
+    if (rid_iterator == rids.end()) {
+      return;
+    }
+    const bool removed_representative = rid_iterator == rids.begin();
+    rids.erase(rid_iterator);
+    if (rids.empty()) {
+      non_unique_entries_.erase(iterator);
+      data_.erase(index_key);
+    } else if (removed_representative) {
+      data_[index_key] = rids.front();
+    }
   }
 
   void ScanKey(const Tuple &key, std::vector<RID> *result, Transaction *transaction) override {
     KT index_key;
     index_key.SetFromKey(key);
     std::scoped_lock<std::mutex> lck(lock_);
-    if (data_.count(index_key) == 1) {
-      *result = std::vector{data_[index_key]};
+    if (is_primary_key_) {
+      if (data_.count(index_key) == 1) {
+        *result = std::vector{data_[index_key]};
+        return;
+      }
+      *result = {};
       return;
     }
-    *result = {};
+    const auto iterator = non_unique_entries_.find(index_key);
+    *result = iterator == non_unique_entries_.end() ? std::vector<RID>{} : iterator->second;
   }
 
   auto GetBeginIterator() -> STLOrderedIndexIterator<KT, VT, Cmp> { return {&data_, data_.cbegin()}; }
@@ -95,6 +134,8 @@ class STLOrderedIndex : public Index {
   std::mutex lock_;
   StlComparatorWrapper<KT, Cmp> comparator_;
   std::map<KT, VT, StlComparatorWrapper<KT, Cmp>> data_;
+  bool is_primary_key_;
+  std::map<KT, std::vector<VT>, StlComparatorWrapper<KT, Cmp>> non_unique_entries_;
 };
 
 using STLOrderedIndexForTwoIntegerColumn = STLOrderedIndex<GenericKey<8>, RID, GenericComparator<8>>;

@@ -97,16 +97,26 @@ void ExternalMergeSortExecutor<K>::Init() {
   }
   sorted_runs_.clear();
 
-  //初始化子执行器
+  // 初始化子执行器
   child_executor_->Init();
   // tuple长度
   const Schema &schema = child_executor_->GetOutputSchema();
-  //因为序列化和反序列化时会在开头写入或读取一个4字节的uint32_t表示元组的长度
-  //所以这里要加上这个长度
+  // SortPage uses fixed-size slots, but Tuple::SerializeTo stores the actual tuple length followed by all varlen
+  // payloads. Reserve the schema maximum so adjacent VARCHAR/VECTOR tuples can never overlap.
   tuple_size_ = schema.GetInlinedStorageSize() + sizeof(uint32_t);
+  for (const auto column : schema.GetUnlinedColumns()) {
+    const auto &definition = schema.GetColumn(column);
+    tuple_size_ += sizeof(uint32_t) + definition.GetStorageSize();
+    if (definition.GetType() == TypeId::VARCHAR) {
+      tuple_size_++;
+    }
+  }
+  if (tuple_size_ > SortPage::DATA_SIZE) {
+    throw ExecutionException("sort tuple schema exceeds SortPage capacity");
+  }
 
-  //在init中将子执行器的所有元组读出并写入到排序页中
-  //同时记录排序页的page_id到sorted_page_ids_,方便之后的合并逻辑
+  // 在init中将子执行器的所有元组读出并写入到排序页中
+  // 同时记录排序页的page_id到sorted_page_ids_,方便之后的合并逻辑
   Tuple tuple;
   RID rid;
 
@@ -117,21 +127,21 @@ void ExternalMergeSortExecutor<K>::Init() {
 
   while (child_executor_->Next(&tuple, &rid)) {
     // SortKey是一个vector<Value>，表示用于排序的key
-    //根据order by中的列从tuple中提取对应的Value构成SortKey
+    // 根据order by中的列从tuple中提取对应的Value构成SortKey
     SortKey key = GenerateSortKey(tuple, plan_->GetOrderBy(), schema);
     current_run.emplace_back(std::move(key), std::move(tuple));
 
-    //如果积累在前的元组数量达到了一个run的最大容量，就进行排序并写入磁盘
+    // 如果积累在前的元组数量达到了一个run的最大容量，就进行排序并写入磁盘
     if (current_run.size() >= max_tuples_per_run) {
       std::sort(current_run.begin(), current_run.end(), cmp_);
 
       // 将当前 run 写入磁盘
-      //用run_page_ids记录该run所使用的所有page_id
+      // 用run_page_ids记录该run所使用的所有page_id
       std::vector<page_id_t> run_page_ids;
       GenerateRun(current_run, run_page_ids);
-      //记录排好序的run
+      // 记录排好序的run
       sorted_runs_.emplace_back(run_page_ids, tuple_size_, exec_ctx_->GetBufferPoolManager());
-      //丢掉当前run的数据，开始下一个run
+      // 丢掉当前run的数据，开始下一个run
       current_run.clear();
     }
   }
@@ -172,14 +182,14 @@ void ExternalMergeSortExecutor<K>::Init() {
       std::optional<SortEntry> entry2;
 
       // 使用作用域来控制迭代器的生命周期
-      //即iter1和iter2以及它们持有的ReadPageGuard在归并完成后析构，释放pin count
+      // 即iter1和iter2以及它们持有的ReadPageGuard在归并完成后析构，释放pin count
       {
         auto iter1 = run1.Begin();
         auto iter2 = run2.Begin();
 
-        //两个缓存更新函数
-        //如果iter还有数据，就生成对应的SortEntry存入缓存entry中
-        //没有数据就将缓存置为nullopt
+        // 两个缓存更新函数
+        // 如果iter还有数据，就生成对应的SortEntry存入缓存entry中
+        // 没有数据就将缓存置为nullopt
         auto update_entry1 = [&]() {
           // run1是否还有数据
           if (iter1 != run1.End()) {
@@ -269,7 +279,7 @@ void ExternalMergeSortExecutor<K>::Init() {
     sorted_runs_ = std::move(next_sorted_runs);
   }
 
-  //现在只有一个 run 了，就是最终排序结果
+  // 现在只有一个 run 了，就是最终排序结果
   if (!sorted_runs_.empty()) {
     current_iterator_ = sorted_runs_[0].Begin();
   }
@@ -277,11 +287,11 @@ void ExternalMergeSortExecutor<K>::Init() {
 
 template <size_t K>
 auto ExternalMergeSortExecutor<K>::Next(Tuple *tuple, RID *rid) -> bool {
-  //如果没有排序结果（数据），直接返回false
+  // 如果没有排序结果（数据），直接返回false
   if (!current_iterator_.has_value()) {
     return false;
   }
-  //检查是否到达结尾
+  // 检查是否到达结尾
   if (*current_iterator_ == sorted_runs_[0].End()) {
     current_iterator_ = std::nullopt;
     sorted_runs_[0].DeletePages();
@@ -304,9 +314,9 @@ auto MergeSortRun::Iterator::operator++() -> Iterator & {
   if (sort_page_ == nullptr) {
     return *this;
   }
-  //尝试在当前页中推进slot_idx_
+  // 尝试在当前页中推进slot_idx_
   slot_idx_++;
-  //如果当前页的slot_idx_已经到达该页的tuple数量，就需要加载下一页
+  // 如果当前页的slot_idx_已经到达该页的tuple数量，就需要加载下一页
   if (slot_idx_ >= static_cast<size_t>(sort_page_->GetTupleCount())) {
     // 释放旧页
     if (page_guard_.has_value()) {

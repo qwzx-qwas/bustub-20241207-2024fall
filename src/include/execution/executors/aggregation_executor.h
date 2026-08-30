@@ -74,8 +74,8 @@ class SimpleAggregationHashTable {
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
       switch (agg_types_[i]) {
         case AggregationType::CountStarAggregate:
-          //统计行数，不关心是否为空
-          //直接加1
+          // 统计行数，不关心是否为空
+          // 直接加1
           {
             // aggregates_是AggregateValue的成员变量，存储聚合结果
             // GetAs<int64_t>()将Value转换为int64_t类型进行计算（只有当Value存储的类型是整数时才有效）
@@ -85,7 +85,7 @@ class SimpleAggregationHashTable {
           }
           break;
         case AggregationType::CountAggregate:
-          //统计非空值的个数
+          // 统计非空值的个数
           if (!input.aggregates_[i].IsNull()) {
             if (result->aggregates_[i].IsNull()) {
               result->aggregates_[i] = ValueFactory::GetIntegerValue(0);
@@ -97,10 +97,10 @@ class SimpleAggregationHashTable {
           break;
 
         case AggregationType::SumAggregate:
-          //计算数值的总和
-          //如果input是空值，则不进行计算
-          //如果result是空值，则将input赋值给result
-          //如果两者都不是空值，则进行加法计算
+          // 计算数值的总和
+          // 如果input是空值，则不进行计算
+          // 如果result是空值，则将input赋值给result
+          // 如果两者都不是空值，则进行加法计算
           if (!input.aggregates_[i].IsNull()) {
             if (result->aggregates_[i].IsNull()) {
               result->aggregates_[i] = input.aggregates_[i];
@@ -111,9 +111,9 @@ class SimpleAggregationHashTable {
           }
           break;
         case AggregationType::MinAggregate:
-          //如果input是空值，则跳过
-          //如果result是空值，则将input赋值给result
-          //如果两者都不是空值，则进行比较，取较小值赋值给result
+          // 如果input是空值，则跳过
+          // 如果result是空值，则将input赋值给result
+          // 如果两者都不是空值，则进行比较，取较小值赋值给result
           if (!input.aggregates_[i].IsNull()) {
             if (result->aggregates_[i].IsNull()) {
               result->aggregates_[i] = input.aggregates_[i];
@@ -125,7 +125,7 @@ class SimpleAggregationHashTable {
           }
           break;
         case AggregationType::MaxAggregate:
-          //同上
+          // 同上
           if (!input.aggregates_[i].IsNull()) {
             if (result->aggregates_[i].IsNull()) {
               result->aggregates_[i] = input.aggregates_[i];
@@ -265,7 +265,7 @@ class AggregationExecutor : public AbstractExecutor {
   /** Simple aggregation hash table iterator */
   SimpleAggregationHashTable::Iterator aht_iterator_;
 
-  //标志位，表示是否完成第一次调用next
+  // 标志位，表示是否完成第一次调用next
   bool is_built_;
 };
 }  // namespace bustub

@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #include "common/exception.h"
@@ -101,7 +102,8 @@ void VectorType::SerializeTo(const Value &val, char *storage) const {
 
 // Deserialize a value of the given type from the given storage space.
 auto VectorType::DeserializeFrom(const char *storage) const -> Value {
-  uint32_t len = *reinterpret_cast<const uint32_t *>(storage);
+  uint32_t len = 0;
+  std::memcpy(&len, storage, sizeof(len));
   if (len == BUSTUB_VALUE_NULL) {
     return {type_id_, nullptr, len, false};
   }

@@ -51,6 +51,16 @@ class TransactionManager {
   auto Begin(IsolationLevel isolation_level = IsolationLevel::SNAPSHOT_ISOLATION) -> Transaction *;
 
   /**
+   * Begins a read transaction at an externally selected committed timestamp. Distributed callers pass a Raft-derived
+   * published applied index instead of allocating a node-local timestamp.
+   */
+  auto BeginReadAt(timestamp_t read_ts, IsolationLevel isolation_level = IsolationLevel::SNAPSHOT_ISOLATION)
+      -> Transaction *;
+
+  /** Finish a read-only transaction without allocating or advancing a node-local commit timestamp. */
+  void EndRead(Transaction *txn);
+
+  /**
    * Commits a transaction.
    * 提交一个事务。
    * @param txn the transaction to commit, the txn will be managed by the txn manager so no need to delete it by
@@ -97,7 +107,10 @@ class TransactionManager {
 
   /** @brief Get the lowest read timestamp in the system. */
   /** @brief 获取系统中的最低读取时间戳。 */
-  auto GetWatermark() -> timestamp_t { return running_txns_.GetWatermark(); }
+  auto GetWatermark() -> timestamp_t {
+    std::shared_lock lock(txn_map_mutex_);
+    return running_txns_.GetWatermark();
+  }
 
   /** @brief Stop-the-world garbage collection. Will be called only when all transactions are not accessing the table
    *         停止世界垃圾回收。仅当所有事务都未访问表堆时才会调用。

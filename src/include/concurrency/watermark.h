@@ -1,6 +1,6 @@
 #pragma once
 
-#include <unordered_map>
+#include <map>
 
 #include "concurrency/transaction.h"
 #include "storage/table/tuple.h"
@@ -21,7 +21,7 @@ class Watermark {
 
   /** The caller should update commit ts before removing the txn from the watermark so that we can track watermark
    * correctly. */
-  auto UpdateCommitTs(timestamp_t commit_ts) { commit_ts_ = commit_ts; }
+  auto UpdateCommitTs(timestamp_t commit_ts) -> void;
 
   auto GetWatermark() -> timestamp_t {
     if (current_reads_.empty()) {
@@ -30,14 +30,14 @@ class Watermark {
     return watermark_;
   }
 
-  //当前最新的提交时间戳
+  // 当前最新的提交时间戳
   timestamp_t commit_ts_;
 
-  //所有活跃事务中最小的read_ts
+  // 所有活跃事务中最小的read_ts
   timestamp_t watermark_;
 
-  //记录所有正在活跃的read_ts的hash表
-  std::unordered_map<timestamp_t, int> current_reads_;
+  // 记录所有活跃 read_ts；有序计数表使最小值可在 O(1) 读取、增删为 O(log n)。
+  std::map<timestamp_t, int> current_reads_;
 };
 
 };  // namespace bustub

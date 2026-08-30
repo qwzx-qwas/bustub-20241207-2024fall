@@ -40,7 +40,7 @@ auto INDEXITERATOR_TYPE::IsEnd() const -> bool {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto INDEXITERATOR_TYPE::operator*() -> std::pair<const KeyType &, const ValueType &> {
+auto INDEXITERATOR_TYPE::operator*() -> std::pair<KeyType, ValueType> {
   return {current_leaf_page_->KeyAt(index_), current_leaf_page_->ValueAt(index_)};
 }
 

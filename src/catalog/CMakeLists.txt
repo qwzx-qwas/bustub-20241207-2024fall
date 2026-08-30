@@ -2,6 +2,7 @@ add_library(
   bustub_catalog
   OBJECT
   column.cpp
+  catalog_snapshot.cpp
   table_generator.cpp
   schema.cpp)
 

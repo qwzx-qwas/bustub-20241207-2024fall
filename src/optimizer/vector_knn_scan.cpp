@@ -1,6 +1,6 @@
 #include "optimizer/optimizer.h"
 
-#include <limits>
+#include <limits>  // NOLINT(build/include_order)
 
 #include "catalog/catalog.h"
 #include "execution/expressions/column_value_expression.h"
@@ -226,10 +226,9 @@ auto Optimizer::OptimizeVectorKnnScan(const AbstractPlanNodeRef &plan) -> Abstra
     BUSTUB_ASSERT(vector_query.has_value(), "matching vector index requires an indexed vector query");
     // Stage 2 keeps the filter on the VectorIndexScan node so the executor can
     // re-check candidates after MVCC visibility reconstruction.
-    return std::make_shared<VectorIndexScanPlanNode>(optimized_plan->output_schema_, seq_scan->GetTableOid(),
-                                                     matching_index->index_oid_, vector_query->second,
-                                                     limit_plan.GetLimit(), distance_expr,
-                                                     GetCombinedFilterPredicate(sort_plan.GetChildPlan()));
+    return std::make_shared<VectorIndexScanPlanNode>(
+        optimized_plan->output_schema_, seq_scan->GetTableOid(), matching_index->index_oid_, vector_query->second,
+        limit_plan.GetLimit(), distance_expr, GetCombinedFilterPredicate(sort_plan.GetChildPlan()));
   }
 
   if (!ExtractIndexedVectorQuery(distance_expr).has_value()) {

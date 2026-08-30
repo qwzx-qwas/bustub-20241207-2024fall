@@ -36,6 +36,22 @@
 namespace bustub {
 
 auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * {
+  std::unique_lock<std::shared_mutex> lock(txn_map_mutex_);
+  const auto read_ts = last_commit_ts_.load();
+  auto txn_id = next_txn_id_++;
+  auto txn = std::make_unique<Transaction>(txn_id, isolation_level);
+  auto *txn_ref = txn.get();
+  txn_ref->read_ts_ = read_ts;
+  txn_ref->commit_ts_ = 0;
+  txn_map_.insert(std::make_pair(txn_id, std::move(txn)));
+  running_txns_.AddTxn(read_ts);
+  return txn_ref;
+}
+
+auto TransactionManager::BeginReadAt(timestamp_t read_ts, IsolationLevel isolation_level) -> Transaction * {
+  if (read_ts < 0 || read_ts >= TXN_START_ID) {
+    throw Exception("read timestamp is outside the committed timestamp domain");
+  }
   std::unique_lock<std::shared_mutex> l(txn_map_mutex_);
   auto txn_id = next_txn_id_++;
   auto txn = std::make_unique<Transaction>(txn_id, isolation_level);
@@ -45,14 +61,29 @@ auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * 
   // TODO(fall2023): set the timestamps here. Watermark updated below.
   // 因为last_commit_ts_实际上记录的是已经发生过的、最新一次提交的时间戳。
   // 就是每进行一次提交，吐出的下一个时间戳。
-  txn_ref->read_ts_ = last_commit_ts_.load();
+  txn_ref->read_ts_ = read_ts;
   txn_ref->commit_ts_ = 0;
 
   running_txns_.AddTxn(txn_ref->read_ts_);
   return txn_ref;
 }
 
-//OCC的向后验证
+void TransactionManager::EndRead(Transaction *txn) {
+  if (txn == nullptr || txn->state_ != TransactionState::RUNNING || !txn->GetWriteSets().empty() ||
+      txn->GetUndoLogNum() != 0) {
+    throw Exception("EndRead requires a running read-only transaction");
+  }
+  std::unique_lock<std::shared_mutex> lock(txn_map_mutex_);
+  const auto iterator = txn_map_.find(txn->GetTransactionId());
+  if (iterator == txn_map_.end() || iterator->second.get() != txn) {
+    throw Exception("EndRead transaction is not owned by this manager");
+  }
+  txn->commit_ts_ = txn->read_ts_.load();
+  txn->state_ = TransactionState::COMMITTED;
+  running_txns_.RemoveTxn(txn->read_ts_);
+}
+
+// OCC的向后验证
 auto TransactionManager::VerifyTxn(Transaction *txn) -> bool {
   if (txn->GetIsolationLevel() != IsolationLevel::SERIALIZABLE) {
     return true;
@@ -112,8 +143,8 @@ auto TransactionManager::VerifyTxn(Transaction *txn) -> bool {
       auto undo_link = GetUndoLink(rid);
 
       auto logs_opt = CollectUndoLogs(rid, base_meta, base_tuple, undo_link, txn, this);
-      
-      //检查最新版本
+
+      // 检查最新版本
       // 检查该RID在tableHeap中的最新版本是否是非删除的
       if (!base_meta.is_deleted_) {
         for (const auto &pred : preds) {
@@ -149,11 +180,11 @@ auto TransactionManager::VerifyTxn(Transaction *txn) -> bool {
   return true;
 }
 /*auto TransactionManager::Commit(Transaction *txn) -> bool {
-  //确保提交过程是线程安全的
+  // 确保提交过程是线程安全的
   std::unique_lock<std::mutex> commit_lck(commit_mutex_);
 
   // TODO(fall2023): acquire commit ts!
-  //获取提交时间戳，并更新下一个可用的提交时间戳
+  // 获取提交时间戳，并更新下一个可用的提交时间戳
   timestamp_t commit_ts = last_commit_ts_.fetch_add(1) + 1;
   txn->commit_ts_ = commit_ts;
 
@@ -501,7 +532,6 @@ void TransactionManager::GarbageCollection() {
       } else {
         ++iter;
         continue;
-        ;
       }
       if (meta.ts_ <= running_txns_.GetWatermark()) {
         // 当前版本足够旧，最老的活跃事务也能看见它，不需要回退到更早版本
@@ -537,7 +567,7 @@ void TransactionManager::GarbageCollection() {
     // 如果这个事务已经commit或abort，并且不在活跃事务列表中
     if ((txn->state_ == TransactionState::COMMITTED || txn->state_ == TransactionState::ABORTED) &&
         alive_txns.find(txn_id) == alive_txns.end()) {
-      //该事务不活跃，可以删除
+      // 该事务不活跃，可以删除
       it = txn_map_.erase(it);
     } else {
       ++it;

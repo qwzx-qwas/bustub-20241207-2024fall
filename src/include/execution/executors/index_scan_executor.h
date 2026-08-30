@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/rid.h"
@@ -42,14 +44,22 @@ class IndexScanExecutor : public AbstractExecutor {
   auto Next(Tuple *tuple, RID *rid) -> bool override;
 
  private:
+  /** Populate the generic point-lookup RID bucket for the current predicate key. */
+  void LoadPointLookupRids();
+
   /** The index scan plan node to be executed. */
   const IndexScanPlanNode *plan_;
 
   IndexInfo *index_info_;
 
   BPlusTreeIndexForTwoIntegerColumn *tree_;
-  std::optional<BPlusTreeIndexIteratorForTwoIntegerColumn> iter_;
-  std::optional<BPlusTreeIndexIteratorForTwoIntegerColumn> end_;
+  std::vector<std::pair<IntegerKeyType_BTree, RID>> full_scan_entries_;
+  size_t full_scan_entry_idx_{0};
+
+  /** Point lookups use Index::ScanKey so ordinary non-unique indexes return every matching RID. */
+  std::vector<RID> point_lookup_rids_;
+  size_t point_lookup_rid_idx_{0};
+  std::unordered_set<RID> emitted_rids_;
 
   // For handling multiple point lookups (OR clause)
   size_t current_key_idx_{0};

@@ -94,6 +94,7 @@ auto BPLUSTREE_TYPE::BinarySearch(const BPlusTreePage *page, const KeyType &key,
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool {
+  std::shared_lock tree_lock(tree_latch_);
   /*Declaration of context instance.
   Context ctx;
   (void)ctx;
@@ -206,7 +207,15 @@ auto BPLUSTREE_TYPE::HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx, c
   KeyType up_key = new_leaf_page->KeyAt(0);
 
   if (leaf_guard.GetPageId() == ctx.root_page_id_) {
-    CreateNewRoot(leaf_guard, new_leaf_page_guard, up_key, ctx);
+    const auto left_page_id = leaf_guard.GetPageId();
+    const auto right_page_id = new_leaf_page_guard.GetPageId();
+    // A root split has already materialized both children while holding the
+    // tree latch exclusively. Release the child latches before taking the new
+    // parent latch so future parent-to-child traversals cannot form a lock
+    // order cycle with this publication path.
+    leaf_guard.Drop();
+    new_leaf_page_guard.Drop();
+    CreateNewRoot(left_page_id, right_page_id, up_key, ctx);
   } else {
     WritePageGuard &parent_guard = ctx.write_set_.rbegin()[2];
     InsertIntoParent(parent_guard, up_key, new_leaf_page_guard, ctx);
@@ -311,7 +320,11 @@ auto BPLUSTREE_TYPE::HandleInternalSplit(WritePageGuard &internal_guard, Context
 
   // === STEP 6: 处理父节点===
   if (internal_guard.GetPageId() == ctx.root_page_id_) {
-    CreateNewRoot(internal_guard, new_internal_page_guard, up_key, ctx);
+    const auto left_page_id = internal_guard.GetPageId();
+    const auto right_page_id = new_internal_page_guard.GetPageId();
+    internal_guard.Drop();
+    new_internal_page_guard.Drop();
+    CreateNewRoot(left_page_id, right_page_id, up_key, ctx);
   } else {
     int parent_index = -1;
     for (size_t i = 0; i < ctx.write_set_.size(); ++i) {
@@ -331,8 +344,8 @@ auto BPLUSTREE_TYPE::HandleInternalSplit(WritePageGuard &internal_guard, Context
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &right_guard, const KeyType &key,
-                                   Context &ctx) -> void {
+auto BPLUSTREE_TYPE::CreateNewRoot(page_id_t left_page_id, page_id_t right_page_id, const KeyType &key, Context &ctx)
+    -> void {
   // 创建新的根节点
   auto new_root_page_id = bpm_->NewPage();
   if (new_root_page_id == INVALID_PAGE_ID) {
@@ -347,8 +360,8 @@ auto BPLUSTREE_TYPE::CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &r
 
   // 设置新的根节点的第一个key和两个子指针
   new_root_page->SetKeyAt(1, key);
-  new_root_page->SetValueAt(0, left_guard.GetPageId());
-  new_root_page->SetValueAt(1, right_guard.GetPageId());
+  new_root_page->SetValueAt(0, left_page_id);
+  new_root_page->SetValueAt(1, right_page_id);
   new_root_page->SetSize(2);
 
   // 更新header_page中的root_page_id
@@ -367,6 +380,7 @@ auto BPLUSTREE_TYPE::CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &r
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool {
+  std::unique_lock tree_lock(tree_latch_);
   // Declaration of context instance.
   /*Context ctx;
   (void)ctx;      是一种无副作用的 C++ 技巧，用于在变量尚未被使用时抑制编译器警告。
@@ -493,6 +507,7 @@ auto BPLUSTREE_TYPE::FindLeafPageForWrite(const KeyType &key, std::vector<ValueT
 
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key) {
+  std::unique_lock tree_lock(tree_latch_);
   if (IsEmpty()) {
     return;  // 如果B+树为空，直接返回
   }
@@ -976,6 +991,7 @@ auto BPLUSTREE_TYPE::MergeInternalHelper(WritePageGuard &left_guard, WritePageGu
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  std::shared_lock tree_lock(tree_latch_);
   page_id_t current_page_id = GetRootPageId();
   if (current_page_id == INVALID_PAGE_ID) {
     return INDEXITERATOR_TYPE();
@@ -1005,6 +1021,7 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  std::shared_lock tree_lock(tree_latch_);
   // 和上面的逻辑类似，但是要先找到包含key的叶子节点
   page_id_t current_page_id = GetRootPageId();
   if (current_page_id == INVALID_PAGE_ID) {

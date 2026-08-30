@@ -25,14 +25,22 @@
 
 namespace bustub {
 
-static char *buffer_used;
-
 /**
  * Constructor: open/create a single database file & log file
  * @input db_file: database file name
  */
 DiskManager::DiskManager(const std::filesystem::path &db_file) : file_name_(db_file) {
-  log_name_ = file_name_.filename().stem().string() + ".log";
+  log_name_ = file_name_.parent_path() / (file_name_.filename().stem().string() + ".log");
+
+  std::error_code file_size_error;
+  const bool database_exists = std::filesystem::exists(db_file, file_size_error);
+  if (file_size_error) {
+    throw Exception("cannot inspect db file");
+  }
+  const auto existing_size = database_exists ? std::filesystem::file_size(db_file, file_size_error) : 0;
+  if (file_size_error) {
+    throw Exception("cannot inspect db file size");
+  }
 
   log_io_.open(log_name_, std::ios::binary | std::ios::in | std::ios::app | std::ios::out);
   // directory or file does not exist
@@ -57,11 +65,18 @@ DiskManager::DiskManager(const std::filesystem::path &db_file) : file_name_(db_f
     }
   }
 
-  // Initialize the database file.
-  std::filesystem::resize_file(db_file, (page_capacity_ + 1) * BUSTUB_PAGE_SIZE);
+  // Initialize a new database, but never shrink an existing one during
+  // recovery. The allocation high-water mark itself is restored by the
+  // catalog/BufferPool recovery path.
+  if (existing_size == 0) {
+    std::filesystem::resize_file(db_file, (page_capacity_ + 1) * BUSTUB_PAGE_SIZE);
+  } else {
+    if (existing_size % BUSTUB_PAGE_SIZE != 0 || existing_size < BUSTUB_PAGE_SIZE) {
+      throw Exception("db file size is not page aligned");
+    }
+    page_capacity_ = static_cast<size_t>(existing_size / BUSTUB_PAGE_SIZE - 1);
+  }
   assert(static_cast<size_t>(GetFileSize(file_name_)) >= page_capacity_ * BUSTUB_PAGE_SIZE);
-
-  buffer_used = nullptr;
 }
 
 /**
@@ -160,8 +175,8 @@ void DiskManager::DeletePage(page_id_t page_id) { num_deletes_ += 1; }
  */
 void DiskManager::WriteLog(char *log_data, int size) {
   // enforce swap log buffer
-  assert(log_data != buffer_used);
-  buffer_used = log_data;
+  assert(log_data != buffer_used_);
+  buffer_used_ = log_data;
 
   if (size == 0) {  // no effect on num_flushes_ if log buffer is empty
     return;

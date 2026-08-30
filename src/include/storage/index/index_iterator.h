@@ -40,7 +40,14 @@ class IndexIterator {
 
   auto IsEnd() const -> bool;
 
-  auto operator*() -> std::pair<const KeyType &, const ValueType &>;
+  /**
+   * Return an owning copy of the current entry.
+   *
+   * LeafPage::KeyAt and ValueAt return by value. Returning references to those
+   * temporaries leaves callers with dangling RIDs before they can consume the
+   * iterator result.
+   */
+  auto operator*() -> std::pair<KeyType, ValueType>;
 
   auto operator++() -> IndexIterator &;
 

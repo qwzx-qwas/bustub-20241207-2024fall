@@ -45,7 +45,7 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     // 如果当前没有正在处理的左表元组，则从左表获取下一个元组
     if (!left_tuple_valid_) {
       if (!left_executor_->Next(&left_tuple_, rid)) {
-        //左表元组已经耗尽，连接结束
+        // 左表元组已经耗尽，连接结束
         return false;
       }
       // 获取到新的左表元组，标记为有效
@@ -56,7 +56,7 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       right_executor_->Init();
     }
 
-    //尝试从右表获取下一个元组进行连接
+    // 尝试从右表获取下一个元组进行连接
     Tuple right_tuple;
     RID right_rid;
     if (right_executor_->Next(&right_tuple, &right_rid)) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <utility>
 
 #include "catalog/catalog.h"
@@ -16,8 +17,9 @@ namespace bustub {
  */
 class VectorIndexScanPlanNode : public AbstractPlanNode {
  public:
-  VectorIndexScanPlanNode(SchemaRef output, table_oid_t table_oid, index_oid_t index_oid, AbstractExpressionRef query_expr,
-                          std::size_t k, AbstractExpressionRef distance_expr = nullptr,
+  VectorIndexScanPlanNode(SchemaRef output, table_oid_t table_oid, index_oid_t index_oid,
+                          AbstractExpressionRef query_expr, std::size_t k,
+                          AbstractExpressionRef distance_expr = nullptr,
                           AbstractExpressionRef filter_predicate = nullptr)
       : AbstractPlanNode(std::move(output), {}),
         table_oid_(table_oid),

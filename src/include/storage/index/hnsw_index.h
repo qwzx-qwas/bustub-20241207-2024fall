@@ -137,8 +137,8 @@ class HNSWIndex : public Index {
       -> SearchCandidate;
 
   /** 作用：在指定层执行 bounded best-first search，`ef` 对应 HNSW 的搜索预算。 */
-  auto SearchLayerUnlocked(const Tuple &query, const std::vector<std::uint32_t> &entry_points, std::size_t ef, int layer)
-      -> std::vector<SearchCandidate>;
+  auto SearchLayerUnlocked(const Tuple &query, const std::vector<std::uint32_t> &entry_points, std::size_t ef,
+                           int layer) -> std::vector<SearchCandidate>;
 
   /** 作用：用可解释的启发式裁剪候选邻居，避免简单全连接导致图退化。 */
   auto SelectNeighborsUnlocked(const std::vector<SearchCandidate> &candidates, std::size_t limit) const
@@ -529,8 +529,8 @@ void HNSWIndex<KT, VT, Cmp>::ScanKey(const Tuple &key, std::vector<RID> *result,
 }
 
 template <typename KT, typename VT, typename Cmp>
-auto HNSWIndex<KT, VT, Cmp>::SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result,
-                                       Transaction *transaction) -> void {
+auto HNSWIndex<KT, VT, Cmp>::SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result, Transaction *transaction)
+    -> void {
   std::vector<VectorIndexCandidate> candidates;
   SearchVector(query, AnnSearchOptions{k, k, ef_search_}, &candidates, transaction);
 

@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <type_traits>
+#include <utility>
 
 #include "buffer/buffer_pool_manager.h"
 #include "gtest/gtest.h"
@@ -22,6 +24,10 @@
 namespace bustub {
 
 using bustub::DiskManagerUnlimitedMemory;
+
+static_assert(std::is_same_v<decltype(*std::declval<IndexIterator<GenericKey<8>, RID, GenericComparator<8>> &>()),
+                             std::pair<GenericKey<8>, RID>>,
+              "IndexIterator dereference must own its key and RID instead of referring to temporary LeafPage values");
 
 TEST(BPlusTreeTests, BasicInsertTest) {
   // create KeyComparator and index schema

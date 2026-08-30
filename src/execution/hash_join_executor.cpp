@@ -33,14 +33,14 @@ HashJoinExecutor::HashJoinExecutor(ExecutorContext *exec_ctx, const HashJoinPlan
 */
 
 void HashJoinExecutor::Init() {
-  //初始化左右子执行器
+  // 初始化左右子执行器
   left_child_executor_->Init();
   right_child_executor_->Init();
-  //重置哈希表和输出缓冲区
+  // 重置哈希表和输出缓冲区
   ht_.clear();
   result_buffer_.clear();
 
-  //初始化Schema
+  // 初始化Schema
   left_schema_ = left_child_executor_->GetOutputSchema();
   right_schema_ = right_child_executor_->GetOutputSchema();
 
@@ -49,7 +49,7 @@ void HashJoinExecutor::Init() {
   bloom_filter_.resize(400000);
   std::fill(bloom_filter_.begin(), bloom_filter_.end(), false);
 
-  //基于右子执行器构建哈希表
+  // 基于右子执行器构建哈希表
   Tuple right_tuple;
   RID right_rid;
   while (right_child_executor_->Next(&right_tuple, &right_rid)) {
@@ -70,8 +70,8 @@ void HashJoinExecutor::Init() {
 
 auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   while (true) {
-    //先检查输出缓冲区是否有结果
-    //有结果则直接输出
+    // 先检查输出缓冲区是否有结果
+    // 有结果则直接输出
     if (!result_buffer_.empty()) {
       *tuple = result_buffer_.back();
       result_buffer_.pop_back();
@@ -82,13 +82,13 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
 
     Tuple left_tuple;
     RID left_rid;
-    //从左子执行器中拉取下一个元组
+    // 从左子执行器中拉取下一个元组
     if (!left_child_executor_->Next(&left_tuple, &left_rid)) {
       return false;
     }
 
     HashJoinKey key;
-    //计算左元组的连接键
+    // 计算左元组的连接键
     for (const auto &expr : plan_->LeftJoinKeyExpressions()) {
       key.column_values_.emplace_back(expr->Evaluate(&left_tuple, left_schema_));
     }
@@ -115,7 +115,7 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
 
     auto it = ht_.find(key);
 
-    //找到了匹配的右元组
+    // 找到了匹配的右元组
     if (it != ht_.end()) {
       for (auto iter = it->second.rbegin(); iter != it->second.rend(); ++iter) {
         const auto &right_tuple = *iter;
@@ -132,7 +132,7 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       }
     } else if (plan_->GetJoinType() == JoinType::LEFT) {
       // left join 且没有找到匹配的右元组
-      //输出【左元组+右元组全空值】
+      // 输出【左元组+右元组全空值】
       std::vector<Value> values;
       values.reserve(plan_->OutputSchema().GetColumnCount());
 

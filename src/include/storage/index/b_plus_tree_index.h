@@ -13,12 +13,15 @@
 
 #include <map>
 #include <memory>
+#include <mutex>  // NOLINT(build/c++11)
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "container/hash/hash_function.h"
 #include "storage/index/b_plus_tree.h"
 #include "storage/index/index.h"
+#include "storage/index/stl_comparator_wrapper.h"
 
 namespace bustub {
 
@@ -41,11 +44,19 @@ class BPlusTreeIndex : public Index {
 
   auto GetEndIterator() -> INDEXITERATOR_TYPE;
 
+  /** Return a key-ordered snapshot containing every RID, including non-unique secondary-index buckets. */
+  auto GetAllEntriesSnapshot() -> std::vector<std::pair<KeyType, ValueType>>;
+
  protected:
   // comparator for key
   KeyComparator comparator_;
   // container
   std::shared_ptr<BPlusTree<KeyType, ValueType, KeyComparator>> container_;
+  // BusTub's B+Tree stores one RID per key. Ordinary secondary indexes add an exact-key RID bucket while the tree
+  // retains one representative for ordered traversal; primary indexes continue to reject duplicates.
+  bool is_primary_key_;
+  std::mutex non_unique_latch_;
+  std::map<KeyType, std::vector<RID>, StlComparatorWrapper<KeyType, KeyComparator>> non_unique_entries_;
 };
 
 /** We only support index table with one integer key for now in BusTub. Hardcode everything here. */

@@ -212,6 +212,7 @@ void BusTubInstance::CmdDisplayHelp(ResultWriter &writer) {
   std::string help = R"(Welcome to the BusTub shell!
 
 \dt: show all tables
+\d <table>: show one table's schema
 \di: show all indices
 \dbgmvcc <table>: show version chain of a table
 \help: show this message again
@@ -257,6 +258,19 @@ auto BusTubInstance::ExecuteSqlTxn(const std::string &sql, ResultWriter &writer,
     // Internal meta-commands, like in `psql`.
     if (sql == "\\dt") {
       CmdDisplayTables(writer);
+      return true;
+    }
+    if (StringUtil::StartsWith(sql, "\\d ")) {
+      auto split = StringUtil::Split(sql, " ");
+      if (split.size() != 2 || split[1].empty()) {
+        throw Exception("\\d expects exactly one table name");
+      }
+      std::shared_lock<std::shared_mutex> lock(catalog_lock_);
+      auto table_info = catalog_->GetTable(split[1]);
+      if (table_info == nullptr) {
+        throw Exception(fmt::format("table {} not found", split[1]));
+      }
+      writer.OneCell(fmt::format("{} {}", table_info->name_, table_info->schema_.ToString()));
       return true;
     }
     if (sql == "\\di") {

@@ -13,10 +13,12 @@
 #include "common/exception.h"
 #include "execution/expressions/abstract_expression.h"
 #include "execution/expressions/column_value_expression.h"
+#include "execution/expressions/type_cast_expression.h"
 #include "execution/plans/abstract_plan.h"
 #include "execution/plans/delete_plan.h"
 #include "execution/plans/filter_plan.h"
 #include "execution/plans/insert_plan.h"
+#include "execution/plans/projection_plan.h"
 #include "execution/plans/update_plan.h"
 #include "execution/plans/values_plan.h"
 #include "planner/planner.h"
@@ -29,9 +31,29 @@ auto Planner::PlanInsert(const InsertStatement &statement) -> AbstractPlanNodeRe
 
   const auto &table_schema = statement.table_->schema_.GetColumns();
   const auto &child_schema = select->OutputSchema().GetColumns();
-  if (!std::equal(table_schema.cbegin(), table_schema.cend(), child_schema.cbegin(), child_schema.cend(),
-                  [](auto &&col1, auto &&col2) { return col1.GetType() == col2.GetType(); })) {
+  if (table_schema.size() != child_schema.size()) {
     throw bustub::Exception("table schema mismatch");
+  }
+
+  std::vector<AbstractExpressionRef> coerced_columns;
+  coerced_columns.reserve(table_schema.size());
+  bool needs_coercion = false;
+  for (size_t column_idx = 0; column_idx < table_schema.size(); column_idx++) {
+    const auto &target = table_schema[column_idx];
+    const auto &source = child_schema[column_idx];
+    AbstractExpressionRef value = std::make_shared<ColumnValueExpression>(0, column_idx, source);
+    if (target.GetType() != source.GetType()) {
+      if (!Type::GetInstance(target.GetType())->IsCoercableFrom(source.GetType())) {
+        throw bustub::Exception("table schema mismatch");
+      }
+      value = std::make_shared<TypeCastExpression>(std::move(value), target);
+      needs_coercion = true;
+    }
+    coerced_columns.push_back(std::move(value));
+  }
+  if (needs_coercion) {
+    select = std::make_shared<ProjectionPlanNode>(std::make_shared<Schema>(statement.table_->schema_),
+                                                  std::move(coerced_columns), std::move(select));
   }
 
   auto insert_schema = std::make_shared<Schema>(std::vector{Column("__bustub_internal.insert_rows", TypeId::INTEGER)});

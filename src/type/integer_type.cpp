@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -263,12 +264,13 @@ auto IntegerType::ToString(const Value &val) const -> std::string {
 }
 
 void IntegerType::SerializeTo(const Value &val, char *storage) const {
-  *reinterpret_cast<int32_t *>(storage) = val.value_.integer_;
+  std::memcpy(storage, &val.value_.integer_, sizeof(val.value_.integer_));
 }
 
 // Deserialize a value of the given type from the given storage space.
 auto IntegerType::DeserializeFrom(const char *storage) const -> Value {
-  int32_t val = *reinterpret_cast<const int32_t *>(storage);
+  int32_t val = 0;
+  std::memcpy(&val, storage, sizeof(val));
   return {type_id_, val};
 }
 

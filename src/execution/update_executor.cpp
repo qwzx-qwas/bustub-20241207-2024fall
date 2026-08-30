@@ -53,18 +53,18 @@ void UpdateExecutor::Init() {
 }
 
 auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
-  //先检查是否已经执行过更新
+  // 先检查是否已经执行过更新
   if (executed_) {
     return false;
   }
 
   auto txn = exec_ctx_->GetTransaction();
-  //当前事务id
+  // 当前事务id
   timestamp_t curr_txn_id = txn->GetTransactionId();
   auto *txn_mgr = exec_ctx_->GetTransactionManager();
-  //获取事务的读取时间戳
+  // 获取事务的读取时间戳
   auto read_ts = txn->GetReadTs();
-  //事务的临时时间戳
+  // 事务的临时时间戳
   timestamp_t txn_ts = txn->GetTransactionTempTs();
 
   executed_ = true;
@@ -74,7 +74,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   RID old_rid;
 
   // 收集所有需要更新的元组，避免 Halloween Problem 和迭代器失效
-  //因为一边读取一边更新会导致后续更新的tuple被再次读到，导致死循环或迭代器失效
+  // 因为一边读取一边更新会导致后续更新的tuple被再次读到，导致死循环或迭代器失效
   // 所以提前收集起来（对delete也是一样）
   std::vector<std::pair<Tuple, RID>> tuples_to_update;
   while (child_executor_->Next(&old_tuple, &old_rid)) {
@@ -93,27 +93,27 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     auto tuple_meta = table_heap_->GetTupleMeta(curr_old_rid);
     auto tuple_ts = tuple_meta.ts_;
 
-    //如果是write-write冲突，直接报错
-    //如果是未提交事务或读取时间戳落后于当前事务ID，说明有冲突
-    //检测到冲突时，将事务状态设为 TAINTED，并抛出 ExecutionException
+    // 如果是write-write冲突，直接报错
+    // 如果是未提交事务或读取时间戳落后于当前事务ID，说明有冲突
+    // 检测到冲突时，将事务状态设为 TAINTED，并抛出 ExecutionException
     if (((tuple_ts & TXN_START_ID) != 0 && (tuple_ts != curr_txn_id)) ||
         ((tuple_ts > read_ts) && ((tuple_ts & TXN_START_ID) == 0))) {
       txn->SetTainted();
       throw ExecutionException("UpdateExecutor::Next failed due to write-write conflict.");
     }
 
-    //构造更新后的值列表
+    // 构造更新后的值列表
     std::vector<Value> updated_values;
     for (const auto &expr : plan_->target_expressions_) {
       updated_values.push_back(expr->Evaluate(&curr_old_tuple, table_info_->schema_));
     }
-    //构造新的tuple
+    // 构造新的tuple
     Tuple new_tuple(updated_values, &table_info_->schema_);
 
-    //处理undolog
-    //判断是否是第一次修改自己所修改的tuple
-    //第一次则需要用GenerateNewUndoLog生成新的undolog
-    //否则需要用GenerateUpdatedUndoLog生成更新后的undolog
+    // 处理undolog
+    // 判断是否是第一次修改自己所修改的tuple
+    // 第一次则需要用GenerateNewUndoLog生成新的undolog
+    // 否则需要用GenerateUpdatedUndoLog生成更新后的undolog
     bool is_self_modified = (tuple_ts == curr_txn_id);
     std::optional<UndoLink> prev_link = txn_mgr->GetUndoLink(curr_old_rid);
     UndoLog undo_log;
@@ -132,7 +132,13 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       Tuple new_key_;
       bool key_changed_;
     };
+    struct SecondaryIndexInfo {
+      IndexInfo *index_info_;
+      Tuple new_key_;
+      bool key_changed_;
+    };
     std::vector<VectorIndexInfo> vector_indexes;
+    std::vector<SecondaryIndexInfo> secondary_indexes;
     for (auto index_info : indexes_) {
       if (index_info->is_primary_key_) {
         auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
@@ -151,22 +157,28 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
                                               index_info->index_->GetKeyAttrs());
         const bool key_changed = !IsTupleContentEqual(old_key, new_key);
         vector_indexes.push_back(VectorIndexInfo{index_info, old_key, new_key, key_changed});
+      } else if (!index_info->is_primary_key_) {
+        auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
+                                                   index_info->index_->GetKeyAttrs());
+        auto new_key = new_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
+                                              index_info->index_->GetKeyAttrs());
+        secondary_indexes.push_back(SecondaryIndexInfo{index_info, new_key, !IsTupleContentEqual(old_key, new_key)});
       }
     }
 
-    //主键没变，直接更新主表内容，不删除索引条目
+    // 主键没变，直接更新主表内容，不删除索引条目
     if (!primary_key_changed) {
       bool update_success = false;
       if (!is_self_modified) {
-        //第一次修改
-        //获取之前的版本链接
+        // 第一次修改
+        // 获取之前的版本链接
         UndoLink prev_version = prev_link.has_value() ? *prev_link : UndoLink();
-        //调用 GenerateNewUndoLog，把当前主表里的旧值存进日志
+        // 调用 GenerateNewUndoLog，把当前主表里的旧值存进日志
         undo_log = GenerateNewUndoLog(&table_info_->schema_, &curr_old_tuple, &new_tuple, tuple_ts, prev_version);
-        //在事务里新建一条日志记录
+        // 在事务里新建一条日志记录
         UndoLink new_undo_link = txn->AppendUndoLog(undo_log);
-        //原子性地修改主表数据，并将主表的 UndoLink 指向这条新日志
-        //手动维护事务的写集，确保 Commit 时能更新时间戳
+        // 原子性地修改主表数据，并将主表的 UndoLink 指向这条新日志
+        // 手动维护事务的写集，确保 Commit 时能更新时间戳
         txn->AppendWriteSet(table_info_->oid_, curr_old_rid);
         update_success = UpdateTupleAndUndoLink(
             txn_mgr, curr_old_rid, new_undo_link, table_heap_, txn, {curr_txn_id, false}, new_tuple,
@@ -175,15 +187,15 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
               return meta.ts_ == tuple_ts;
             });
       } else {
-        //不是第一次修改，获取之前的undolog
+        // 不是第一次修改，获取之前的undolog
         if (prev_link.has_value() && prev_link->IsValid()) {
           UndoLog old_undo_log = txn_mgr->GetUndoLog(*prev_link);
-          //将本次修改与事务中已有的旧日志合并。
+          // 将本次修改与事务中已有的旧日志合并。
           undo_log = GenerateUpdatedUndoLog(&table_info_->schema_, &curr_old_tuple, &new_tuple, old_undo_log);
-          //直接覆盖原来的日志，不增加日志数量。
+          // 直接覆盖原来的日志，不增加日志数量。
           txn->ModifyUndoLog(prev_link->prev_log_idx_, undo_log);
         }
-        //只改主表内容，不改 UndoLink（因为它已经指向正确的日志位置了）
+        // 只改主表内容，不改 UndoLink（因为它已经指向正确的日志位置了）
         update_success = table_heap_->UpdateTupleInPlace(
             {curr_txn_id, false}, new_tuple, curr_old_rid,
             // Check function
@@ -192,6 +204,26 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
       if (!update_success) {
         throw ExecutionException("UpdateExecutor::Next failed to update tuple.");
+      }
+
+      // 普通二级索引必须保留旧键供旧快照定位同一个 RID，同时插入新键供当前及后续快照定位。
+      // IndexScan 会按事务可见版本再次核对键值，因此提交或回滚后留下的陈旧 entry 不会产生错误结果。
+      for (const auto &secondary_index : secondary_indexes) {
+        if (!secondary_index.key_changed_) {
+          continue;
+        }
+        if (!secondary_index.index_info_->index_->InsertEntry(secondary_index.new_key_, curr_old_rid, txn)) {
+          std::vector<RID> existing_rids;
+          secondary_index.index_info_->index_->ScanKey(secondary_index.new_key_, &existing_rids, txn);
+          bool already_present = false;
+          for (const auto &existing_rid : existing_rids) {
+            already_present = already_present || existing_rid == curr_old_rid;
+          }
+          if (!already_present) {
+            txn->SetTainted();
+            throw ExecutionException("UpdateExecutor::Next failed due to secondary index insertion failure.");
+          }
+        }
       }
 
       // 向量索引键变化时，把旧 entry 标成 stale，并插入同 RID 的新版本 entry。
@@ -210,18 +242,18 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       continue;
     }
 
-    //主键变了，先做删除语义，再做插入语义
+    // 主键变了，先做删除语义，再做插入语义
     bool delete_success = false;
     if (!is_self_modified) {
-      //第一次修改
-      //获取之前的版本链接
+      // 第一次修改
+      // 获取之前的版本链接
       UndoLink prev_version = prev_link.has_value() ? *prev_link : UndoLink();
-      //调用 GenerateNewUndoLog，把当前主表里的旧值存进日志
-      //这里的target_tuple为nullptr，表示删除操作
+      // 调用 GenerateNewUndoLog，把当前主表里的旧值存进日志
+      // 这里的target_tuple为nullptr，表示删除操作
       undo_log = GenerateNewUndoLog(&table_info_->schema_, &curr_old_tuple, nullptr, tuple_ts, prev_version);
-      //在事务里新建一条日志记录
+      // 在事务里新建一条日志记录
       UndoLink new_undo_link = txn->AppendUndoLog(undo_log);
-      //原子性地修改主表数据，并将主表的 UndoLink 指向这条新日志
+      // 原子性地修改主表数据，并将主表的 UndoLink 指向这条新日志
       delete_success = UpdateTupleAndUndoLink(
           txn_mgr, curr_old_rid, new_undo_link, table_heap_, txn, {curr_txn_id, true}, curr_old_tuple,
           // Check function
@@ -229,16 +261,16 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
             return meta.ts_ == tuple_ts;
           });
     } else {
-      //不是第一次修改，获取之前的undolog
+      // 不是第一次修改，获取之前的undolog
       if (prev_link.has_value() && prev_link->IsValid()) {
         UndoLog old_undo_log = txn_mgr->GetUndoLog(*prev_link);
-        //将本次修改与事务中已有的旧日志合并。
-        //这里的target_tuple为nullptr，表示删除操作
+        // 将本次修改与事务中已有的旧日志合并。
+        // 这里的target_tuple为nullptr，表示删除操作
         undo_log = GenerateUpdatedUndoLog(&table_info_->schema_, &curr_old_tuple, nullptr, old_undo_log);
-        //直接覆盖原来的日志，不增加日志数量。
+        // 直接覆盖原来的日志，不增加日志数量。
         txn->ModifyUndoLog(prev_link->prev_log_idx_, undo_log);
       }
-      //只改主表内容，不改 UndoLink（因为它已经指向正确的日志位置了）
+      // 只改主表内容，不改 UndoLink（因为它已经指向正确的日志位置了）
       delete_success = table_heap_->UpdateTupleInPlace(
           {curr_txn_id, true}, curr_old_tuple, curr_old_rid,
           // Check function
@@ -261,8 +293,8 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   for (const auto &insert_info : deferred_inserts) {
     const auto &new_tuple = insert_info.new_tuple_;
 
-    //再insert, 先做唯一性检查
-    //如果索引已有条目且指向deleted RID，则尝试复用该RID
+    // 再insert, 先做唯一性检查
+    // 如果索引已有条目且指向deleted RID，则尝试复用该RID
     bool reused_deleted_rid = false;
     std::optional<RID> reused_rid;
     for (auto index_info : indexes_) {
@@ -287,14 +319,14 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
           }
 
           if (existing_meta.is_deleted_) {
-            //生成 undo log，复用已有的RID
+            // 生成 undo log，复用已有的RID
             std::optional<UndoLink> existing_prev_link = txn_mgr->GetUndoLink(existing_rid);
             UndoLink prev_version = existing_prev_link.has_value() ? *existing_prev_link : UndoLink();
-            //当复用已删除的RID时，传入的base_tuple为nullptr
+            // 当复用已删除的RID时，传入的base_tuple为nullptr
             UndoLog reuse_undo_log =
                 GenerateNewUndoLog(&table_info_->schema_, nullptr, &new_tuple, existing_ts, prev_version);
             UndoLink reuse_undo_link = txn->AppendUndoLog(reuse_undo_log);
-            //尝试用UpdateTupleAndUndoLink更新该RID
+            // 尝试用UpdateTupleAndUndoLink更新该RID
             bool update_success = UpdateTupleAndUndoLink(
                 txn_mgr, existing_rid, reuse_undo_link, table_heap_, txn, {curr_txn_id, false}, new_tuple,
                 // Check function
@@ -331,7 +363,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       continue;
     }
 
-    //插入新的tuple
+    // 插入新的tuple
     auto inserted_rid = table_heap_->InsertTuple({txn_ts, false}, new_tuple, exec_ctx_->GetLockManager(),
                                                  exec_ctx_->GetTransaction(), table_info_->oid_);
     if (!inserted_rid.has_value()) {
@@ -339,7 +371,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     }
     txn->AppendWriteSet(table_info_->oid_, *inserted_rid);
 
-    //插入索引
+    // 插入索引
     for (auto index_info : indexes_) {
       auto index_key = new_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
                                               index_info->index_->GetKeyAttrs());

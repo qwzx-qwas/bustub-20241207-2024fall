@@ -4,13 +4,13 @@
 #include <utility>
 #include <vector>
 
+#include "../txn/txn_common.h"
 #include "common/bustub_instance.h"
 #include "common/util/string_util.h"
 #include "fmt/format.h"
 #include "gtest/gtest.h"
 #include "storage/index/hnsw_index.h"
 #include "storage/index/int_comparator.h"
-#include "../txn/txn_common.h"
 
 namespace bustub {
 
@@ -91,7 +91,8 @@ auto MakeQueryTuple(const std::vector<double> &values, const Index *index) -> Tu
 }
 
 /** 作用：计算 ANN 结果命中 exact top-k 的数量，用来验证 recall 不会下降。 */
-auto RecallAtK(const std::vector<VectorIndexCandidate> &actual, const std::unordered_set<int64_t> &expected_rids) -> std::size_t {
+auto RecallAtK(const std::vector<VectorIndexCandidate> &actual, const std::unordered_set<int64_t> &expected_rids)
+    -> std::size_t {
   std::size_t matched = 0;
   std::unordered_set<int64_t> seen;
   for (const auto &candidate : actual) {
@@ -215,11 +216,12 @@ TEST(HNSWIndexTest, OptimizerPrefersHNSWForSmallTopK) {
                    "(ARRAY [2.0, 0.0, 0.0], 3), "
                    "(ARRAY [3.0, 0.0, 0.0], 4), "
                    "(ARRAY [4.0, 0.0, 0.0], 5)");
-  ExecuteStatement(*bustub, "CREATE INDEX choose_ivf_idx ON hnsw_choose USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "CREATE INDEX choose_ivf_idx ON hnsw_choose USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
   ExecuteStatement(*bustub, "CREATE INDEX choose_hnsw_idx ON hnsw_choose USING hnsw (v) WITH (m = 4, ef_search = 8)");
 
-  const auto plan = ExplainPlan(*bustub,
-                                "SELECT id FROM hnsw_choose ORDER BY l2_distance(v, ARRAY [1.1, 0.0, 0.0]) LIMIT 3");
+  const auto plan =
+      ExplainPlan(*bustub, "SELECT id FROM hnsw_choose ORDER BY l2_distance(v, ARRAY [1.1, 0.0, 0.0]) LIMIT 3");
   const auto hnsw_oid = bustub->catalog_->GetIndex("choose_hnsw_idx", "hnsw_choose")->index_oid_;
   EXPECT_TRUE(StringUtil::Contains(plan, fmt::format("index_oid={}", hnsw_oid))) << plan;
 }
@@ -233,10 +235,11 @@ TEST(HNSWIndexTest, MetricMismatchDoesNotUseHNSW) {
                    "(ARRAY [1.0, 1.0, 0.0], 2), "
                    "(ARRAY [0.0, 1.0, 0.0], 3)");
   ExecuteStatement(*bustub, "CREATE INDEX mismatch_hnsw_idx ON hnsw_mismatch USING hnsw (v) WITH (metric = 'l2')");
-  ExecuteStatement(*bustub, "CREATE INDEX mismatch_ivf_idx ON hnsw_mismatch USING ivfflat (v) WITH (metric = 'cosine')");
+  ExecuteStatement(*bustub,
+                   "CREATE INDEX mismatch_ivf_idx ON hnsw_mismatch USING ivfflat (v) WITH (metric = 'cosine')");
 
-  const auto plan = ExplainPlan(*bustub,
-                                "SELECT id FROM hnsw_mismatch ORDER BY cosine_distance(v, ARRAY [1.0, 0.0, 0.0]) LIMIT 2");
+  const auto plan =
+      ExplainPlan(*bustub, "SELECT id FROM hnsw_mismatch ORDER BY cosine_distance(v, ARRAY [1.0, 0.0, 0.0]) LIMIT 2");
   const auto ivf_oid = bustub->catalog_->GetIndex("mismatch_ivf_idx", "hnsw_mismatch")->index_oid_;
   EXPECT_TRUE(StringUtil::Contains(plan, fmt::format("index_oid={}", ivf_oid))) << plan;
 }
@@ -251,8 +254,9 @@ TEST(HNSWIndexTest, VectorIndexScanRespectsMvccAndFilter) {
                    "(ARRAY [10.0, 0.0, 0.0], 10), "
                    "(ARRAY [15.0, 0.0, 0.0], 15)");
 
-  const auto sql = "SELECT id FROM hnsw_mvcc WHERE id <> 5 "
-                   "ORDER BY l2_distance(v, ARRAY [0.0, 0.0, 0.0]) LIMIT 2";
+  const auto sql =
+      "SELECT id FROM hnsw_mvcc WHERE id <> 5 "
+      "ORDER BY l2_distance(v, ARRAY [0.0, 0.0, 0.0]) LIMIT 2";
   const auto plan = ExplainPlan(*bustub, sql);
   EXPECT_TRUE(StringUtil::Contains(plan, "VectorIndexScan")) << plan;
   EXPECT_TRUE(StringUtil::Contains(plan, "filter=(#0.1!=5)")) << plan;

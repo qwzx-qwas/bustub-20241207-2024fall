@@ -103,7 +103,16 @@ struct AggregateKey {
    * @return `true` if both aggregate keys have equivalent group-by expressions, `false` otherwise
    */
   auto operator==(const AggregateKey &other) const -> bool {
+    if (group_bys_.size() != other.group_bys_.size()) {
+      return false;
+    }
     for (uint32_t i = 0; i < other.group_bys_.size(); i++) {
+      if (group_bys_[i].IsNull() || other.group_bys_[i].IsNull()) {
+        if (group_bys_[i].IsNull() && other.group_bys_[i].IsNull()) {
+          continue;
+        }
+        return false;
+      }
       if (group_bys_[i].CompareEquals(other.group_bys_[i]) != CmpBool::CmpTrue) {
         return false;
       }

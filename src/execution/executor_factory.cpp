@@ -35,8 +35,8 @@
 #include "execution/executors/topn_executor.h"
 #include "execution/executors/topn_per_group_executor.h"
 #include "execution/executors/update_executor.h"
-#include "execution/executors/vector_index_scan_executor.h"
 #include "execution/executors/values_executor.h"
+#include "execution/executors/vector_index_scan_executor.h"
 #include "execution/executors/vector_knn_scan_executor.h"
 #include "execution/executors/window_function_executor.h"
 #include "execution/plans/filter_plan.h"
@@ -50,7 +50,6 @@
 #include "execution/plans/vector_knn_scan_plan.h"
 #include "execution/plans/window_plan.h"
 #include "storage/index/generic_key.h"
-
 
 namespace bustub {
 
@@ -202,7 +201,6 @@ auto ExecutorFactory::CreateExecutor(ExecutorContext *exec_ctx, const AbstractPl
       auto child = ExecutorFactory::CreateExecutor(exec_ctx, group_topn_plan->GetChildPlan());
       return std::make_unique<TopNPerGroupExecutor>(exec_ctx, group_topn_plan, std::move(child));
     }
-
 
     default:
       UNREACHABLE("Unsupported plan type.");

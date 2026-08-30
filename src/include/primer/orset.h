@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -59,7 +61,8 @@ class ORSet {
   auto ToString() const -> std::string;
 
  private:
-  // TODO(student): Add your private memeber variables to represent ORSet.
+  std::map<T, std::set<uid_t>> add_tags_;
+  std::set<uid_t> removed_tags_;
 };
 
 }  // namespace bustub

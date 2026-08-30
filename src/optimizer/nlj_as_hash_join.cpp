@@ -17,10 +17,10 @@
 #include "type/type_id.h"
 
 namespace bustub {
-//不同于被注释的版本，这个版本需要额外处理其他两种情况
-//处理等值条件
-//处理本地谓词，即只涉及左表或右表的谓词，将谓词下推
-//复杂连接（涉及两个表但不是等值条件的连接）不处理，直接返回原计划节点
+// 不同于被注释的版本，这个版本需要额外处理其他两种情况
+// 处理等值条件
+// 处理本地谓词，即只涉及左表或右表的谓词，将谓词下推
+// 复杂连接（涉及两个表但不是等值条件的连接）不处理，直接返回原计划节点
 auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef {
   // 必须先递归优化子节点，因为优化是从底部往上进行的
   std::vector<AbstractPlanNodeRef> children;
@@ -179,11 +179,11 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
   // TODO(student): implement NestedLoopJoin -> HashJoin optimizer rule
   // Note for 2023 Fall: You should support join keys of any number of conjunction of equi-conditions:
   // E.g. <column expr> = <column expr> AND <column expr> = <column expr> AND ...
-  //将 NestedLoopJoinPlan 转换为 HashJoinPlan
-  //当连接谓词（Join Predicate）是两个列之间若干个等值条件的逻辑与（AND）组合时，就可以使用哈希连接算法。
-  //这里不需要决定左右表（不考虑大小，这个项目正确性优先于性能），只需要提取出所有的等值条件即可。
+  // 将 NestedLoopJoinPlan 转换为 HashJoinPlan
+  // 当连接谓词（Join Predicate）是两个列之间若干个等值条件的逻辑与（AND）组合时，就可以使用哈希连接算法。
+  // 这里不需要决定左右表（不考虑大小，这个项目正确性优先于性能），只需要提取出所有的等值条件即可。
 
-  //必须先递归优化子节点，因为优化是从底部往上进行的
+  // 必须先递归优化子节点，因为优化是从底部往上进行的
   std::vector<AbstractPlanNodeRef> children;
   for (const auto &child : plan->GetChildren()) {
     children.emplace_back(OptimizeNLJAsHashJoin(child));

@@ -23,6 +23,7 @@
 #include <deque>
 #include <filesystem>
 #include <iostream>
+#include <mutex>  // NOLINT(build/c++11)
 #include <optional>
 #include <queue>
 #include <shared_mutex>
@@ -112,7 +113,7 @@ class BPlusTree {
                            const page_id_t &new_value) -> void;
 
   // 创建新的根节点
-  auto CreateNewRoot(WritePageGuard &left_guard, WritePageGuard &right_guard, const KeyType &key, Context &ctx) -> void;
+  auto CreateNewRoot(page_id_t left_page_id, page_id_t right_page_id, const KeyType &key, Context &ctx) -> void;
 
   auto FindLeafPageForWrite(const KeyType &key, std::vector<ValueType> *result, Context &ctx, bool is_insert = true)
       -> page_id_t;
@@ -250,6 +251,9 @@ class BPlusTree {
   int leaf_max_size_;
   int internal_max_size_;
   page_id_t header_page_id_;
+  // Page latches protect individual nodes. This tree-level latch also closes the gap between reading the root id and
+  // pinning the root page, and prevents concurrent structural writers from invalidating each other's retained paths.
+  mutable std::shared_mutex tree_latch_;
 };
 
 /**

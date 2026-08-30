@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -267,12 +268,13 @@ auto TinyintType::ToString(const Value &val) const -> std::string {
 }
 
 void TinyintType::SerializeTo(const Value &val, char *storage) const {
-  *reinterpret_cast<int8_t *>(storage) = val.value_.tinyint_;
+  std::memcpy(storage, &val.value_.tinyint_, sizeof(val.value_.tinyint_));
 }
 
 // Deserialize a value of the given type from the given storage space.
 auto TinyintType::DeserializeFrom(const char *storage) const -> Value {
-  int8_t val = *reinterpret_cast<const int8_t *>(storage);
+  int8_t val = 0;
+  std::memcpy(&val, storage, sizeof(val));
   return {type_id_, val};
 }
 

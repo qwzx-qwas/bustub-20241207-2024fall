@@ -5,7 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <mutex>
+#include <mutex>  // NOLINT(build/c++11)
 
 namespace bustub {
 

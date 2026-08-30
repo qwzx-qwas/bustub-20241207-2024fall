@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -284,12 +285,13 @@ auto SmallintType::ToString(const Value &val) const -> std::string {
 }
 
 void SmallintType::SerializeTo(const Value &val, char *storage) const {
-  *reinterpret_cast<int16_t *>(storage) = val.value_.smallint_;
+  std::memcpy(storage, &val.value_.smallint_, sizeof(val.value_.smallint_));
 }
 
 // Deserialize a value of the given type from the given storage space.
 auto SmallintType::DeserializeFrom(const char *storage) const -> Value {
-  int16_t val = *reinterpret_cast<const int16_t *>(storage);
+  int16_t val = 0;
+  std::memcpy(&val, storage, sizeof(val));
   return {type_id_, val};
 }
 

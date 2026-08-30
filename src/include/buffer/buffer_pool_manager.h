@@ -157,6 +157,8 @@ class BufferPoolManager {
 
   auto Size() const -> size_t;
   auto NewPage() -> page_id_t;
+  /** Restore the page allocation high-water mark before rebuilding derived indexes. */
+  void SetNextPageIdForRecovery(page_id_t next_page_id);
   auto DeletePage(page_id_t page_id) -> bool;
   auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
       -> std::optional<WritePageGuard>;

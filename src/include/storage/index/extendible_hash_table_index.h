@@ -14,12 +14,14 @@
 
 #include <map>
 #include <memory>
+#include <mutex>  // NOLINT(build/c++11)
 #include <string>
 #include <vector>
 
 #include "container/disk/hash/disk_extendible_hash_table.h"
 #include "container/hash/hash_function.h"
 #include "storage/index/index.h"
+#include "storage/index/stl_comparator_wrapper.h"
 
 namespace bustub {
 
@@ -44,6 +46,9 @@ class ExtendibleHashTableIndex : public Index {
   KeyComparator comparator_;
   // container
   DiskExtendibleHashTable<KeyType, ValueType, KeyComparator> container_;
+  bool is_primary_key_;
+  std::mutex non_unique_latch_;
+  std::map<KeyType, std::vector<RID>, StlComparatorWrapper<KeyType, KeyComparator>> non_unique_entries_;
 };
 
 constexpr static const auto TWO_INTEGER_SIZE = 8;

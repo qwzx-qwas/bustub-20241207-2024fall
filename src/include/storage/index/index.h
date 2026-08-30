@@ -208,8 +208,8 @@ class Index {
   }
 
   /** 作用：统一对外暴露 ANN 搜索接口，`search_budget_` 由具体索引自行解释。 */
-  virtual auto SearchVector(const Tuple &query, const AnnSearchOptions &options, std::vector<VectorIndexCandidate> *result,
-                            Transaction *transaction) -> void {
+  virtual auto SearchVector(const Tuple &query, const AnnSearchOptions &options,
+                            std::vector<VectorIndexCandidate> *result, Transaction *transaction) -> void {
     throw NotImplementedException("Approximate vector search is not supported for this index type");
   }
 

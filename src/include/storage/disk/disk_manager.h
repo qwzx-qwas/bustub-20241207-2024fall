@@ -193,6 +193,10 @@ class DiskManager {
   int num_deletes_{0};
   bool flush_log_{false};
   std::future<void> *flush_log_f_{nullptr};
+  // The WAL double-buffer check belongs to one DiskManager. A process-global
+  // pointer races when independent distributed nodes snapshot concurrently and
+  // also incorrectly couples otherwise unrelated database files.
+  char *buffer_used_{nullptr};
   // With multiple buffer pool instances, need to protect file access
   // 当有多个 buffer pool 实例时，需要保护文件访问
   std::mutex db_io_latch_;

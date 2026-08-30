@@ -41,17 +41,23 @@ class StringExpression : public AbstractExpression {
       : AbstractExpression({std::move(arg)}, Column{"<val>", TypeId::VARCHAR, 256 /* hardcode max length */}),
         expr_type_{expr_type} {
     if (GetChildAt(0)->GetReturnType().GetType() != TypeId::VARCHAR) {
-      BUSTUB_ENSURE(GetChildAt(0)->GetReturnType().GetType() == TypeId::VARCHAR, "unexpected arg");
+      throw Exception("string expression expects a VARCHAR argument");
     }
   }
 
   auto Compute(const std::string &val) const -> std::string {
-    // TODO(student): implement upper / lower.
-    return {};
+    auto result = val;
+    std::transform(result.begin(), result.end(), result.begin(), [this](unsigned char ch) {
+      return static_cast<char>(expr_type_ == StringExpressionType::Lower ? std::tolower(ch) : std::toupper(ch));
+    });
+    return result;
   }
 
   auto Evaluate(const Tuple *tuple, const Schema &schema) const -> Value override {
     Value val = GetChildAt(0)->Evaluate(tuple, schema);
+    if (val.IsNull()) {
+      return ValueFactory::GetNullValueByType(TypeId::VARCHAR);
+    }
     auto str = val.GetAs<char *>();
     return ValueFactory::GetVarcharValue(Compute(str));
   }
@@ -59,6 +65,9 @@ class StringExpression : public AbstractExpression {
   auto EvaluateJoin(const Tuple *left_tuple, const Schema &left_schema, const Tuple *right_tuple,
                     const Schema &right_schema) const -> Value override {
     Value val = GetChildAt(0)->EvaluateJoin(left_tuple, left_schema, right_tuple, right_schema);
+    if (val.IsNull()) {
+      return ValueFactory::GetNullValueByType(TypeId::VARCHAR);
+    }
     auto str = val.GetAs<char *>();
     return ValueFactory::GetVarcharValue(Compute(str));
   }

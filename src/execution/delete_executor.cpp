@@ -45,18 +45,18 @@ void DeleteExecutor::Init() {
   for (const auto &index : indexes) {
     indexes_.push_back(index.get());
   }
-  //初始化状态量
+  // 初始化状态量
   deleted_ = false;
 }
 /*auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
-  //先检查是否已经执行过删除
+  // 先检查是否已经执行过删除
   if (deleted_) {
     return false;
   }
   deleted_ = true;
   // Delete logic here
 
-  //计数器，记录删除了多少行
+  // 计数器，记录删除了多少行
   int delete_count = 0;
   Tuple old_tuple;
   RID old_rid;
@@ -69,25 +69,25 @@ void DeleteExecutor::Init() {
 
   // 2. 执行删除操作
   for (const auto &[curr_old_tuple, curr_old_rid] : tuples_to_delete) {
-    //删除表中的tuple
+    // 删除表中的tuple
     for (auto index_info : indexes_) {
-      //根据tuple和索引的schema生成索引键值
+      // 根据tuple和索引的schema生成索引键值
       auto index_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
                                                    index_info->index_->GetKeyAttrs());
-      //从索引中删除对应的键值对
+      // 从索引中删除对应的键值对
       index_info->index_->DeleteEntry(index_key, curr_old_rid, exec_ctx_->GetTransaction());
     }
-    //从表堆中删除tuple
-    //因为没有直接物理删除tuple的方法
-    //这里我们通过更新tuple的元信息来标记该tuple为已删除
-    //即逻辑删除
+    // 从表堆中删除tuple
+    // 因为没有直接物理删除tuple的方法
+    // 这里我们通过更新tuple的元信息来标记该tuple为已删除
+    // 即逻辑删除
 
     TupleMeta meta = table_heap_->GetTupleMeta(curr_old_rid);
     meta.is_deleted_ = true;
     table_heap_->UpdateTupleMeta(meta, curr_old_rid);
     delete_count++;
   }
-  //构造输出tuple，包含删除的行数
+  // 构造输出tuple，包含删除的行数
   std::vector<Value> values;
   values.push_back(ValueFactory::GetIntegerValue(delete_count));
   *tuple = Tuple(values, &GetOutputSchema());
@@ -95,16 +95,16 @@ void DeleteExecutor::Init() {
 }
 */
 auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
-  //先检查是否已经执行过删除
+  // 先检查是否已经执行过删除
   if (deleted_) {
     return false;
   }
 
   auto txn = exec_ctx_->GetTransaction();
-  //当前事务id
+  // 当前事务id
   timestamp_t curr_txn_id = txn->GetTransactionId();
   auto *txn_mgr = exec_ctx_->GetTransactionManager();
-  //当前事务的读取时间戳（最新已提交版本的时间戳）
+  // 当前事务的读取时间戳（最新已提交版本的时间戳）
   auto read_ts = txn->GetReadTs();
 
   deleted_ = true;
@@ -137,19 +137,19 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       throw ExecutionException("DeleteExecutor::Next failed due to write-write conflict.");
     }
 
-    //处理undolog
-    //判断是否是第一次修改自己所修改的tuple
-    //第一次则需要用GenerateNewUndoLog生成新的undolog
-    //否则需要用GenerateUpdatedUndoLog生成更新后的undolog
+    // 处理undolog
+    // 判断是否是第一次修改自己所修改的tuple
+    // 第一次则需要用GenerateNewUndoLog生成新的undolog
+    // 否则需要用GenerateUpdatedUndoLog生成更新后的undolog
     bool is_self_modified = (tuple_ts == curr_txn_id);
     UndoLog undo_log;
 
     std::optional<UndoLink> prev_link = txn_mgr->GetUndoLink(curr_old_rid);
-    //对undolog的处理
+    // 对undolog的处理
     bool delete_success = false;
     if (!is_self_modified) {
-      //第一次修改
-      //获取之前的版本链接
+      // 第一次修改
+      // 获取之前的版本链接
       UndoLink prev_version;
       if (prev_link.has_value()) {
         prev_version = *prev_link;
@@ -203,8 +203,8 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         if (!IsVectorIndex(index_info)) {
           continue;
         }
-        auto old_key =
-            curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs());
+        auto old_key = curr_old_tuple.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
+                                                   index_info->index_->GetKeyAttrs());
         index_info->index_->DeleteEntry(old_key, curr_old_rid, txn);
       }
       delete_count++;

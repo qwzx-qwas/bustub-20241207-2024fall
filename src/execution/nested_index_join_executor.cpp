@@ -75,7 +75,7 @@ auto NestIndexJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
 
     // 从左表获取下一个元组
     if (!child_executor_->Next(&left_tuple_, rid)) {
-      //左表元组已经耗尽，连接结束
+      // 左表元组已经耗尽，连接结束
       return false;
     }
 

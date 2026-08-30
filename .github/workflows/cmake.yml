@@ -5,6 +5,8 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  schedule:
+    - cron: "23 3 * * *"
 
 env:
   BUILD_TYPE: Debug
@@ -58,30 +60,207 @@ jobs:
         run: bash ./build_support/packages.sh -y
 
       - name: Configure CMake
-        run: CC=${{matrix.config.cc}} CXX=${{matrix.config.cxx}} cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCLANG_FORMAT_BIN=${{matrix.config.format}} -DCLANG_TIDY_BIN=${{matrix.config.tidy}}
+        run: CC=${{matrix.config.cc}} CXX=${{matrix.config.cxx}} cmake -B ${{runner.temp}}/bustub-build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCLANG_FORMAT_BIN=${{matrix.config.format}} -DCLANG_TIDY_BIN=${{matrix.config.tidy}}
 
       - name: Build
-        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+        run: cmake --build ${{runner.temp}}/bustub-build --config ${{env.BUILD_TYPE}}
 
       - name: Check Format
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{runner.temp}}/bustub-build
         run: make check-format
 
       - name: Check Lint
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{runner.temp}}/bustub-build
         run: make check-lint
 
       - name: Check Clang Tidy
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{runner.temp}}/bustub-build
         run: make check-clang-tidy
 
       - name: Check Tests (Ubuntu)
         if: runner.os == 'Linux'
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{runner.temp}}/bustub-build
         run: make build-tests && make check-public-ci-tests
 
       - name: Check Tests (OSX)
         if: runner.os == 'macOS'
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{runner.temp}}/bustub-build
         # Disable container overflow checks on OSX
         run: make build-tests && make check-public-ci-tests
+
+  sqllogic-release:
+    name: BusTub SQLLogic (Release)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo bash ./build_support/packages.sh -y
+      - name: Configure outside source tree
+        run: >-
+          cmake -S . -B ${{runner.temp}}/bustub-sqllogic-release
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang-14
+          -DCMAKE_CXX_COMPILER=clang++-14
+      - name: Build SQLLogic runner
+        run: >-
+          cmake --build ${{runner.temp}}/bustub-sqllogic-release --target
+          sqllogictest -j2
+      - name: Run every registered SQLLogic fixture
+        run: >-
+          ctest --test-dir ${{runner.temp}}/bustub-sqllogic-release
+          --output-on-failure --parallel 2 --timeout 900 -L sqllogic
+
+  raft-asan-ubsan:
+    name: Raft ASan/UBSan and process E2E
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo bash ./build_support/packages.sh -y
+      - name: Configure outside source tree
+        run: >-
+          cmake -S . -B ${{runner.temp}}/bustub-raft-asan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang-14
+          -DCMAKE_CXX_COMPILER=clang++-14
+          -DBUSTUB_SANITIZER=address,undefined
+      - name: Build Raft gates
+        run: >-
+          cmake --build ${{runner.temp}}/bustub-raft-asan --target
+          build-raft-component-gates bustub-node bustub-client -j2
+      - name: Run M0-M7 component gates
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1
+        run: >-
+          python3 test/e2e/raft_gtest_gate.py
+          ${{runner.temp}}/bustub-raft-asan
+          ${{runner.temp}}/raft-component-logs
+      - name: Run formal process timelines
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          bash test/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-asan 18100 ${{runner.temp}}/m6-artifacts
+          bash test/e2e/raft_m7_snapshot_crash.sh ${{runner.temp}}/bustub-raft-asan 19100 ${{runner.temp}}/m7-artifacts
+          bash test/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-asan 20100 ${{runner.temp}}/m7-transfer-artifacts
+          bash test/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-asan 21100 ${{runner.temp}}/m7-matrix-artifacts
+          bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-asan 25100 ${{runner.temp}}/m0-m7-chain-artifacts
+      - name: Upload process diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raft-process-e2e-${{github.run_id}}
+          path: |
+            ${{runner.temp}}/raft-component-logs
+            ${{runner.temp}}/m6-artifacts
+            ${{runner.temp}}/m7-artifacts
+            ${{runner.temp}}/m7-transfer-artifacts
+            ${{runner.temp}}/m7-matrix-artifacts
+            ${{runner.temp}}/m0-m7-chain-artifacts
+
+  raft-process-release:
+    name: Raft production-process acceptance (Release, no retry)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo bash ./build_support/packages.sh -y
+      - name: Configure outside source tree
+        run: >-
+          cmake -S . -B ${{runner.temp}}/bustub-raft-release
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang-14
+          -DCMAKE_CXX_COMPILER=clang++-14
+      - name: Build production binaries
+        run: >-
+          cmake --build ${{runner.temp}}/bustub-raft-release --target
+          bustub-node bustub-client -j2
+      - name: Run production process timelines once
+        run: |
+          bash test/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-release 18100 ${{runner.temp}}/release-m6
+          bash test/e2e/raft_m7_snapshot_crash.sh ${{runner.temp}}/bustub-raft-release 19100 ${{runner.temp}}/release-m7-crash
+          bash test/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-release 20100 ${{runner.temp}}/release-m7-transfer
+          bash test/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-release 21100 ${{runner.temp}}/release-m7-matrix
+          bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-release 25100 ${{runner.temp}}/release-m0-m7-chain
+      - name: Upload process diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raft-process-release-${{github.run_id}}
+          path: |
+            ${{runner.temp}}/release-m6
+            ${{runner.temp}}/release-m7-crash
+            ${{runner.temp}}/release-m7-transfer
+            ${{runner.temp}}/release-m7-matrix
+            ${{runner.temp}}/release-m0-m7-chain
+
+  raft-tsan-core:
+    name: Raft and DistributedNode TSan core
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo bash ./build_support/packages.sh -y
+      - name: Configure outside source tree
+        run: >-
+          cmake -S . -B ${{runner.temp}}/bustub-raft-tsan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang-14
+          -DCMAKE_CXX_COMPILER=clang++-14
+          -DBUSTUB_SANITIZER=thread
+      - name: Build concurrency gates
+        run: >-
+          cmake --build ${{runner.temp}}/bustub-raft-tsan --target
+          tcp_transport_test raft_node_test bustub_state_machine_test distributed_node_test -j2
+      - name: Run concurrency gates
+        env:
+          TSAN_OPTIONS: halt_on_error=1:history_size=7
+        run: ctest --test-dir ${{runner.temp}}/bustub-raft-tsan --output-on-failure -L raft-tsan-core
+
+  raft-nightly-stress:
+    name: Raft nightly replayable stress
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo bash ./build_support/packages.sh -y
+      - name: Configure outside source tree
+        run: >-
+          cmake -S . -B ${{runner.temp}}/bustub-raft-nightly
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang-14
+          -DCMAKE_CXX_COMPILER=clang++-14
+      - name: Build stress gates
+        run: >-
+          cmake --build ${{runner.temp}}/bustub-raft-nightly --target
+          raft_node_test distributed_node_test bustub_state_machine_test bustub-node bustub-client -j2
+      - name: Repeat deterministic component schedules
+        run: |
+          mkdir -p ${{runner.temp}}/nightly-artifacts
+          for seed in 1009 2027 4093 8191 16381; do
+            echo "gtest_seed=${seed}" | tee -a ${{runner.temp}}/nightly-artifacts/seeds.txt
+            ${{runner.temp}}/bustub-raft-nightly/test/raft_node_test \
+              --gtest_shuffle --gtest_random_seed=${seed} --gtest_repeat=10
+          done
+      - name: Repeat production process timeline
+        run: |
+          for iteration in 1 2 3; do
+            echo "process_iteration=${iteration}" | tee -a ${{runner.temp}}/nightly-artifacts/seeds.txt
+            bash test/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-nightly \
+              $((18100 + iteration * 500)) ${{runner.temp}}/nightly-artifacts/m6-${iteration}
+          done
+          bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-nightly \
+            24100 ${{runner.temp}}/nightly-artifacts/m0-m7-chain
+      - name: Upload nightly seeds and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raft-nightly-${{github.run_id}}
+          path: ${{runner.temp}}/nightly-artifacts

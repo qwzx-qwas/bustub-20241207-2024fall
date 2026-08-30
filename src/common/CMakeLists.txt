@@ -3,6 +3,7 @@ add_library(
   OBJECT
   bustub_instance.cpp
   bustub_ddl.cpp
+  byte_codec.cpp
   config.cpp
   util/string_util.cpp)
 

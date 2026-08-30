@@ -69,6 +69,10 @@ auto Binder::BindColumnDefinition(duckdb_libpgquery::PGColumnDef *cdef) -> Colum
     return {colname, TypeId::INTEGER};
   }
 
+  if (name == "int8") {
+    return {colname, TypeId::BIGINT};
+  }
+
   if (name == "double") {
     return {colname, TypeId::DECIMAL};
   }
@@ -222,7 +226,7 @@ auto Binder::BindIndex(duckdb_libpgquery::PGIndexStmt *stmt) -> std::unique_ptr<
   }
 
   return std::make_unique<IndexStatement>(stmt->idxname, std::move(table), std::move(cols), std::move(index_type),
-                                          std::move(col_options), std::move(options));
+                                          std::move(col_options), std::move(options), stmt->unique);
 }
 
 }  // namespace bustub

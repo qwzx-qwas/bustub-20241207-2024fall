@@ -31,7 +31,7 @@ void TablePage::Init() {
 auto TablePage::GetNextTupleOffset(const TupleMeta &meta, const Tuple &tuple) const -> std::optional<uint16_t> {
   size_t slot_end_offset;
   if (num_tuples_ > 0) {
-    auto &[offset, size, meta] = tuple_info_[num_tuples_ - 1];
+    const auto &[offset, size, tuple_meta] = TupleInfoAt(num_tuples_ - 1);
     slot_end_offset = offset;
   } else {
     slot_end_offset = BUSTUB_PAGE_SIZE;
@@ -50,9 +50,9 @@ auto TablePage::InsertTuple(const TupleMeta &meta, const Tuple &tuple) -> std::o
     return std::nullopt;
   }
   auto tuple_id = num_tuples_;
-  tuple_info_[tuple_id] = std::make_tuple(*tuple_offset, tuple.GetLength(), meta);
+  TupleInfoAt(tuple_id) = std::make_tuple(*tuple_offset, tuple.GetLength(), meta);
   num_tuples_++;
-  memcpy(page_start_ + *tuple_offset, tuple.data_.data(), tuple.GetLength());
+  memcpy(PageData() + *tuple_offset, tuple.data_.data(), tuple.GetLength());
   return tuple_id;
 }
 
@@ -61,11 +61,11 @@ void TablePage::UpdateTupleMeta(const TupleMeta &meta, const RID &rid) {
   if (tuple_id >= num_tuples_) {
     throw bustub::Exception("Tuple ID out of range");
   }
-  auto &[offset, size, old_meta] = tuple_info_[tuple_id];
+  auto &[offset, size, old_meta] = TupleInfoAt(tuple_id);
   if (!old_meta.is_deleted_ && meta.is_deleted_) {
     num_deleted_tuples_++;
   }
-  tuple_info_[tuple_id] = std::make_tuple(offset, size, meta);
+  TupleInfoAt(tuple_id) = std::make_tuple(offset, size, meta);
 }
 
 auto TablePage::GetTuple(const RID &rid) const -> std::pair<TupleMeta, Tuple> {
@@ -73,10 +73,10 @@ auto TablePage::GetTuple(const RID &rid) const -> std::pair<TupleMeta, Tuple> {
   if (tuple_id >= num_tuples_) {
     throw bustub::Exception("Tuple ID out of range");
   }
-  auto &[offset, size, meta] = tuple_info_[tuple_id];
+  const auto &[offset, size, meta] = TupleInfoAt(tuple_id);
   Tuple tuple;
   tuple.data_.resize(size);
-  memmove(tuple.data_.data(), page_start_ + offset, size);
+  memmove(tuple.data_.data(), PageData() + offset, size);
   tuple.rid_ = rid;
   return std::make_pair(meta, std::move(tuple));
 }
@@ -86,7 +86,7 @@ auto TablePage::GetTupleMeta(const RID &rid) const -> TupleMeta {
   if (tuple_id >= num_tuples_) {
     throw bustub::Exception("Tuple ID out of range");
   }
-  auto &[_1, _2, meta] = tuple_info_[tuple_id];
+  const auto &[_1, _2, meta] = TupleInfoAt(tuple_id);
   return meta;
 }
 
@@ -95,15 +95,15 @@ void TablePage::UpdateTupleInPlaceUnsafe(const TupleMeta &meta, const Tuple &tup
   if (tuple_id >= num_tuples_) {
     throw bustub::Exception("Tuple ID out of range");
   }
-  auto &[offset, size, old_meta] = tuple_info_[tuple_id];
+  auto &[offset, size, old_meta] = TupleInfoAt(tuple_id);
   if (size != tuple.GetLength()) {
     throw bustub::Exception("Tuple size mismatch");
   }
   if (!old_meta.is_deleted_ && meta.is_deleted_) {
     num_deleted_tuples_++;
   }
-  tuple_info_[tuple_id] = std::make_tuple(offset, size, meta);
-  memcpy(page_start_ + offset, tuple.data_.data(), tuple.GetLength());
+  TupleInfoAt(tuple_id) = std::make_tuple(offset, size, meta);
+  memcpy(PageData() + offset, tuple.data_.data(), tuple.GetLength());
 }
 
 }  // namespace bustub

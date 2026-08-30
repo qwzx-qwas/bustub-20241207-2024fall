@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "catalog/catalog.h"

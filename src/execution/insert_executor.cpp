@@ -145,7 +145,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     bool reused_deleted_rid = false;
     for (auto index_info : indexes_) {
       if (index_info->is_primary_key_) {
-        //根据tuple和索引的schema生成索引键值
+        // 根据tuple和索引的schema生成索引键值
         Tuple index_key = tuple_entry.KeyFromTuple(table_info_->schema_, *index_info->index_->GetKeySchema(),
                                                    index_info->index_->GetKeyAttrs());
         std::vector<RID> scan_result;
@@ -185,8 +185,9 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
                   if (!IsVectorIndex(maintained_index)) {
                     continue;
                   }
-                  Tuple index_key = tuple_entry.KeyFromTuple(table_info_->schema_, *maintained_index->index_->GetKeySchema(),
-                                                             maintained_index->index_->GetKeyAttrs());
+                  Tuple index_key =
+                      tuple_entry.KeyFromTuple(table_info_->schema_, *maintained_index->index_->GetKeySchema(),
+                                               maintained_index->index_->GetKeyAttrs());
                   if (!maintained_index->index_->InsertEntry(index_key, existing_rid, exec_ctx_->GetTransaction())) {
                     txn->SetTainted();
                     throw ExecutionException("InsertExecutor::Next failed due to vector index insertion failure.");

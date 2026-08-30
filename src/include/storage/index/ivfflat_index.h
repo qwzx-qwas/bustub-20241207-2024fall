@@ -135,8 +135,8 @@ class IVFFlatIndex : public Index {
   auto TrainCentroidsUnlocked(const std::vector<std::pair<Tuple, RID>> &samples) const -> std::vector<Tuple>;
 
   /** 作用：把当前有效条目分配到 IVF list，并建立 active RID 定位表。 */
-  void AssignEntriesToListsUnlocked(const std::vector<std::pair<Tuple, RID>> &entries, const std::vector<Tuple> &centroids,
-                                    BuildArtifacts *artifacts) const;
+  void AssignEntriesToListsUnlocked(const std::vector<std::pair<Tuple, RID>> &entries,
+                                    const std::vector<Tuple> &centroids, BuildArtifacts *artifacts) const;
 
   /** 作用：构造一次完整 rebuild 的局部结果，失败时不污染旧索引。 */
   auto BuildArtifactsFromEntriesUnlocked(const std::vector<std::pair<Tuple, RID>> &entries) const -> BuildArtifacts;
@@ -276,13 +276,14 @@ void IVFFlatIndex<KT, VT, Cmp>::AssignEntriesToListsUnlocked(const std::vector<s
     const auto centroid_idx = FindClosestCentroidIn(centroids, key);
     const auto slot_idx = artifacts->lists_[centroid_idx].size();
     artifacts->lists_[centroid_idx].push_back({key, rid, artifacts->next_entry_id_++});
-    artifacts->active_entries_[rid] = EntryLocator{centroid_idx, slot_idx, artifacts->lists_[centroid_idx].back().entry_id_};
+    artifacts->active_entries_[rid] =
+        EntryLocator{centroid_idx, slot_idx, artifacts->lists_[centroid_idx].back().entry_id_};
   }
 }
 
 template <typename KT, typename VT, typename Cmp>
-auto IVFFlatIndex<KT, VT, Cmp>::BuildArtifactsFromEntriesUnlocked(const std::vector<std::pair<Tuple, RID>> &entries) const
-    -> BuildArtifacts {
+auto IVFFlatIndex<KT, VT, Cmp>::BuildArtifactsFromEntriesUnlocked(
+    const std::vector<std::pair<Tuple, RID>> &entries) const -> BuildArtifacts {
   BuildArtifacts artifacts;
   if (entries.empty()) {
     return artifacts;
@@ -467,9 +468,9 @@ auto IVFFlatIndex<KT, VT, Cmp>::SearchVector(const Tuple &query, const AnnSearch
     ranked_candidates.reserve(ranked_candidates.size() + lists_[list_idx].size());
     for (std::size_t slot_idx = 0; slot_idx < lists_[list_idx].size(); slot_idx++) {
       const auto &entry = lists_[list_idx][slot_idx];
-      ranked_candidates.push_back(
-          {Distance(entry.key_, query), VectorIndexCandidate{entry.rid_, entry.key_, entry.entry_id_},
-           !IsActiveEntryUnlocked(entry.rid_, list_idx, slot_idx, entry.entry_id_)});
+      ranked_candidates.push_back({Distance(entry.key_, query),
+                                   VectorIndexCandidate{entry.rid_, entry.key_, entry.entry_id_},
+                                   !IsActiveEntryUnlocked(entry.rid_, list_idx, slot_idx, entry.entry_id_)});
     }
   }
 

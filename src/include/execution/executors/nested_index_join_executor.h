@@ -51,9 +51,9 @@ class NestIndexJoinExecutor : public AbstractExecutor {
   /** The nested index join plan node. */
   const NestedIndexJoinPlanNode *plan_;
 
-  //左表当前tuple
+  // 左表当前tuple
   Tuple left_tuple_;
-  //左表执行器
+  // 左表执行器
   std::unique_ptr<AbstractExecutor> child_executor_;
 
   // Save the result RIDs of right table

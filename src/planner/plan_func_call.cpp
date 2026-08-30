@@ -17,10 +17,10 @@
 #include "execution/expressions/column_value_expression.h"
 #include "execution/expressions/constant_value_expression.h"
 #include "execution/expressions/string_expression.h"
+#include "execution/expressions/vector_distance_expression.h"
 #include "execution/plans/abstract_plan.h"
 #include "fmt/format.h"
 #include "planner/planner.h"
-#include "execution/expressions/vector_distance_expression.h"
 
 namespace bustub {
 
@@ -35,24 +35,32 @@ auto Planner::GetFuncCallFromFactory(const std::string &func_name, std::vector<A
     if (args.size() != 1) {
       throw Exception(fmt::format("function {} expects 1 argument, but got {}", func_name, args.size()));
     }
-    return std::make_shared<StringExpression>(args[0], name == "lower" ? StringExpressionType::Lower
-                                                                        : StringExpressionType::Upper);
+    if (args[0]->GetReturnType().GetType() != TypeId::VARCHAR) {
+      throw Exception(
+          fmt::format("function {} expects a VARCHAR argument, but got {}", func_name, args[0]->GetReturnType()));
     }
-  //l2_distance是欧几里得距离，cosine_distance是余弦距离，ip_distance是内积距离
-  //取两个向量作为输入，输出一个标量值，分别表示两个向量之间的距离或相似度。
-  if (name == "l2_distance" || name == "cosine_distance" || name == "ip_distance" ) {
+    return std::make_shared<StringExpression>(
+        args[0], name == "lower" ? StringExpressionType::Lower : StringExpressionType::Upper);
+  }
+  // l2_distance是欧几里得距离，cosine_distance是余弦距离，ip_distance是内积距离
+  // 取两个向量作为输入，输出一个标量值，分别表示两个向量之间的距离或相似度。
+  if (name == "l2_distance" || name == "cosine_distance" || name == "ip_distance") {
     if (args.size() != 2) {
       throw Exception(fmt::format("function {} expects 2 arguments, but got {}", func_name, args.size()));
     }
-    
-    if (args[0] -> GetReturnType().GetType() != TypeId::VECTOR || args[1] -> GetReturnType().GetType() != TypeId::VECTOR) {
-      throw Exception(fmt::format("function {} expects arguments of type VECTOR, but got {} and {}", func_name, args[0] -> GetReturnType(), args[1] -> GetReturnType()));
+
+    if (args[0]->GetReturnType().GetType() != TypeId::VECTOR || args[1]->GetReturnType().GetType() != TypeId::VECTOR) {
+      throw Exception(fmt::format("function {} expects arguments of type VECTOR, but got {} and {}", func_name,
+                                  args[0]->GetReturnType(), args[1]->GetReturnType()));
     }
 
-    return std::make_shared<VectorDistanceExpression>(args[0], args[1], name == "l2_distance" ? VectorDistanceExpressionType::L2Distance
-                                                                                          : (name == "cosine_distance" ? VectorDistanceExpressionType::CosineDistance : VectorDistanceExpressionType::IPDistance));
+    return std::make_shared<VectorDistanceExpression>(
+        args[0], args[1],
+        name == "l2_distance" ? VectorDistanceExpressionType::L2Distance
+                              : (name == "cosine_distance" ? VectorDistanceExpressionType::CosineDistance
+                                                           : VectorDistanceExpressionType::IPDistance));
   }
-  
+
   throw Exception(fmt::format("function {} is not supported", func_name));
 }
 

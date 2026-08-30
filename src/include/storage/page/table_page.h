@@ -99,14 +99,21 @@ class TablePage {
 
  private:
   using TupleInfo = std::tuple<uint16_t, uint16_t, TupleMeta>;
-  char page_start_[0];
   page_id_t next_page_id_;
   uint16_t num_tuples_;
   uint16_t num_deleted_tuples_;
-  TupleInfo tuple_info_[0];
 
   static constexpr size_t TUPLE_INFO_SIZE = 24;
   static_assert(sizeof(TupleInfo) == TUPLE_INFO_SIZE);
+
+  auto PageData() -> char * { return reinterpret_cast<char *>(this); }
+  auto PageData() const -> const char * { return reinterpret_cast<const char *>(this); }
+  auto TupleInfoAt(uint32_t tuple_id) -> TupleInfo & {
+    return *reinterpret_cast<TupleInfo *>(PageData() + TABLE_PAGE_HEADER_SIZE + TUPLE_INFO_SIZE * tuple_id);
+  }
+  auto TupleInfoAt(uint32_t tuple_id) const -> const TupleInfo & {
+    return *reinterpret_cast<const TupleInfo *>(PageData() + TABLE_PAGE_HEADER_SIZE + TUPLE_INFO_SIZE * tuple_id);
+  }
 };
 
 static_assert(sizeof(TablePage) == TABLE_PAGE_HEADER_SIZE);

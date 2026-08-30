@@ -1,15 +1,15 @@
-#include <string>
 #include <sstream>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "../txn/txn_common.h"
 #include "common/bustub_instance.h"
 #include "common/util/string_util.h"
 #include "gtest/gtest.h"
 #include "storage/index/int_comparator.h"
 #include "storage/index/ivfflat_index.h"
-#include "../txn/txn_common.h"
 
 namespace bustub {
 
@@ -290,16 +290,13 @@ TEST(IVFFlatIndexTest, ExactKnnRespectsMvccVisibility) {
 
   auto *reader_txn = BeginTxn(*bustub, "reader_txn");
   auto *writer_txn = BeginTxn(*bustub, "writer_txn");
-  WithTxn(writer_txn, ExecuteTxn(*bustub, _var, _txn,
-                                 "INSERT INTO mvcc_knn VALUES (ARRAY [1.0, 0.0, 0.0], 1)"));
+  WithTxn(writer_txn, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO mvcc_knn VALUES (ARRAY [1.0, 0.0, 0.0], 1)"));
   WithTxn(writer_txn, CommitTxn(*bustub, _var, _txn));
 
-  EXPECT_EQ((QueryRowsTxn(*bustub, reader_txn, sql)),
-            (std::vector<std::vector<std::string>>{{"5"}, {"10"}}));
+  EXPECT_EQ((QueryRowsTxn(*bustub, reader_txn, sql)), (std::vector<std::vector<std::string>>{{"5"}, {"10"}}));
 
   auto *fresh_txn = BeginTxn(*bustub, "fresh_txn");
-  EXPECT_EQ((QueryRowsTxn(*bustub, fresh_txn, sql)),
-            (std::vector<std::vector<std::string>>{{"1"}, {"5"}}));
+  EXPECT_EQ((QueryRowsTxn(*bustub, fresh_txn, sql)), (std::vector<std::vector<std::string>>{{"1"}, {"5"}}));
 
   WithTxn(reader_txn, CommitTxn(*bustub, _var, _txn));
   WithTxn(fresh_txn, CommitTxn(*bustub, _var, _txn));
@@ -315,8 +312,9 @@ TEST(IVFFlatIndexTest, VectorIndexScanFilterBackfillsCandidates) {
                    "(ARRAY [40.0, 0.0, 0.0], 2), "
                    "(ARRAY [100.0, 0.0, 0.0], 3)");
 
-  const auto sql = "SELECT id FROM filter_knn WHERE id <> 1 "
-                   "ORDER BY l2_distance(v, ARRAY [30.0, 0.0, 0.0]) LIMIT 2";
+  const auto sql =
+      "SELECT id FROM filter_knn WHERE id <> 1 "
+      "ORDER BY l2_distance(v, ARRAY [30.0, 0.0, 0.0]) LIMIT 2";
   const auto plan = ExplainPlan(*bustub, sql);
   EXPECT_TRUE(StringUtil::Contains(plan, "VectorIndexScan")) << plan;
   EXPECT_TRUE(StringUtil::Contains(plan, "filter=(#0.1!=1)")) << plan;
@@ -332,15 +330,16 @@ TEST(IVFFlatIndexTest, VectorIndexScanFilterBackfillsCandidates) {
 TEST(IVFFlatIndexTest, VectorIndexScanFilterCanReturnEmpty) {
   auto bustub = std::make_unique<BusTubInstance>();
   ExecuteStatement(*bustub, "CREATE TABLE filter_knn_empty(v VECTOR(3), id INTEGER)");
-  ExecuteStatement(*bustub,
-                   "CREATE INDEX filter_knn_empty_idx ON filter_knn_empty USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(
+      *bustub, "CREATE INDEX filter_knn_empty_idx ON filter_knn_empty USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
   ExecuteStatement(*bustub,
                    "INSERT INTO filter_knn_empty VALUES "
                    "(ARRAY [0.0, 0.0, 0.0], 1), "
                    "(ARRAY [40.0, 0.0, 0.0], 2)");
 
-  const auto sql = "SELECT id FROM filter_knn_empty WHERE id < 0 "
-                   "ORDER BY l2_distance(v, ARRAY [30.0, 0.0, 0.0]) LIMIT 2";
+  const auto sql =
+      "SELECT id FROM filter_knn_empty WHERE id < 0 "
+      "ORDER BY l2_distance(v, ARRAY [30.0, 0.0, 0.0]) LIMIT 2";
   const auto plan = ExplainPlan(*bustub, sql);
   EXPECT_TRUE(StringUtil::Contains(plan, "VectorIndexScan")) << plan;
   EXPECT_TRUE(QueryRows(*bustub, sql).empty());
@@ -362,7 +361,8 @@ TEST(IVFFlatIndexTest, ValidatesVectorDimensionsOnWritePaths) {
 TEST(IVFFlatIndexTest, DeleteReturnsCorrectRowsAndSurfacesStaleCandidates) {
   auto bustub = std::make_unique<BusTubInstance>();
   ExecuteStatement(*bustub, "CREATE TABLE stale_delete(v VECTOR(3), id INTEGER)");
-  ExecuteStatement(*bustub, "CREATE INDEX stale_delete_idx ON stale_delete USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "CREATE INDEX stale_delete_idx ON stale_delete USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
   ExecuteStatement(*bustub,
                    "INSERT INTO stale_delete VALUES "
                    "(ARRAY [0.0, 0.0, 0.0], 1), "
@@ -383,7 +383,8 @@ TEST(IVFFlatIndexTest, DeleteReturnsCorrectRowsAndSurfacesStaleCandidates) {
 TEST(IVFFlatIndexTest, UpdateVectorMovesSearchHitToNewPosition) {
   auto bustub = std::make_unique<BusTubInstance>();
   ExecuteStatement(*bustub, "CREATE TABLE stale_update(v VECTOR(3), id INTEGER)");
-  ExecuteStatement(*bustub, "CREATE INDEX stale_update_idx ON stale_update USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "CREATE INDEX stale_update_idx ON stale_update USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
   ExecuteStatement(*bustub,
                    "INSERT INTO stale_update VALUES "
                    "(ARRAY [0.0, 0.0, 0.0], 1), "
@@ -395,11 +396,9 @@ TEST(IVFFlatIndexTest, UpdateVectorMovesSearchHitToNewPosition) {
   ASSERT_NE(index, nullptr);
   const auto stale_before = index->GetReturnedStaleCandidateCount();
 
-  EXPECT_EQ(QueryRows(*bustub,
-                      "SELECT id FROM stale_update ORDER BY l2_distance(v, ARRAY [0.0, 0.0, 0.0]) LIMIT 1"),
+  EXPECT_EQ(QueryRows(*bustub, "SELECT id FROM stale_update ORDER BY l2_distance(v, ARRAY [0.0, 0.0, 0.0]) LIMIT 1"),
             (std::vector<std::vector<std::string>>{{"2"}}));
-  EXPECT_EQ(QueryRows(*bustub,
-                      "SELECT id FROM stale_update ORDER BY l2_distance(v, ARRAY [95.0, 0.0, 0.0]) LIMIT 1"),
+  EXPECT_EQ(QueryRows(*bustub, "SELECT id FROM stale_update ORDER BY l2_distance(v, ARRAY [95.0, 0.0, 0.0]) LIMIT 1"),
             (std::vector<std::vector<std::string>>{{"1"}}));
   EXPECT_GT(index->GetReturnedStaleCandidateCount(), stale_before);
 }
@@ -407,7 +406,8 @@ TEST(IVFFlatIndexTest, UpdateVectorMovesSearchHitToNewPosition) {
 TEST(IVFFlatIndexTest, RebuildCleansStaleEntriesWithoutChangingResults) {
   auto bustub = std::make_unique<BusTubInstance>();
   ExecuteStatement(*bustub, "CREATE TABLE rebuild_ivf(v VECTOR(3), id INTEGER)");
-  ExecuteStatement(*bustub, "CREATE INDEX rebuild_ivf_idx ON rebuild_ivf USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
+  ExecuteStatement(*bustub,
+                   "CREATE INDEX rebuild_ivf_idx ON rebuild_ivf USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
   ExecuteStatement(*bustub,
                    "INSERT INTO rebuild_ivf VALUES "
                    "(ARRAY [0.0, 0.0, 0.0], 1), "

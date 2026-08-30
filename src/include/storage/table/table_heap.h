@@ -49,6 +49,16 @@ class TableHeap {
   explicit TableHeap(BufferPoolManager *bpm);
 
   /**
+   * Reopen a table heap whose first page already exists in the buffer pool's
+   * backing database. This is deliberately separate from the creating
+   * constructor: recovery must never allocate a replacement first page.
+   *
+   * The page chain is walked once to recover the append tail and to reject a
+   * corrupt cycle before the heap is made visible to callers.
+   */
+  static auto Open(BufferPoolManager *bpm, page_id_t first_page_id) -> std::unique_ptr<TableHeap>;
+
+  /**
    * Insert a tuple into the table. If the tuple is too large (>= page_size), return std::nullopt.
    * @param meta tuple meta
    * @param tuple tuple to insert
@@ -92,6 +102,8 @@ class TableHeap {
 
   /** @return the id of the first page of this table */
   inline auto GetFirstPageId() const -> page_id_t { return first_page_id_; }
+  /** @return the recovered/current append-tail page id */
+  inline auto GetLastPageId() const -> page_id_t { return last_page_id_; }
 
   /**
    * Update a tuple in place. Should NOT be used in project 3. Implement your project 3 update executor as delete and
@@ -131,6 +143,9 @@ class TableHeap {
  private:
   /** Used for binder tests */
   explicit TableHeap(bool create_table_heap = false);
+
+  /** Used only by Open after it has validated the persisted page chain. */
+  TableHeap(BufferPoolManager *bpm, page_id_t first_page_id, page_id_t last_page_id);
 
   BufferPoolManager *bpm_;
   page_id_t first_page_id_{INVALID_PAGE_ID};

@@ -266,6 +266,56 @@ TEST(TxnIndexTest, UpdatePrimaryKeyTest) {  // NOLINT
   // hidden tests...
 }
 
+TEST(TxnIndexTest, UpdateSecondaryIndexKeyTest) {  // NOLINT
+  auto bustub = std::make_unique<BusTubInstance>();
+  EnsureIndexScan(*bustub);
+  Execute(*bustub, "CREATE TABLE maintable(col1 int, col2 int)");
+  Execute(*bustub, "CREATE INDEX maintable_col1 ON maintable(col1)");
+
+  auto insert_txn = BeginTxn(*bustub, "insert_txn");
+  WithTxn(insert_txn, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (1, 10)"));
+  WithTxn(insert_txn, CommitTxn(*bustub, _var, _txn));
+
+  auto old_reader = BeginTxn(*bustub, "old_reader");
+  auto update_txn = BeginTxn(*bustub, "update_txn");
+  WithTxn(update_txn, ExecuteTxn(*bustub, _var, _txn, "UPDATE maintable SET col1 = 8 WHERE col1 = 1"));
+  WithTxn(update_txn,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable WHERE col1 = 8", IntResult{{8, 10}}));
+  WithTxn(update_txn,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable WHERE col1 = 8 OR col1 = 8 OR col1 = 8",
+                          IntResult{{8, 10}}));
+  WithTxn(update_txn,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable ORDER BY col1", IntResult{{8, 10}}));
+  WithTxn(update_txn, CommitTxn(*bustub, _var, _txn));
+
+  WithTxn(old_reader,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable WHERE col1 = 1", IntResult{{1, 10}}));
+  WithTxn(old_reader, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable WHERE col1 = 8", IntResult{}));
+  WithTxn(old_reader,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable ORDER BY col1", IntResult{{1, 10}}));
+
+  auto new_reader = BeginTxn(*bustub, "new_reader");
+  WithTxn(new_reader, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable WHERE col1 = 1", IntResult{}));
+  WithTxn(new_reader,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable WHERE col1 = 8", IntResult{{8, 10}}));
+
+  auto restore_txn = BeginTxn(*bustub, "restore_txn");
+  WithTxn(restore_txn, ExecuteTxn(*bustub, _var, _txn, "UPDATE maintable SET col1 = 1 WHERE col1 = 8"));
+  WithTxn(restore_txn,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable WHERE col1 = 1", IntResult{{1, 10}}));
+  WithTxn(restore_txn, CommitTxn(*bustub, _var, _txn));
+
+  auto delete_txn = BeginTxn(*bustub, "delete_txn");
+  WithTxn(delete_txn, ExecuteTxn(*bustub, _var, _txn, "DELETE FROM maintable WHERE col1 = 1"));
+  WithTxn(delete_txn, CommitTxn(*bustub, _var, _txn));
+  auto reinsert_txn = BeginTxn(*bustub, "reinsert_txn");
+  WithTxn(reinsert_txn, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (1, 20)"));
+  WithTxn(reinsert_txn, CommitTxn(*bustub, _var, _txn));
+  auto reinsert_reader = BeginTxn(*bustub, "reinsert_reader");
+  WithTxn(reinsert_reader,
+          QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable ORDER BY col1", IntResult{{1, 20}}));
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access))
 
 }  // namespace bustub

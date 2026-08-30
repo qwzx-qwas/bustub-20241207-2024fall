@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "type/timestamp_type.h"
+#include <cstring>
 #include <string>
 
 #include "type/boolean_type.h"
@@ -133,12 +134,13 @@ auto TimestampType::ToString(const Value &val) const -> std::string {
 }
 
 void TimestampType::SerializeTo(const Value &val, char *storage) const {
-  *reinterpret_cast<uint64_t *>(storage) = val.value_.timestamp_;
+  std::memcpy(storage, &val.value_.timestamp_, sizeof(val.value_.timestamp_));
 }
 
 // Deserialize a value of the given type from the given storage space.
 auto TimestampType::DeserializeFrom(const char *storage) const -> Value {
-  uint64_t val = *reinterpret_cast<const uint64_t *>(storage);
+  uint64_t val = 0;
+  std::memcpy(&val, storage, sizeof(val));
   return {type_id_, val};
 }
 

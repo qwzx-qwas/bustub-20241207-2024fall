@@ -17,8 +17,8 @@ namespace {
 /** 作用：校验索引候选携带的键版本是否与当前事务可见 tuple 的索引键一致。 */
 auto CandidateMatchesVisibleTuple(const TableInfo *table_info, const IndexInfo *index_info, const Tuple &visible_tuple,
                                   const VectorIndexCandidate &candidate) -> bool {
-  const auto visible_key =
-      visible_tuple.KeyFromTuple(table_info->schema_, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs());
+  const auto visible_key = visible_tuple.KeyFromTuple(table_info->schema_, *index_info->index_->GetKeySchema(),
+                                                      index_info->index_->GetKeyAttrs());
   return IsTupleContentEqual(visible_key, candidate.index_key_);
 }
 
@@ -48,10 +48,11 @@ void VectorIndexScanExecutor::Init() {
     txn->AppendScanPredicate(plan_->GetTableOid(), plan_->GetFilterPredicate());
   }
   // 作用：执行器只感知统一预算语义，不直接依赖 nprobe 这类索引私有术语。
-  auto search_options = index_info_->index_->GetDefaultAnnSearchOptions(plan_->GetK()).value_or(
-      AnnSearchOptions{plan_->GetK(), std::max<std::size_t>(1, plan_->GetK()), 1});
-  const auto max_search_budget = std::max(search_options.search_budget_,
-                                          index_info_->index_->GetMaxAnnSearchBudget().value_or(search_options.search_budget_));
+  auto search_options = index_info_->index_->GetDefaultAnnSearchOptions(plan_->GetK())
+                            .value_or(AnnSearchOptions{plan_->GetK(), std::max<std::size_t>(1, plan_->GetK()), 1});
+  const auto max_search_budget =
+      std::max(search_options.search_budget_,
+               index_info_->index_->GetMaxAnnSearchBudget().value_or(search_options.search_budget_));
   std::unordered_set<std::uint64_t> seen_candidate_ids;
   std::unordered_set<RID> accepted_rids;
   // 通过检查的候选
@@ -85,7 +86,8 @@ void VectorIndexScanExecutor::Init() {
         continue;
       }
 
-      accepted_candidates.emplace_back(EvaluateDistance(table_info.get(), visible_tuple), visible_tuple, candidate.rid_);
+      accepted_candidates.emplace_back(EvaluateDistance(table_info.get(), visible_tuple), visible_tuple,
+                                       candidate.rid_);
     }
 
     if (accepted_candidates.size() >= plan_->GetK()) {
@@ -109,13 +111,12 @@ void VectorIndexScanExecutor::Init() {
   }
 
   // Re-sort accepted tuples so executor output still matches ORDER BY distance.
-  std::sort(accepted_candidates.begin(), accepted_candidates.end(),
-            [](const auto &a, const auto &b) {
-              if (std::get<0>(a) != std::get<0>(b)) {
-                return std::get<0>(a) < std::get<0>(b);
-              }
-              return std::get<2>(a).Get() < std::get<2>(b).Get();
-            });
+  std::sort(accepted_candidates.begin(), accepted_candidates.end(), [](const auto &a, const auto &b) {
+    if (std::get<0>(a) != std::get<0>(b)) {
+      return std::get<0>(a) < std::get<0>(b);
+    }
+    return std::get<2>(a).Get() < std::get<2>(b).Get();
+  });
 
   const auto keep = std::min(plan_->GetK(), accepted_candidates.size());
   results_.reserve(keep);

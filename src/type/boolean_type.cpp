@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
+#include <cstring>
 
 #include <string>
 #include "type/boolean_type.h"
@@ -86,12 +87,13 @@ auto BooleanType::ToString(const Value &val) const -> std::string {
 }
 
 void BooleanType::SerializeTo(const Value &val, char *storage) const {
-  *reinterpret_cast<int8_t *>(storage) = val.value_.boolean_;
+  std::memcpy(storage, &val.value_.boolean_, sizeof(val.value_.boolean_));
 }
 
 // Deserialize a value of the given type from the given storage space.
 auto BooleanType::DeserializeFrom(const char *storage) const -> Value {
-  int8_t val = *reinterpret_cast<const int8_t *>(storage);
+  int8_t val = 0;
+  std::memcpy(&val, storage, sizeof(val));
   return {TypeId::BOOLEAN, val};
 }
 

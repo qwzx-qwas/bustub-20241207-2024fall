@@ -27,7 +27,7 @@ class IndexStatement : public BoundStatement {
  public:
   explicit IndexStatement(std::string index_name, std::unique_ptr<BoundBaseTableRef> table,
                           std::vector<std::unique_ptr<BoundColumnRef>> cols, std::string index_type,
-                          std::vector<std::string> col_options, std::vector<IndexOption> options);
+                          std::vector<std::string> col_options, std::vector<IndexOption> options, bool is_unique);
 
   /** Name of the index */
   std::string index_name_;
@@ -43,6 +43,9 @@ class IndexStatement : public BoundStatement {
 
   std::vector<std::string> col_options_;
   std::vector<IndexOption> options_;
+
+  /** True for CREATE UNIQUE INDEX; distributed V1 rejects it before proposal. */
+  bool is_unique_{false};
 
   auto ToString() const -> std::string override;
 };

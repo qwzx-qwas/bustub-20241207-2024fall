@@ -59,11 +59,11 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> left_executor_;
   std::unique_ptr<AbstractExecutor> right_executor_;
 
-  //正在维护的那行左表元组
+  // 正在维护的那行左表元组
   Tuple left_tuple_;
-  //左表元组是否有效
+  // 左表元组是否有效
   bool left_tuple_valid_;
-  //只针对left join,记录当前的left_tuple是否已经匹配到过right表的元组
+  // 只针对left join,记录当前的left_tuple是否已经匹配到过right表的元组
   bool found_matched_;
 };
 

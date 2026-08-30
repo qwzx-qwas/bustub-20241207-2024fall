@@ -14,6 +14,7 @@
 
 #include <exception>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -43,6 +44,19 @@ using index_oid_t = uint32_t;
 
 enum class IndexType { BPlusTreeIndex, HashTableIndex, STLOrderedIndex, STLUnorderedIndex, IVFFlatIndex, HNSWIndex };
 
+enum class IndexConstraintKind : uint8_t { PRIMARY_KEY = 1, NON_UNIQUE_SECONDARY = 2, SECONDARY_UNIQUE = 3 };
+
+/** The versioned logical identity of a replicated table row. */
+struct ReplicatedPrimaryKeyDefinition {
+  uint32_t column_oid_;
+  TypeId type_;
+  uint32_t codec_version_{1};
+
+  friend auto operator==(const ReplicatedPrimaryKeyDefinition &lhs, const ReplicatedPrimaryKeyDefinition &rhs) -> bool {
+    return lhs.column_oid_ == rhs.column_oid_ && lhs.type_ == rhs.type_ && lhs.codec_version_ == rhs.codec_version_;
+  }
+};
+
 /**
  * The TableInfo class maintains metadata about a table.
  * TableInfo 类维护有关表的元数据。
@@ -56,8 +70,13 @@ struct TableInfo {
    * @param table An owning pointer to the table heap
    * @param oid The unique OID for the table
    */
-  TableInfo(Schema schema, std::string name, std::unique_ptr<TableHeap> &&table, table_oid_t oid)
-      : schema_{std::move(schema)}, name_{std::move(name)}, table_{std::move(table)}, oid_{oid} {}
+  TableInfo(Schema schema, std::string name, std::unique_ptr<TableHeap> &&table, table_oid_t oid,
+            std::optional<ReplicatedPrimaryKeyDefinition> replicated_primary_key = std::nullopt)
+      : schema_{std::move(schema)},
+        name_{std::move(name)},
+        table_{std::move(table)},
+        oid_{oid},
+        replicated_primary_key_{replicated_primary_key} {}
   /** The table schema */
   /** 表模式 */
   Schema schema_;
@@ -70,6 +89,8 @@ struct TableInfo {
   /** The table OID */
   /** 表 OID */
   const table_oid_t oid_;
+  /** Logical row identity used by the V1 replicated command protocol. */
+  std::optional<ReplicatedPrimaryKeyDefinition> replicated_primary_key_;
 };
 
 /**
@@ -86,7 +107,9 @@ struct IndexInfo {
    * @param key_size The size of the index key, in bytes
    */
   IndexInfo(Schema key_schema, std::string name, std::unique_ptr<Index> &&index, index_oid_t index_oid,
-            std::string table_name, size_t key_size, bool is_primary_key, IndexType index_type)
+            std::string table_name, size_t key_size, bool is_primary_key, IndexType index_type,
+            std::vector<uint32_t> key_attrs = {},
+            IndexConstraintKind constraint_kind = IndexConstraintKind::NON_UNIQUE_SECONDARY)
       : key_schema_{std::move(key_schema)},
         name_{std::move(name)},
         index_{std::move(index)},
@@ -94,7 +117,9 @@ struct IndexInfo {
         table_name_{std::move(table_name)},
         key_size_{key_size},
         is_primary_key_{is_primary_key},
-        index_type_(index_type) {}
+        index_type_(index_type),
+        key_attrs_(std::move(key_attrs)),
+        constraint_kind_(constraint_kind) {}
   /** The schema for the index key */
   Schema key_schema_;
   /** The name of the index */
@@ -111,6 +136,10 @@ struct IndexInfo {
   bool is_primary_key_;
   /** The index type */
   IndexType index_type_;
+  /** Base table columns that comprise the key, in key order. */
+  std::vector<uint32_t> key_attrs_;
+  /** Logical constraint semantics, independent of the derived index bytes. */
+  IndexConstraintKind constraint_kind_;
 };
 
 /**
@@ -177,6 +206,39 @@ class Catalog {
   }
 
   /**
+   * Register an already-materialized table at an explicit OID. Recovery uses
+   * this path so opening a catalog never allocates a replacement table page.
+   */
+  auto RestoreTable(const std::string &table_name, const Schema &schema, table_oid_t table_oid,
+                    std::unique_ptr<TableHeap> table,
+                    std::optional<ReplicatedPrimaryKeyDefinition> replicated_primary_key = std::nullopt)
+      -> std::shared_ptr<TableInfo> {
+    if (table == nullptr || table_names_.count(table_name) != 0 || tables_.count(table_oid) != 0) {
+      return NULL_TABLE_INFO;
+    }
+    auto meta = std::make_shared<TableInfo>(schema, table_name, std::move(table), table_oid, replicated_primary_key);
+    tables_.emplace(table_oid, meta);
+    table_names_.emplace(table_name, table_oid);
+    index_names_.emplace(table_name, std::unordered_map<std::string, index_oid_t>{});
+    return meta;
+  }
+
+  /** Create a new heap at the allocator's exact OID for deterministic FSM Apply. */
+  auto CreateTableWithOid(Transaction *txn, const std::string &table_name, const Schema &schema, table_oid_t table_oid,
+                          std::optional<ReplicatedPrimaryKeyDefinition> replicated_primary_key = std::nullopt)
+      -> std::shared_ptr<TableInfo> {
+    if (table_oid != next_table_oid_.load()) {
+      return NULL_TABLE_INFO;
+    }
+    auto table = std::make_unique<TableHeap>(bpm_);
+    auto meta = RestoreTable(table_name, schema, table_oid, std::move(table), replicated_primary_key);
+    if (meta != nullptr) {
+      next_table_oid_.fetch_add(1);
+    }
+    return meta;
+  }
+
+  /**
    * Query table metadata by name.
    * @param table_name The name of the table
    * @return A (non-owning) pointer to the metadata for the table
@@ -224,7 +286,10 @@ class Catalog {
   auto CreateIndex(Transaction *txn, const std::string &index_name, const std::string &table_name, const Schema &schema,
                    const Schema &key_schema, const std::vector<uint32_t> &key_attrs, std::size_t keysize,
                    HashFunction<KeyType> hash_function, bool is_primary_key = false,
-                   IndexType index_type = IndexType::BPlusTreeIndex) -> std::shared_ptr<IndexInfo> {
+                   IndexType index_type = IndexType::BPlusTreeIndex,
+                   std::optional<index_oid_t> explicit_index_oid = std::nullopt,
+                   IndexConstraintKind constraint_kind = IndexConstraintKind::NON_UNIQUE_SECONDARY)
+      -> std::shared_ptr<IndexInfo> {
     // Reject the creation request for nonexistent table
     if (table_names_.find(table_name) == table_names_.end()) {
       return NULL_INDEX_INFO;
@@ -251,8 +316,10 @@ class Catalog {
     // TODO(chi): support both hash index and btree index
     std::unique_ptr<Index> index;
     if (index_type == IndexType::HashTableIndex) {
-      index = std::make_unique<ExtendibleHashTableIndex<KeyType, ValueType, KeyComparator>>(std::move(meta), bpm_,
-                                                                                            hash_function);
+      // The disk extendible-hash adapter in this repository is intentionally unfinished. Hash indexes are derived
+      // state, so use the complete in-memory hash adapter and rebuild it from canonical rows after every restart.
+      index =
+          std::make_unique<STLUnorderedIndex<KeyType, ValueType, KeyComparator>>(std::move(meta), bpm_, hash_function);
     } else if (index_type == IndexType::BPlusTreeIndex) {
       index = std::make_unique<BPlusTreeIndex<KeyType, ValueType, KeyComparator>>(std::move(meta), bpm_);
     } else if (index_type == IndexType::STLOrderedIndex) {
@@ -269,26 +336,43 @@ class Catalog {
     // Populate the index with all tuples in table heap
     auto table_meta = GetTable(table_name);
     for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
-      auto [meta, tuple] = iter.GetTuple();
-      // we have to silently ignore the error here for a lot of reasons...
-      index->InsertEntry(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid(), txn);
+      auto [tuple_meta, tuple] = iter.GetTuple();
+      if (tuple_meta.is_deleted_) {
+        continue;
+      }
+      const auto inserted = index->InsertEntry(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid(), txn);
+      // A primary index is the replicated row-identity oracle. Silently dropping a duplicate while rebuilding would
+      // expose a Catalog whose heap contains an unreachable second live row. Ordinary secondary indexes are
+      // intentionally non-unique in V1, so only primary insertion failure is fatal here.
+      if (is_primary_key && !inserted) {
+        return NULL_INDEX_INFO;
+      }
     }
 
-    // Get the next OID for the new index
-    const auto index_oid = next_index_oid_.fetch_add(1);
+    // Recovery and replicated Apply supply the logical OID explicitly. Normal
+    // single-node callers continue to allocate from the catalog counter.
+    const auto index_oid = explicit_index_oid.value_or(next_index_oid_.load());
+    if (indexes_.count(index_oid) != 0) {
+      return NULL_INDEX_INFO;
+    }
 
     // Construct index information; IndexInfo takes ownership of the Index itself
     auto index_info = std::make_shared<IndexInfo>(key_schema, index_name, std::move(index), index_oid, table_name,
-                                                  keysize, is_primary_key, index_type);
+                                                  keysize, is_primary_key, index_type, key_attrs,
+                                                  is_primary_key ? IndexConstraintKind::PRIMARY_KEY : constraint_kind);
     // Update internal tracking
     indexes_.emplace(index_oid, index_info);
     table_indexes.emplace(index_name, index_oid);
+    if (!explicit_index_oid.has_value()) {
+      next_index_oid_.fetch_add(1);
+    }
     return index_info;
   }
 
   auto CreateIVFFlatIndex(Transaction *txn, const std::string &index_name, const std::string &table_name,
                           const Schema &schema, const Schema &key_schema, const std::vector<uint32_t> &key_attrs,
-                          bool is_primary_key = false, IVFFlatIndexOptions options = {}) -> std::shared_ptr<IndexInfo> {
+                          bool is_primary_key = false, IVFFlatIndexOptions options = {},
+                          std::optional<index_oid_t> explicit_index_oid = std::nullopt) -> std::shared_ptr<IndexInfo> {
     // 检查表是否存在
     if (table_names_.find(table_name) == table_names_.end()) {
       return NULL_INDEX_INFO;
@@ -302,8 +386,8 @@ class Catalog {
     }
 
     auto meta = std::make_unique<IndexMetadata>(index_name, table_name, &schema, key_attrs, is_primary_key);
-    auto index =
-        std::make_unique<IVFFlatIndex<Tuple, RID, IntComparator>>(std::move(meta), bpm_, HashFunction<Tuple>{}, options);
+    auto index = std::make_unique<IVFFlatIndex<Tuple, RID, IntComparator>>(std::move(meta), bpm_, HashFunction<Tuple>{},
+                                                                           options);
 
     auto table_meta = GetTable(table_name);
     std::vector<std::pair<Tuple, RID>> entries;
@@ -316,19 +400,27 @@ class Catalog {
     }
     index->BuildFromEntries(entries);
 
-    const auto index_oid = next_index_oid_.fetch_add(1);
-    auto index_info = std::make_shared<IndexInfo>(key_schema, index_name, std::move(index), index_oid, table_name,
-                                                  key_schema.GetInlinedStorageSize(), is_primary_key,
-                                                  IndexType::IVFFlatIndex);
+    const auto index_oid = explicit_index_oid.value_or(next_index_oid_.load());
+    if (indexes_.count(index_oid) != 0) {
+      return NULL_INDEX_INFO;
+    }
+    auto index_info = std::make_shared<IndexInfo>(
+        key_schema, index_name, std::move(index), index_oid, table_name, key_schema.GetInlinedStorageSize(),
+        is_primary_key, IndexType::IVFFlatIndex, key_attrs,
+        is_primary_key ? IndexConstraintKind::PRIMARY_KEY : IndexConstraintKind::NON_UNIQUE_SECONDARY);
     indexes_.emplace(index_oid, index_info);
     table_indexes.emplace(index_name, index_oid);
+    if (!explicit_index_oid.has_value()) {
+      next_index_oid_.fetch_add(1);
+    }
     return index_info;
   }
 
   /** 作用：创建 HNSW 向量索引，并按表中当前可见条目顺序构建多层图。 */
   auto CreateHNSWIndex(Transaction *txn, const std::string &index_name, const std::string &table_name,
                        const Schema &schema, const Schema &key_schema, const std::vector<uint32_t> &key_attrs,
-                       bool is_primary_key = false, HNSWIndexOptions options = {}) -> std::shared_ptr<IndexInfo> {
+                       bool is_primary_key = false, HNSWIndexOptions options = {},
+                       std::optional<index_oid_t> explicit_index_oid = std::nullopt) -> std::shared_ptr<IndexInfo> {
     if (table_names_.find(table_name) == table_names_.end()) {
       return NULL_INDEX_INFO;
     }
@@ -354,12 +446,19 @@ class Catalog {
     }
     index->BuildFromEntries(entries);
 
-    const auto index_oid = next_index_oid_.fetch_add(1);
-    auto index_info = std::make_shared<IndexInfo>(key_schema, index_name, std::move(index), index_oid, table_name,
-                                                  key_schema.GetInlinedStorageSize(), is_primary_key,
-                                                  IndexType::HNSWIndex);
+    const auto index_oid = explicit_index_oid.value_or(next_index_oid_.load());
+    if (indexes_.count(index_oid) != 0) {
+      return NULL_INDEX_INFO;
+    }
+    auto index_info = std::make_shared<IndexInfo>(
+        key_schema, index_name, std::move(index), index_oid, table_name, key_schema.GetInlinedStorageSize(),
+        is_primary_key, IndexType::HNSWIndex, key_attrs,
+        is_primary_key ? IndexConstraintKind::PRIMARY_KEY : IndexConstraintKind::NON_UNIQUE_SECONDARY);
     indexes_.emplace(index_oid, index_info);
     table_indexes.emplace(index_name, index_oid);
+    if (!explicit_index_oid.has_value()) {
+      next_index_oid_.fetch_add(1);
+    }
     return index_info;
   }
 
@@ -446,13 +545,46 @@ class Catalog {
     return indexes;
   }
 
-  auto GetTableNames() -> std::vector<std::string> {
+  auto GetTableNames() const -> std::vector<std::string> {
     std::vector<std::string> result;
     for (const auto &x : table_names_) {
       result.push_back(x.first);
     }
     return result;
   }
+
+  auto GetNextTableOid() const -> table_oid_t { return next_table_oid_.load(); }
+  auto GetNextIndexOid() const -> index_oid_t { return next_index_oid_.load(); }
+
+  /** Advance the allocator after a replicated command created this exact explicit OID. */
+  auto CommitExplicitIndexOid(index_oid_t index_oid) -> bool {
+    if (next_index_oid_.load() != index_oid || indexes_.count(index_oid) == 0) {
+      return false;
+    }
+    next_index_oid_.fetch_add(1);
+    return true;
+  }
+
+  /** Install allocator values after explicit snapshot objects have been restored. */
+  auto RestoreOidAllocators(table_oid_t next_table_oid, index_oid_t next_index_oid) -> bool {
+    for (const auto &[oid, unused] : tables_) {
+      if (oid >= next_table_oid) {
+        return false;
+      }
+    }
+    for (const auto &[oid, unused] : indexes_) {
+      if (oid >= next_index_oid) {
+        return false;
+      }
+    }
+    next_table_oid_.store(next_table_oid);
+    next_index_oid_.store(next_index_oid);
+    return true;
+  }
+
+  auto GetSchemaEpoch() const -> uint64_t { return schema_epoch_.load(); }
+  void SetSchemaEpochForRecovery(uint64_t schema_epoch) { schema_epoch_.store(schema_epoch); }
+  auto AdvanceSchemaEpoch() -> uint64_t { return schema_epoch_.fetch_add(1) + 1; }
 
  private:
   [[maybe_unused]] BufferPoolManager *bpm_;
@@ -476,6 +608,9 @@ class Catalog {
 
   /** The next index identifier to be used. */
   std::atomic<index_oid_t> next_index_oid_{0};
+
+  /** Monotonic logical catalog version persisted in each canonical snapshot. */
+  std::atomic<uint64_t> schema_epoch_{0};
 };
 
 }  // namespace bustub

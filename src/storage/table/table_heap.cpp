@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <mutex>  // NOLINT
+#include <unordered_set>
 #include <utility>
 
 #include "common/config.h"
@@ -37,6 +38,40 @@ TableHeap::TableHeap(BufferPoolManager *bpm) : bpm_(bpm) {
                 "Couldn't create a page for the table heap. Have you completed the buffer pool manager project?");
 
   first_page->Init();
+}
+
+TableHeap::TableHeap(BufferPoolManager *bpm, page_id_t first_page_id, page_id_t last_page_id)
+    : bpm_(bpm), first_page_id_(first_page_id), last_page_id_(last_page_id) {}
+
+auto TableHeap::Open(BufferPoolManager *bpm, page_id_t first_page_id) -> std::unique_ptr<TableHeap> {
+  if (bpm == nullptr) {
+    throw Exception("cannot open a table heap without a buffer pool manager");
+  }
+  if (first_page_id == INVALID_PAGE_ID || first_page_id < 0) {
+    throw Exception("cannot open a table heap with an invalid first page id");
+  }
+
+  std::unordered_set<page_id_t> visited;
+  auto page_id = first_page_id;
+  while (true) {
+    if (!visited.emplace(page_id).second) {
+      throw Exception("corrupt table heap: page chain contains a cycle");
+    }
+
+    auto guard = bpm->ReadPage(page_id);
+    auto page = guard.As<TablePage>();
+    if (page == nullptr) {
+      throw Exception("corrupt table heap: table page cannot be read");
+    }
+    const auto next_page_id = page->GetNextPageId();
+    if (next_page_id == INVALID_PAGE_ID) {
+      return std::unique_ptr<TableHeap>(new TableHeap(bpm, first_page_id, page_id));
+    }
+    if (next_page_id < 0) {
+      throw Exception("corrupt table heap: invalid next page id");
+    }
+    page_id = next_page_id;
+  }
 }
 
 TableHeap::TableHeap(bool create_table_heap) : bpm_(nullptr) {}

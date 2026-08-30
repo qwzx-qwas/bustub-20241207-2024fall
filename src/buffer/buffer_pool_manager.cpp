@@ -228,6 +228,19 @@ auto BufferPoolManager::NewPage() -> page_id_t {
   return new_page_id;
 }
 
+void BufferPoolManager::SetNextPageIdForRecovery(page_id_t next_page_id) {
+  if (next_page_id < 0) {
+    throw Exception("invalid recovered next page id");
+  }
+  std::scoped_lock latch(*bpm_latch_);
+  auto current = next_page_id_.load();
+  if (current < next_page_id) {
+    next_page_id_.store(next_page_id);
+    current = next_page_id;
+  }
+  disk_scheduler_->IncreaseDiskSpace(static_cast<size_t>(current));
+}
+
 /**
  * @brief Removes a page from the database, both on disk and in memory.
  *
@@ -328,7 +341,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   // DeallocatePage() logic
   // Schedule Delete Request
   // 即使页面不在内存中，也需要在磁盘上删除
-  //只要调用deletepage就会进行删除操作，而不是会因为上面的判断而跳过
+  // 只要调用deletepage就会进行删除操作，而不是会因为上面的判断而跳过
   {
     auto promise = std::promise<bool>();
     auto future = promise.get_future();

@@ -49,7 +49,7 @@ void ExtractUsedColumns(const AbstractExpressionRef &expr, std::unordered_set<ui
 // 因此，上层算子中引用 D 的表达式必须更新，将其中的 ColIdx 从 3 改为 0。
 // mapping 参数提供了这种 {旧索引 -> 新索引} 的映射关系。
 
-//其实也就是重新写一个schema来表示列裁剪后的schema
+// 其实也就是重新写一个schema来表示列裁剪后的schema
 auto RewriteExpression(const AbstractExpressionRef &expr, const std::unordered_map<uint32_t, uint32_t> &mapping)
     -> AbstractExpressionRef {
   if (const auto *col_expr = dynamic_cast<const ColumnValueExpression *>(expr.get()); col_expr != nullptr) {
@@ -90,7 +90,7 @@ auto Optimizer::OptimizeColumnPruning(const bustub::AbstractPlanNodeRef &plan) -
     // 但列裁剪比较特殊，它既可以 Top-Down 也可以 Bottom-Up 重写。
     // 为了简单，我们这里在 Top 层直接分析，并假设我们要处理的是紧随其后的 SeqScan。
 
-    //收集 Projection 需要的所有列
+    // 收集 Projection 需要的所有列
     std::unordered_set<uint32_t> used_cols;
     for (const auto &expr : proj_plan.GetExpressions()) {
       ExtractUsedColumns(expr, used_cols);
@@ -121,7 +121,7 @@ auto Optimizer::OptimizeColumnPruning(const bustub::AbstractPlanNodeRef &plan) -
         return plan;
       }
 
-      //构建剪枝后的 Schema 和列映射 (OldIdx -> NewIdx)
+      // 构建剪枝后的 Schema 和列映射 (OldIdx -> NewIdx)
       std::vector<uint32_t> sorted_used_cols(used_cols.begin(), used_cols.end());
       std::sort(sorted_used_cols.begin(), sorted_used_cols.end());
 
@@ -159,7 +159,7 @@ auto Optimizer::OptimizeColumnPruning(const bustub::AbstractPlanNodeRef &plan) -
   }
 
   // 默认递归处理其他情况
-  //即如果不是Projection->（Filter）->SeqScan模式，就直接递归优化子节点
+  // 即如果不是Projection->（Filter）->SeqScan模式，就直接递归优化子节点
   std::vector<AbstractPlanNodeRef> children;
   for (const auto &child : plan->GetChildren()) {
     children.emplace_back(OptimizeColumnPruning(child));

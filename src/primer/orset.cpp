@@ -2,39 +2,50 @@
 #include <algorithm>
 #include <string>
 #include <vector>
-#include "common/exception.h"
 #include "fmt/format.h"
 
 namespace bustub {
 
 template <typename T>
 auto ORSet<T>::Contains(const T &elem) const -> bool {
-  // TODO(student): Implement this
-  throw NotImplementedException("ORSet<T>::Contains is not implemented");
+  const auto iterator = add_tags_.find(elem);
+  if (iterator == add_tags_.end()) {
+    return false;
+  }
+  return std::any_of(iterator->second.begin(), iterator->second.end(),
+                     [this](uid_t tag) { return removed_tags_.count(tag) == 0; });
 }
 
 template <typename T>
 void ORSet<T>::Add(const T &elem, uid_t uid) {
-  // TODO(student): Implement this
-  throw NotImplementedException("ORSet<T>::Add is not implemented");
+  add_tags_[elem].insert(uid);
 }
 
 template <typename T>
 void ORSet<T>::Remove(const T &elem) {
-  // TODO(student): Implement this
-  throw NotImplementedException("ORSet<T>::Remove is not implemented");
+  const auto iterator = add_tags_.find(elem);
+  if (iterator != add_tags_.end()) {
+    removed_tags_.insert(iterator->second.begin(), iterator->second.end());
+  }
 }
 
 template <typename T>
 void ORSet<T>::Merge(const ORSet<T> &other) {
-  // TODO(student): Implement this
-  throw NotImplementedException("ORSet<T>::Merge is not implemented");
+  for (const auto &[elem, tags] : other.add_tags_) {
+    add_tags_[elem].insert(tags.begin(), tags.end());
+  }
+  removed_tags_.insert(other.removed_tags_.begin(), other.removed_tags_.end());
 }
 
 template <typename T>
 auto ORSet<T>::Elements() const -> std::vector<T> {
-  // TODO(student): Implement this
-  throw NotImplementedException("ORSet<T>::Elements is not implemented");
+  std::vector<T> elements;
+  for (const auto &[elem, tags] : add_tags_) {
+    if (std::any_of(tags.begin(), tags.end(), [this](uid_t tag) { return removed_tags_.count(tag) == 0; })) {
+      elements.push_back(elem);
+    }
+  }
+  return elements;
 }
 
 template <typename T>

@@ -4,8 +4,8 @@
 #include <optional>
 #include <shared_mutex>
 #include <string>
-#include <type_traits>
 #include <tuple>
+#include <type_traits>
 
 #include "binder/binder.h"
 #include "binder/bound_expression.h"

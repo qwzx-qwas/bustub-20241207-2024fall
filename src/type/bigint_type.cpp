@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -259,12 +260,13 @@ auto BigintType::ToString(const Value &val) const -> std::string {
 }
 
 void BigintType::SerializeTo(const Value &val, char *storage) const {
-  *reinterpret_cast<int64_t *>(storage) = val.value_.bigint_;
+  std::memcpy(storage, &val.value_.bigint_, sizeof(val.value_.bigint_));
 }
 
 // Deserialize a value of the given type from the given storage space.
 auto BigintType::DeserializeFrom(const char *storage) const -> Value {
-  int64_t val = *reinterpret_cast<const int64_t *>(storage);
+  int64_t val = 0;
+  std::memcpy(&val, storage, sizeof(val));
   return {type_id_, val};
 }
 
