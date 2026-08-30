@@ -1779,6 +1779,13 @@ moved-from 状态。18 个报错 translation unit 按 WSL 串行约束逐个通�
 畸形 frame、随机选举、快照恢复和 TCP loopback，vector-index SQLLogic production 链亦通过。22 个改动
 C/C++ 文件通过 format/cpplint，E2E shell 通过 `bash -n`，`git diff --check` 通过。
 
+包含上述修复的 run `33314397739` 又暴露 E2E-11 的第二个测试假设：脚本固定等待 node 1 的两代文件，
+但失败 artifact 中 node 1 只有一代，同样已 apply 到 suffix 的 node 2/3 各有两代，故场景在损坏任何文件
+之前退出。快照发布 Tick 受角色与调度影响，节点编号不是 correctness oracle。场景现选择首个实际保留
+两代的节点，并将 status 发布屏障、快照目录、损坏、单节点重启、独立上一代 index 和真实 stale read
+全部绑定到该节点；若三个节点都不满足则明确失败，损坏开始后不再切换目标。修复后的 fresh Release
+matrix 单次通过 E2E-02/06/07/09/11/12。
+
 ### 方案结构复审与基线维护（2026-08-30）
 
 本次复审将五个大章改为 A–D 架构工作流 + 横切规则，并以一张 M0–M7 表作为唯一执行轴。

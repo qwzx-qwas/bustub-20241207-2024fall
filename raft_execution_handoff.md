@@ -91,6 +91,11 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
 - 修复后使用单线程 Release 增量构建链接全部受影响目标；9 个 GoogleTest 二进制以真实状态、持久目录、
   畸形帧、随机选举、快照恢复和 TCP loopback 通过 71/71，vector-index SQLLogic production 链亦通过。
   22 个改动 C/C++ 文件通过 format/cpplint，E2E shell 通过 `bash -n`，`git diff --check` 通过。
+- 后续 run `33314397739` 的 artifact 又证明 E2E-11 残留了固定节点假设：node 1 仅保留一代，而同样已
+  apply 到 suffix 的 node 2/3 各有两代，脚本在任何损坏前因硬编码 node 1 退出。快照发布时机受角色与
+  调度影响，节点编号不是 correctness oracle。脚本现从三者中选择首个实际保留两代的节点，并把 status
+  屏障、目录、损坏、单节点重启、上一代 index 与真实查询全部绑定到该节点；三者皆不满足仍明确失败，
+  开始损坏后绝不换目标。fresh Release matrix 已单次通过 E2E-02/06/07/09/11/12。
 - 只有包含 `20f1af2` 的最终文档 HEAD 所触发 workflow 全部必需 jobs 终态成功，才能把这次 CI 收敛记为
   完成；远端 run ID/结果由最终交接报告记录，不为了回填动态编号再制造 docs-only CI 循环。
 

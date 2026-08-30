@@ -178,14 +178,26 @@ run_corrupt_latest() (
   do
     raft_await_status_at_least "${node_id}" last_applied "${suffix_index}" 600 "$((140000 + node_id * 1000))"
   done
+  snapshot_target=0
   for _ in $(seq 1 600)
   do
-    snapshot_count=$(find "${artifact_root}/corrupt/node-1/raft/snapshots" -maxdepth 1 -type f \
-      -name 'SNAPSHOT-[0-9]*' | wc -l)
-    [[ ${snapshot_count} -ge 2 ]] && break
+    for node_id in 1 2 3
+    do
+      snapshot_count=$(find "${artifact_root}/corrupt/node-${node_id}/raft/snapshots" -maxdepth 1 -type f \
+        -name 'SNAPSHOT-[0-9]*' | wc -l)
+      if [[ ${snapshot_count} -ge 2 ]]
+      then
+        snapshot_target=${node_id}
+        break 2
+      fi
+    done
     sleep 0.02
   done
-  [[ ${snapshot_count} -ge 2 ]]
+  if [[ ${snapshot_target} -eq 0 ]]
+  then
+    echo "no applied node retained two snapshot generations" >&2
+    exit 1
+  fi
 
   # A completed SNAPSHOT-* rename proves that the image is durable, but the
   # same Tick may still be advancing the retained bridge-log boundary.  Use a
@@ -193,9 +205,9 @@ run_corrupt_latest() (
   # shutdown.  HandleStatus takes the node mutex held by MaybeCreateSnapshot,
   # so a successful reply proves that the complete snapshot transition has
   # returned; merely observing our own filesystem stimulus does not.
-  if ! snapshot_publish_status=$(raft_status 1 149000 30000)
+  if ! snapshot_publish_status=$(raft_status "${snapshot_target}" "$((149000 + snapshot_target))" 30000)
   then
-    echo "node 1 did not answer the post-snapshot publication fence" >&2
+    echo "node ${snapshot_target} did not answer the post-snapshot publication fence" >&2
     exit 1
   fi
   if [[ ! ${snapshot_publish_status} =~ ^status=OK([[:space:]]|$) ]] || \
@@ -205,7 +217,7 @@ run_corrupt_latest() (
     exit 1
   fi
   raft_stop_all_nodes
-  snapshot_directory="${artifact_root}/corrupt/node-1/raft/snapshots"
+  snapshot_directory="${artifact_root}/corrupt/node-${snapshot_target}/raft/snapshots"
   readarray -t snapshot_files < <(find "${snapshot_directory}" -maxdepth 1 -type f \
     -name 'SNAPSHOT-[0-9]*' | sort)
   previous_snapshot=${snapshot_files[$((${#snapshot_files[@]} - 2))]}
@@ -237,20 +249,22 @@ print(struct.unpack(">Q", data[24 + name_size:32 + name_size])[0])' "${latest_sn
     exit 1
   fi
 
-  raft_timeline_step "E2E-11: recover node 1 from the prior snapshot plus bridge log"
-  raft_start_node 1
-  raft_await_status_at_least 1 last_applied "${suffix_index}" 400 150000
+  raft_timeline_step "E2E-11: recover node ${snapshot_target} from the prior snapshot plus bridge log"
+  raft_start_node "${snapshot_target}"
+  raft_await_status_at_least "${snapshot_target}" last_applied "${suffix_index}" 400 150000
   recovered_status=${RAFT_LAST_STATUS}
   if [[ $(raft_status_field "${recovered_status}" snapshot_base_index) -ne ${previous_snapshot_index} ]]
   then
-    echo "node 1 did not select the independently parsed prior snapshot index ${previous_snapshot_index}" >&2
+    echo "node ${snapshot_target} did not select the independently parsed prior snapshot index ${previous_snapshot_index}" >&2
     exit 1
   fi
-  recovered=$(raft_client_call_strict 1 read --request-id 151000 --consistency stale \
+  recovered=$(raft_client_call_strict "${snapshot_target}" read --request-id 151000 --consistency stale \
     --sql "SELECT id, value FROM fallback ORDER BY id;")
   raft_assert_query_exact "${recovered}" $'fallback.id\tfallback.value\n1\tfrom-bridge'
-  raft_start_node 2
-  raft_start_node 3
+  for node_id in 1 2 3
+  do
+    [[ ${node_id} -eq ${snapshot_target} ]] || raft_start_node "${node_id}"
+  done
   raft_find_leader >/dev/null
 )
 

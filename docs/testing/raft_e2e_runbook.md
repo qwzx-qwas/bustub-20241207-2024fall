@@ -232,6 +232,11 @@ request to the target and require `status=OK` plus `last_applied` at or beyond t
 publication fence, not a retry of the scenario. Keep the harness's process-exit timeout unchanged so a quiescent node
 that cannot stop remains a real failure.
 
+Do not hard-code which node must be the corruption target. Role and scheduling can legitimately make equally applied
+nodes publish retained generations on different Ticks. Select the first node that actually retained two generations,
+then bind the status fence, snapshot directory, corruption, isolated restart, prior-generation oracle, and stale read to
+that same node. Fail explicitly if no node qualifies; never switch targets after corruption or recovery begins.
+
 ## Cleanup
 
 Build trees belong in `/tmp` (or another operator-selected directory outside the repository). At a completed milestone,
