@@ -95,12 +95,18 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
   apply 到 suffix 的 node 2/3 各有两代，脚本在任何损坏前因硬编码 node 1 退出。快照发布时机受角色与
   调度影响，节点编号不是 correctness oracle。脚本现从三者中选择首个实际保留两代的节点，并把 status
   屏障、目录、损坏、单节点重启、上一代 index 与真实查询全部绑定到该节点；三者皆不满足仍明确失败，
-  开始损坏后绝不换目标。fresh Release matrix 已单次通过 E2E-02/06/07/09/11/12。
+  开始损坏后绝不换目标。fresh 本地 Release matrix 已单次通过 E2E-02/06/07/09/11/12；随后 run
+  `33314927956` 的完整 Release production-process job 也在独立 runner 上一次通过。
 - 三个连续 run 的 `macos-13` job 始终无 runner；GitHub 官方已于 2025-12-04 退役该标签，并建议迁移到
   `macos-14`/`macos-15`。为继续固定 LLVM 14 且使用 Homebrew 仍提供 bottle 的平台，矩阵迁移到受支持的
   `macos-14` ARM64，并把 format/tidy 路径改为 `/opt/homebrew/opt/llvm@14/bin`；静态检查和 public tests
   范围不缩小，同时新增 ARM64 编译覆盖。依据：<https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/>、
   <https://formulae.brew.sh/formula/llvm%4014>。
+- run `33314927956` 随即证明 runner 与 LLVM 14 bottle 均正常，但 macOS image 的 CMake 4.3 已删除对
+  policy floor `<3.5` 的兼容，配置在第一个 vendored root `murmur3` 停止。扫描确认顶层实际纳入的
+  `murmur3/libfort/utf8proc/backward-cpp/libpg_query/linenoise` 六个根均仍声明 3.0；现分别提升为 3.5，
+  不使用 `CMAKE_POLICY_VERSION_MINIMUM` 全局绕过，也不改未构建的 vendor 示例。fresh 本地 CMake 3.28
+  已完整遍历全部子目录并成功生成。
 - 只有包含 `20f1af2` 的最终文档 HEAD 所触发 workflow 全部必需 jobs 终态成功，才能把这次 CI 收敛记为
   完成；远端 run ID/结果由最终交接报告记录，不为了回填动态编号再制造 docs-only CI 循环。
 

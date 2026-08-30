@@ -1784,7 +1784,8 @@ C/C++ 文件通过 format/cpplint，E2E shell 通过 `bash -n`，`git diff --che
 之前退出。快照发布 Tick 受角色与调度影响，节点编号不是 correctness oracle。场景现选择首个实际保留
 两代的节点，并将 status 发布屏障、快照目录、损坏、单节点重启、独立上一代 index 和真实 stale read
 全部绑定到该节点；若三个节点都不满足则明确失败，损坏开始后不再切换目标。修复后的 fresh Release
-matrix 单次通过 E2E-02/06/07/09/11/12。
+matrix 单次通过 E2E-02/06/07/09/11/12；run `33314927956` 随后在独立 GitHub runner 上一次通过完整
+Release production-process job，证明该调度修复没有依赖本机节点 1 恰好成为目标。
 
 连续 workflow 的 `macos-13` job 始终停在无 runner 的 queued 状态。GitHub 官方公告确认该 image 已于
 2025-12-04 退役，并要求迁移到 `macos-14` 或 `macos-15`；这不是测试结果，也不能通过继续等待变绿。
@@ -1793,6 +1794,13 @@ matrix 单次通过 E2E-02/06/07/09/11/12。
 所有原有 build、format、lint、tidy 与 public-test 步骤不变，并新增 ARM64 编译覆盖。官方退役及 LLVM 14
 bottle 依据：<https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/>、
 <https://formulae.brew.sh/formula/llvm%4014>。
+
+迁移后的 run `33314927956` 成功分配 ARM64 runner 并安装 LLVM 14，随后由 image 自带 CMake 4.3 在
+配置阶段拒绝第一个 policy floor 为 3.0 的 vendored root。仓库扫描确认顶层实际 `add_subdirectory` 的
+`murmur3`、`libfort`、`utf8proc`、`backward-cpp`、`libpg_query` 与 `linenoise` 均有相同问题。六个根的
+`cmake_minimum_required` 分别提升到 CMake 4 仍支持的 3.5；不通过全局
+`CMAKE_POLICY_VERSION_MINIMUM` 掩盖旧声明，也不修改未纳入构建的 vendor 示例/测试。fresh 本地
+CMake 3.28 配置已遍历全部子目录并成功生成，CMake 4.3 由下一远端 run 作最终验证。
 
 ### 方案结构复审与基线维护（2026-08-30）
 
