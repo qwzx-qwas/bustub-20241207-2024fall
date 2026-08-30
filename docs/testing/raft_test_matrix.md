@@ -404,3 +404,28 @@ scan found no M8 `/tmp` item, relevant process/listener, ignored/generated sourc
 file. Separately, authorized commit `2a1d2ce` removed the obsolete 1,347-file nested source duplicate and four tracked
 root runtime/diagnostic outputs (44,467,543 bytes), adding root-anchored ignores only for the four runtime paths. M8 is
 complete and stopped; no next DAG node is selected or pre-executed.
+
+## Post-push full-matrix closure (`20f1af2`)
+
+The first complete `main` workflow on documentation head `66591c1` proved the dedicated M8 ASan/UBSan and Release
+timelines, TSan, and Release SQLLogic jobs, but both Ubuntu default-`all` build jobs failed before their public-test
+steps. Partial job success is not a full workflow pass. The failures were pre-M8 baseline/tooling defects newly exposed
+by the corrected branch trigger, not payload-binding failures.
+
+`20f1af2` removes every tool-to-test-header dependency, fixes the GCC `-Werror` blockers in B+Tree, timestamp formatting,
+and a continued comment, invokes every repository-owned clang-tidy script through Python, and fixes the existing HNSW
+constant naming diagnostic. It adds a literal packed-timestamp test rather than a parse/format round trip.
+
+| Local closure gate | Result |
+| --- | --- |
+| Clang 14 Debug/ASan default `all` before the final naming-only tidy fix | 100%; all libraries, native tools/bench, `bustub-node`, and `bustub-client` compiled and linked |
+| GCC 13 Debug default `all` before the final naming-only tidy fix | 100%; the same default target set compiled and linked |
+| Current dependency rebuild and independent timestamp oracle | single-thread rebuild passed; 1/1 using literal packed values for `-12/-01/+00/+14` |
+| Current B+Tree/HNSW behavior | B+Tree delete/merge 2/2; HNSW 7/7 including real SQL/MVCC |
+| Tool boundary/runtime | native printer/bench compiled without `test/include`; WASM source passed Clang 14 syntax-only; printer inserted 41/42, deleted 41, observed only 42, and removed its runtime files |
+| Current static checks | affected native translation units passed clang-tidy individually; source/test cpplint passed; format and `git diff --check` passed; all nine non-executable tidy-script call sites use the discovered Python interpreter |
+
+On the resource-constrained VSCode/WSL host these gates must run one heavy task at a time with local builds at `-j1`;
+do not overlap compiler, sanitizer, E2E, or test-agent processes. The final authoritative broad regression remains the
+workflow attached to the pushed documentation HEAD containing `20f1af2`: all required jobs must reach success before
+completion is reported. This scheduling rule does not permit scenario retries or weaken any oracle.

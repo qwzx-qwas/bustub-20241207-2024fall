@@ -1742,6 +1742,26 @@ artifact 目录，共 5,057,640,577 bytes；复扫无 M8 `/tmp` 项、后台 nod
 产物或未解释的未跟踪文件。仓库来源审计另以 `2a1d2ce` 删除 1,347 个过时嵌套副本文件和四个根目录产物，
 共 44,467,543 bytes，并只对四个根路径加入 anchored ignore。M8 至此完成并停止。
 
+#### M8 推送后全量 CI 收敛（`20f1af2`）
+
+`66591c1` 首次在修正后的 `main` trigger 上跑到完整 workflow。M8 ASan/UBSan 与 Release 各六条
+进程链、TSan 和 Release SQLLogic jobs 已通过，但 Ubuntu Clang/GCC 在默认 `all` Build 提前失败，
+因而该 run 只是定向 M8 证据，不是全 workflow 成功。失败暴露的都是 M8 前已存在但过去未被
+`main` 矩阵触发的基线问题。
+
+`20f1af2` 不改变 Raft 协议或 M8 格式；它删除四个 tool/bench 对 `test_util.h` 的反向依赖，
+去掉 B+Tree 未读取局部指针，使时间戳时区格式化不再依赖固定小缓冲区，改写 GCC 会解释为续行的
+注释，使九个 clang-tidy targets 显式通过 Python 运行 `100644` 脚本，并修正既有 HNSW 常量命名门禁。
+时间戳回归直接使用四个预计算 packed integer 及字面 expected string，不调用 parser/formatter 生成自身
+oracle；覆盖 `-12/-01/+00/+14`。
+
+本地在资源受限的 VSCode/WSL 上强制一次只运行一个重型任务并使用 `-j1`；禁止同时启动多个
+编译、sanitizer、E2E 或测试代理。这一主机调度约束不改变单次、无重试的验收语义，也不缩小独立
+GitHub runners 上的 public regression/SQLLogic/sanitizer/TSan 范围。本地定向证据为时间戳 1/1、B+Tree 2/2、
+HNSW 7/7、printer 真实插入/删除及空运行目录，受影响 native translation units 逐个 tidy 与 WASM
+syntax-only 通过。包含该修正的最终文档 HEAD 必须由远端完整 workflow 全绿后才能标记本次收敛完成；
+不为回填动态 run ID 再制造 docs-only CI 循环。
+
 ### 方案结构复审与基线维护（2026-08-30）
 
 本次复审将五个大章改为 A–D 架构工作流 + 横切规则，并以一张 M0–M7 表作为唯一执行轴。

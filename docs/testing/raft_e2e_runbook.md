@@ -10,8 +10,13 @@ cmake -S . -B /tmp/bustub-raft-build-clang \
   -DBUSTUB_SANITIZER=address,undefined
 
 cmake --build /tmp/bustub-raft-build-clang --target \
-  build-raft-component-gates bustub-node bustub-client -j2
+  build-raft-component-gates bustub-node bustub-client -j1
 ```
+
+On the current resource-constrained VSCode/WSL host, run only one heavy build/test command at a time and keep the
+example's `-j1`. Do not overlap compiler, sanitizer, E2E, or test-agent processes. This is a local resource
+scheduling rule, not permission to retry a failed scenario or weaken its oracle; independent CI runners retain the
+workflow's complete gate set.
 
 Loopback sockets can be forbidden by a development sandbox even though the code is valid. Run TCP and process tests in
 an environment that permits only local `127.0.0.1` connections. Tests allocate unique temporary directories; the six

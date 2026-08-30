@@ -7,7 +7,8 @@
 - M0–M7 历史全量验收基线为 `ec11bb0`；recovery/owner/CI 维护为 `1178cdf`，M7 后候选 DAG 与 M8 分配
   契约为 `66cb1e9`。获准的过时嵌套副本和四个根目录运行/诊断产物由 `2a1d2ce` 清除。
 - 唯一分配的 M8“写重试 payload 绑定”已经实现并提交为 `958fc80`。CommandBatch/Session 采用 V2，其他格式
-  保持冻结；完整测试与清理证据见下一节。当前没有半执行的功能阶段。
+  保持冻结；完整测试与清理证据见下一节。推送后全量 CI 收敛修正为 `20f1af2`，不增加
+  M8 协议或下一阶段功能。当前没有半执行的功能阶段。
 - 停止边界已到达：停在 M8，不选择、设计或预执行候选 DAG 中的下一节点，等待用户明确命令。
 - 若后续会话恢复，先阅读本文件、`raft_implementation_plan.md` 与
   `docs/testing/raft_test_matrix.md`，并核对 `git status`；基线验收数字不得自动为后续源码改动背书。
@@ -60,6 +61,26 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
   binder/planner/executor/storage 路径未变，因此本地不重复耗时的 Release SQLLogic 40/40；public regression、
   SQLLogic、六条 ASan/UBSan 与六条 Release 进程链及 TSan 均已配置进 GitHub Actions：public regression 是
   build job 内的 step，其余四组是分立 jobs；这里不声称远端 workflow 已运行完成。
+
+## M8 推送后 CI 收敛（2026-08-30）
+
+- `66591c1` 首次真正在 `main` 上触发完整 workflow。该 run 的 M8 ASan/UBSan 六条进程链、Release 六条
+  进程链、TSan 和 Release SQLLogic 已通过；Ubuntu Clang/GCC 在默认 `all` 的 Build 步骤提前失败，
+  因而不能用部分绿色 jobs 宣称整个 workflow 成功。
+- `20f1af2` 关闭这些早于 M8 的基线门禁问题：四个 tool/bench 改用 production `Schema/Column` API，
+  不再反向依赖 `test_util.h`；删除 B+Tree 两处未读取指针；时间戳时区输出去掉固定小缓冲区；
+  改写会被 GCC 解释为续行的注释；九个 clang-tidy target 显式通过 Python 运行 `100644` 脚本；
+  并修正一个既有 HNSW 常量命名门禁。这些修正不改变 Raft 协议、CommandBatch/Session 格式或业务语义。
+- 新增时间戳回归直接使用四个预计算 packed `uint64_t` 和四个字面 expected string，不经 VARCHAR parser
+  或 production formatter 生成 expected；覆盖 `-12/-01/+00/+14`。本地 Clang 14 ASan 定向结果为时间戳
+  1/1、B+Tree 删除/合并 2/2、HNSW 7/7；printer 真实插入 `41,42`、删除 `41` 后仅余 `42`，
+  且运行目录为空。受影响 native translation unit 逐个 tidy 通过，WASM 源文件通过
+  Clang 14 `-fsyntax-only`。
+- 本机 VSCode/WSL 资源限制是强制运行约束：一次只运行一个重型构建/测试，本地 CMake 使用 `-j1`，
+  不并发启动编译器、sanitizer、E2E 或测试子代理。这只是主机调度约束，不改变“每场景一次、
+  无重试”的验收语义；独立 GitHub runner 仍运行完整 public regression/SQLLogic/sanitizer/TSan 门禁。
+- 只有包含 `20f1af2` 的最终文档 HEAD 所触发 workflow 全部必需 jobs 终态成功，才能把这次 CI 收敛记为
+  完成；远端 run ID/结果由最终交接报告记录，不为了回填动态编号再制造 docs-only CI 循环。
 
 ## M7 后路线图复审（2026-08-30，M8 分配前历史记录）
 
