@@ -1,6 +1,7 @@
-#include "optimizer/optimizer.h"
+#include <algorithm>
+#include <limits>
 
-#include <limits>  // NOLINT(build/include_order)
+#include "optimizer/optimizer.h"
 
 #include "catalog/catalog.h"
 #include "execution/expressions/column_value_expression.h"
@@ -47,12 +48,8 @@ auto ContainsColumnValueExpr(const AbstractExpressionRef &expr) -> bool {
   if (dynamic_cast<const ColumnValueExpression *>(expr.get()) != nullptr) {
     return true;
   }
-  for (const auto &child : expr->GetChildren()) {
-    if (ContainsColumnValueExpr(child)) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(expr->GetChildren().begin(), expr->GetChildren().end(),
+                     [](const auto &child) { return ContainsColumnValueExpr(child); });
 }
 
 auto ExtractIndexedVectorQuery(const AbstractExpressionRef &expr)

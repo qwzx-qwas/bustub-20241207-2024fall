@@ -27,7 +27,7 @@ auto RuntimeDirectory() -> std::filesystem::path {
 
 auto AccountsSchema() -> Schema { return Schema({Column("id", TypeId::INTEGER), Column("name", TypeId::VARCHAR, 32)}); }
 
-auto AccountTuple(int32_t id, std::string name) -> Tuple {
+auto AccountTuple(int32_t id, const std::string &name) -> Tuple {
   const auto schema = AccountsSchema();
   return Tuple({ValueFactory::GetIntegerValue(id), ValueFactory::GetVarcharValue(name)}, &schema);
 }

@@ -1,5 +1,5 @@
 #include <algorithm>
-#include <chrono>
+#include <chrono>  // NOLINT(build/c++11)
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -54,7 +54,8 @@ auto MakeVectorTuple(const std::vector<double> &vector, const Schema &schema) ->
 }
 
 /** 作用：用与索引相同的距离语义计算 exact baseline。 */
-auto ComputeDistance(const std::vector<double> &lhs, const std::vector<double> &rhs, VectorIndexDistanceMetric metric) -> double {
+auto ComputeDistance(const std::vector<double> &lhs, const std::vector<double> &rhs, VectorIndexDistanceMetric metric)
+    -> double {
   double dot = 0.0;
   double lhs_norm_sq = 0.0;
   double rhs_norm_sq = 0.0;
@@ -185,8 +186,7 @@ void RunAnnBench(const std::string &label, IndexT *index, const std::vector<Quer
     const auto start = std::chrono::steady_clock::now();
     index->SearchVector(query.key_, AnnSearchOptions{top_k, top_k, budget}, &candidates, nullptr);
     const auto end = std::chrono::steady_clock::now();
-    total_latency_us +=
-        static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+    total_latency_us += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
     total_recall += ComputeRecall(candidates, exact_top_k);
   }
 
@@ -206,19 +206,20 @@ void RunExactBench(const std::vector<QueryWorkload> &queries, const std::vector<
       exact_rank.emplace_back(ComputeDistance(query.vector_, entry.vector_, metric), entry.rid_);
     }
     const auto keep = std::min(top_k, exact_rank.size());
-    std::partial_sort(exact_rank.begin(), exact_rank.begin() + keep, exact_rank.end(), [](const auto &lhs, const auto &rhs) {
-      if (lhs.first != rhs.first) {
-        return lhs.first < rhs.first;
-      }
-      return lhs.second.Get() < rhs.second.Get();
-    });
+    std::partial_sort(exact_rank.begin(), exact_rank.begin() + keep, exact_rank.end(),
+                      [](const auto &lhs, const auto &rhs) {
+                        if (lhs.first != rhs.first) {
+                          return lhs.first < rhs.first;
+                        }
+                        return lhs.second.Get() < rhs.second.Get();
+                      });
     volatile auto sink = exact_rank[keep - 1].second.Get();
     static_cast<void>(sink);
     const auto end = std::chrono::steady_clock::now();
-    total_latency_us +=
-        static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+    total_latency_us += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
   }
-  fmt::print("{},{},{},{:.4f},{:.2f}\n", "exact", top_k, 0, 1.0, total_latency_us / static_cast<double>(queries.size()));
+  fmt::print("{},{},{},{:.4f},{:.2f}\n", "exact", top_k, 0, 1.0,
+             total_latency_us / static_cast<double>(queries.size()));
 }
 
 /** 作用：解析少量命令行参数，方便重复实验时快速切换规模和 metric。 */
@@ -261,7 +262,22 @@ auto ParseConfig(int argc, char **argv) -> BenchConfig {
 }  // namespace bustub
 
 auto main(int argc, char **argv) -> int {
-  using namespace bustub;
+  using bustub::GenerateDataset;
+  using bustub::GenerateQueries;
+  using bustub::HashFunction;
+  using bustub::HNSWIndex;
+  using bustub::HNSWIndexOptions;
+  using bustub::IndexMetadata;
+  using bustub::IntComparator;
+  using bustub::IVFFlatIndex;
+  using bustub::IVFFlatIndexOptions;
+  using bustub::MakeVectorSchema;
+  using bustub::ParseConfig;
+  using bustub::RID;
+  using bustub::RunAnnBench;
+  using bustub::RunExactBench;
+  using bustub::Tuple;
+  using bustub::VectorIndexDistanceMetric;
 
   const auto config = ParseConfig(argc, argv);
   const auto schema = MakeVectorSchema(config.dim_);
@@ -281,12 +297,13 @@ auto main(int argc, char **argv) -> int {
   auto ivf = IVFFlatIndex<Tuple, RID, IntComparator>(
       std::move(ivf_meta), nullptr, HashFunction<Tuple>{},
       IVFFlatIndexOptions{nlist, std::min<std::size_t>(4, nlist), config.metric_, 4, 5});
-  auto hnsw = HNSWIndex<Tuple, RID, IntComparator>(
-      std::move(hnsw_meta), nullptr, HashFunction<Tuple>{}, HNSWIndexOptions{8, 32, 16, config.metric_});
+  auto hnsw = HNSWIndex<Tuple, RID, IntComparator>(std::move(hnsw_meta), nullptr, HashFunction<Tuple>{},
+                                                   HNSWIndexOptions{8, 32, 16, config.metric_});
   ivf.BuildFromEntries(build_entries);
   hnsw.BuildFromEntries(build_entries);
 
-  fmt::print("# dataset_size={}, queries={}, dim={}, metric={}\n", config.dataset_size_, config.query_count_, config.dim_,
+  fmt::print("# dataset_size={}, queries={}, dim={}, metric={}\n", config.dataset_size_, config.query_count_,
+             config.dim_,
              config.metric_ == VectorIndexDistanceMetric::L2
                  ? "l2"
                  : (config.metric_ == VectorIndexDistanceMetric::Cosine ? "cosine" : "ip"));

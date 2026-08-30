@@ -39,7 +39,7 @@ class StableStore {
 
  private:
   StableStore(std::filesystem::path raft_directory, std::shared_ptr<DurableStorage> storage, HardState state)
-      : raft_directory_(std::move(raft_directory)), storage_(std::move(storage)), state_(std::move(state)) {}
+      : raft_directory_(std::move(raft_directory)), storage_(std::move(storage)), state_(state) {}
 
   std::filesystem::path raft_directory_;
   std::shared_ptr<DurableStorage> storage_;

@@ -19,7 +19,7 @@ namespace bustub {
 namespace {
 
 auto MakeGeneratorBackedElectionTimeoutSource(std::mt19937_64 generator) -> ElectionTimeoutSource {
-  auto shared_generator = std::make_shared<std::mt19937_64>(std::move(generator));
+  auto shared_generator = std::make_shared<std::mt19937_64>(generator);
   return [shared_generator](uint64_t minimum_ms, uint64_t maximum_ms) {
     if (minimum_ms == 0 || minimum_ms > maximum_ms) {
       throw std::runtime_error("invalid election timeout interval");
@@ -714,9 +714,9 @@ void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_of
     transfer->second.offset_ = *acknowledged_offset;
     transfer->second.request_id_ = ++last_request_id_[peer];
   }
-  constexpr size_t MAX_CHUNK_BYTES = 64U * 1024U;
+  constexpr size_t max_chunk_bytes = 64U * 1024U;
   const auto offset = transfer->second.offset_;
-  const auto chunk_size = static_cast<size_t>(std::min<uint64_t>(MAX_CHUNK_BYTES, snapshot.payload_size_ - offset));
+  const auto chunk_size = static_cast<size_t>(std::min<uint64_t>(max_chunk_bytes, snapshot.payload_size_ - offset));
   auto chunk = snapshot_store_->ReadPayloadChunk(snapshot, offset, chunk_size);
   transfer->second.end_offset_ = offset + chunk.size();
   const auto done = transfer->second.end_offset_ == snapshot.payload_size_;

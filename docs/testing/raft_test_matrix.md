@@ -424,6 +424,9 @@ constant naming diagnostic. It adds a literal packed-timestamp test rather than 
 | Current B+Tree/HNSW behavior | B+Tree delete/merge 2/2; HNSW 7/7 including real SQL/MVCC |
 | Tool boundary/runtime | native printer/bench compiled without `test/include`; WASM source passed Clang 14 syntax-only; printer inserted 41/42, deleted 41, observed only 42, and removed its runtime files |
 | Current static checks | affected native translation units passed clang-tidy individually; source/test cpplint passed; format and `git diff --check` passed; all nine non-executable tidy-script call sites use the discovered Python interpreter |
+| E2E-11 publication fence | run `33311990646` exposed a file-rename/bridge-finalization race; the 10-second TERM gate remains unchanged, while one bounded production status request now proves the snapshot Tick returned and `last_applied >= suffix_index`; the fresh Release recovery matrix passed once |
+| Full-tidy closure | the same run reached the previously unexecuted full `check-clang-tidy` step and exposed 21 unique diagnostics; 20 were mechanical cleanups and one was a real argument-evaluation/use-after-move hazard in `PlanSelect`; all 18 error-bearing translation units then passed direct clang-tidy sequentially |
+| Post-fix Release regression | a single-thread incremental build linked every affected production/test target; 9 GoogleTest binaries passed 71/71 real state, recovery, codec, planner-facing SQL preparation, Raft, and loopback transport tests; the vector-index SQLLogic target also passed its production optimizer/executor checks |
 
 On the resource-constrained VSCode/WSL host these gates must run one heavy task at a time with local builds at `-j1`;
 do not overlap compiler, sanitizer, E2E, or test-agent processes. The final authoritative broad regression remains the

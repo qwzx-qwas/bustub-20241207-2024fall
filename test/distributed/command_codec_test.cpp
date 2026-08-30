@@ -58,7 +58,7 @@ auto LiteralInsert(table_oid_t table_oid, std::string_view key_hex, std::string_
   return InsertRowCommand{table_oid, EncodedPrimaryKeyV1{1, TypeId::INTEGER, Hex(key_hex)}, Hex(tuple_hex)};
 }
 
-auto Insert(table_oid_t table_oid, int32_t key, std::string value) -> ReplicatedCommand {
+auto Insert(table_oid_t table_oid, int32_t key, const std::string &value) -> ReplicatedCommand {
   Schema schema({Column("id", TypeId::INTEGER), Column("value", TypeId::VARCHAR, 64)});
   Tuple tuple({ValueFactory::GetIntegerValue(key), ValueFactory::GetVarcharValue(value)}, &schema);
   return InsertRowCommand{table_oid, PrimaryKeyCodecV1::Encode(ValueFactory::GetIntegerValue(key)),

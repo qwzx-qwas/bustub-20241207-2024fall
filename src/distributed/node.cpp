@@ -213,7 +213,7 @@ void DistributedNode::Start() {
   bound_client_endpoint_ = config_.client_listen_;
   client_listen_fd_ = OpenListener(&bound_client_endpoint_);
   try {
-    transport_->Start([this](RaftEnvelope envelope) {
+    transport_->Start([this](const RaftEnvelope &envelope) {
       std::lock_guard node_lock(mutex_);
       if (!running_ || fatal_error_ != nullptr) {
         return;

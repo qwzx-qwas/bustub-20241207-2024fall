@@ -15,7 +15,8 @@
 
 namespace bustub {
 
-auto RecoverRaftPersistentState(const std::filesystem::path &raft_directory, std::shared_ptr<DurableStorage> storage,
+auto RecoverRaftPersistentState(const std::filesystem::path &raft_directory,
+                                const std::shared_ptr<DurableStorage> &storage,
                                 const std::shared_ptr<RaftStateMachine> &state_machine)
     -> RecoveredRaftPersistentState {
   if (raft_directory.empty() || storage == nullptr || state_machine == nullptr || state_machine->LastApplied() != 0) {

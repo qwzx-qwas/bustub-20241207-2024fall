@@ -161,7 +161,7 @@ TEST(TcpRaftTransportTest, LoopbackFramesReconnectAndValidatePeerIdentity) {
   ASSERT_NE(receiver_endpoint.port_, 0);
 
   TcpRaftTransport sender(1, "demo", {"127.0.0.1", 0}, {{2, receiver_endpoint}});
-  sender.Start([](RaftEnvelope) {});
+  sender.Start([](const RaftEnvelope &) {});
   sender.Send({1, 2, RequestVoteRequest{3, 1, 7, 2}, "demo"});
   sender.Send({1, 2, AppendEntriesResponse{3, 9, true, 7, std::nullopt, 0, 41}, "demo"});
 
@@ -207,20 +207,20 @@ TEST(TcpRaftTransportTest, LoopbackFramesReconnectAndValidatePeerIdentity) {
 TEST(TcpRaftTransportTest, ReceiverDropsWrongGroupUnconfiguredPeerAndWrongDestination) {
   std::atomic<size_t> delivered{0};
   TcpRaftTransport receiver(2, "demo", {"127.0.0.1", 0}, {{1, {"127.0.0.1", 1}}});
-  receiver.Start([&](RaftEnvelope) { delivered++; });
+  receiver.Start([&](const RaftEnvelope &) { delivered++; });
   const auto receiver_endpoint = receiver.ListenEndpoint();
   ASSERT_NE(receiver_endpoint.port_, 0);
 
   {
     TcpRaftTransport wrong_group(1, "other-group", {"127.0.0.1", 0}, {{2, receiver_endpoint}});
-    wrong_group.Start([](RaftEnvelope) {});
+    wrong_group.Start([](const RaftEnvelope &) {});
     wrong_group.Send({1, 2, RequestVoteRequest{3, 1, 7, 2}, "other-group"});
     ASSERT_TRUE(WaitForDrops(receiver, 1));
     wrong_group.Stop();
   }
   {
     TcpRaftTransport unconfigured_peer(3, "demo", {"127.0.0.1", 0}, {{2, receiver_endpoint}});
-    unconfigured_peer.Start([](RaftEnvelope) {});
+    unconfigured_peer.Start([](const RaftEnvelope &) {});
     unconfigured_peer.Send({3, 2, RequestVoteRequest{3, 3, 7, 2}, "demo"});
     ASSERT_TRUE(WaitForDrops(receiver, 2));
     unconfigured_peer.Stop();
@@ -228,7 +228,7 @@ TEST(TcpRaftTransportTest, ReceiverDropsWrongGroupUnconfiguredPeerAndWrongDestin
   {
     // A valid node-1 frame is deliberately routed to node 2 while its envelope names node 3.
     TcpRaftTransport wrong_destination(1, "demo", {"127.0.0.1", 0}, {{3, receiver_endpoint}});
-    wrong_destination.Start([](RaftEnvelope) {});
+    wrong_destination.Start([](const RaftEnvelope &) {});
     wrong_destination.Send({1, 3, RequestVoteRequest{3, 1, 7, 2}, "demo"});
     ASSERT_TRUE(WaitForDrops(receiver, 3));
     wrong_destination.Stop();
@@ -260,7 +260,7 @@ TEST(TcpRaftTransportTest, StopDiscardsQueuedFramesInsteadOfDrainingStaleBacklog
   });
 
   TcpRaftTransport sender(1, "shutdown", {"127.0.0.1", 0}, {{2, peer.Endpoint()}}, 5000);
-  sender.Start([](RaftEnvelope) {});
+  sender.Start([](const RaftEnvelope &) {});
   ReplicatedLogEntry large_entry;
   large_entry.index_ = 1;
   large_entry.term_ = 1;

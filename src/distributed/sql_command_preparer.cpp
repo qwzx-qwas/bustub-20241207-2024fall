@@ -199,7 +199,7 @@ auto PrepareInsert(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t c
     const auto key =
         PrimaryKeyCodecV1::Encode(tuple.GetValue(&table->schema_, table->replicated_primary_key_->column_oid_));
     RejectExistingKey(table, primary, key);
-    commands.push_back(InsertRowCommand{table->oid_, key, TupleCodecV1::Encode(tuple, table->schema_)});
+    commands.emplace_back(InsertRowCommand{table->oid_, key, TupleCodecV1::Encode(tuple, table->schema_)});
   }
   return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, std::move(commands));
 }
@@ -208,7 +208,7 @@ auto MutationFilter(const AbstractPlanNodeRef &child) -> std::shared_ptr<const F
   if (child->GetType() != PlanType::Filter) {
     throw std::runtime_error("distributed V1 mutation requires a deterministic table filter");
   }
-  const auto filter = std::dynamic_pointer_cast<const FilterPlanNode>(child);
+  auto filter = std::dynamic_pointer_cast<const FilterPlanNode>(child);
   if (filter->GetChildPlan()->GetType() != PlanType::SeqScan) {
     throw std::runtime_error("distributed V1 mutation only supports one base table");
   }
@@ -230,8 +230,8 @@ auto PrepareDelete(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t c
     }
     const auto key =
         PrimaryKeyCodecV1::Encode(tuple.GetValue(&table->schema_, table->replicated_primary_key_->column_oid_));
-    commands.push_back(DeleteRowCommand{table->oid_, key, static_cast<uint64_t>(meta.ts_),
-                                        TupleCodecV1::Encode(tuple, table->schema_)});
+    commands.emplace_back(DeleteRowCommand{table->oid_, key, static_cast<uint64_t>(meta.ts_),
+                                           TupleCodecV1::Encode(tuple, table->schema_)});
   }
   return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, std::move(commands));
 }
@@ -261,9 +261,9 @@ auto PrepareUpdate(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t c
               replacement.GetValue(&table->schema_, table->replicated_primary_key_->column_oid_)) == key)) {
       throw std::runtime_error("distributed V1 UPDATE cannot modify the primary-key column");
     }
-    commands.push_back(UpdateRowCommand{table->oid_, key, static_cast<uint64_t>(meta.ts_),
-                                        TupleCodecV1::Encode(tuple, table->schema_),
-                                        TupleCodecV1::Encode(replacement, table->schema_)});
+    commands.emplace_back(UpdateRowCommand{table->oid_, key, static_cast<uint64_t>(meta.ts_),
+                                           TupleCodecV1::Encode(tuple, table->schema_),
+                                           TupleCodecV1::Encode(replacement, table->schema_)});
   }
   return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, std::move(commands));
 }

@@ -186,6 +186,24 @@ run_corrupt_latest() (
     sleep 0.02
   done
   [[ ${snapshot_count} -ge 2 ]]
+
+  # A completed SNAPSHOT-* rename proves that the image is durable, but the
+  # same Tick may still be advancing the retained bridge-log boundary.  Use a
+  # production status request as a publication fence before measuring graceful
+  # shutdown.  HandleStatus takes the node mutex held by MaybeCreateSnapshot,
+  # so a successful reply proves that the complete snapshot transition has
+  # returned; merely observing our own filesystem stimulus does not.
+  if ! snapshot_publish_status=$(raft_status 1 149000 30000)
+  then
+    echo "node 1 did not answer the post-snapshot publication fence" >&2
+    exit 1
+  fi
+  if [[ ! ${snapshot_publish_status} =~ ^status=OK([[:space:]]|$) ]] || \
+     [[ $(raft_status_field "${snapshot_publish_status}" last_applied) -lt ${suffix_index} ]]
+  then
+    echo "post-snapshot publication fence did not cover the committed bridge: ${snapshot_publish_status}" >&2
+    exit 1
+  fi
   raft_stop_all_nodes
   snapshot_directory="${artifact_root}/corrupt/node-1/raft/snapshots"
   readarray -t snapshot_files < <(find "${snapshot_directory}" -maxdepth 1 -type f \

@@ -79,12 +79,10 @@ auto SingleNodeCommandRuntime::HasFormalRecoveryState() const -> bool {
       return true;
     }
   }
-  for (const auto &item : std::filesystem::directory_iterator(node_directory_->LogDirectory())) {
-    if (item.is_regular_file() && item.path().filename().string().compare(0, 4, "LOG-") == 0) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(std::filesystem::directory_iterator(node_directory_->LogDirectory()),
+                     std::filesystem::directory_iterator(), [](const auto &item) {
+                       return item.is_regular_file() && item.path().filename().string().compare(0, 4, "LOG-") == 0;
+                     });
 }
 
 auto SingleNodeCommandRuntime::HasBridgeLog(uint64_t snapshot_index) const -> bool {

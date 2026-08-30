@@ -109,8 +109,7 @@ void CommandLog::Recover(uint64_t effective_commit_index) {
     expected_index = snapshot_base_index_ + 1;
   }
   bool discarded_tail = false;
-  for (size_t file_index = 0; file_index < files.size(); file_index++) {
-    const auto &[declared_first_index, path] = files[file_index];
+  for (const auto &[declared_first_index, path] : files) {
     if (discarded_tail) {
       storage_->RemoveFile(path);
       continue;

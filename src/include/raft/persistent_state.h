@@ -31,7 +31,8 @@ struct RecoveredRaftPersistentState {
  * ordered state. The supplied state machine must be empty; a selected latest
  * snapshot is fully installed before any dependent durable repair is allowed.
  */
-auto RecoverRaftPersistentState(const std::filesystem::path &raft_directory, std::shared_ptr<DurableStorage> storage,
+auto RecoverRaftPersistentState(const std::filesystem::path &raft_directory,
+                                const std::shared_ptr<DurableStorage> &storage,
                                 const std::shared_ptr<RaftStateMachine> &state_machine) -> RecoveredRaftPersistentState;
 
 }  // namespace bustub

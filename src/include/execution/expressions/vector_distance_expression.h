@@ -63,7 +63,9 @@ class VectorDistanceExpression : public AbstractExpression {
               std::transform_reduce(right.begin(), right.end(), 0.0, std::plus<>(), [](double x) { return x * x; });
 
           const double denom = std::sqrt(norm_l_sq) * std::sqrt(norm_r_sq);
-          if (denom == 0.0) return 1.0;
+          if (denom == 0.0) {
+            return 1.0;
+          }
 
           return 1.0 - dot / denom;
         }

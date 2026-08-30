@@ -1271,12 +1271,12 @@ TEST(RaftNodeTest, HeartbeatsCannotStarveMultiChunkSnapshotProgress) {
   // Model a prior sender whose ACKs were lost after two real durable chunks.
   // A new transfer starting at zero must consume the follower's returned
   // high-water mark instead of walking the already staged prefix again.
-  constexpr size_t CHUNK_BYTES = 64U * 1024U;
-  for (uint64_t offset : {uint64_t{0}, uint64_t{CHUNK_BYTES}}) {
-    auto data = cluster.Node(1).ReadSnapshotChunk(snapshot, offset, CHUNK_BYTES);
-    ASSERT_EQ(data.size(), CHUNK_BYTES);
+  constexpr size_t chunk_bytes = 64U * 1024U;
+  for (uint64_t offset : {uint64_t{0}, uint64_t{chunk_bytes}}) {
+    auto data = cluster.Node(1).ReadSnapshotChunk(snapshot, offset, chunk_bytes);
+    ASSERT_EQ(data.size(), chunk_bytes);
     cluster.Node(3).Receive(
-        1, InstallSnapshotRequest{1, 1, 900 + offset / CHUNK_BYTES, snapshot.snapshot_id_,
+        1, InstallSnapshotRequest{1, 1, 900 + offset / chunk_bytes, snapshot.snapshot_id_,
                                   snapshot.last_included_index_, snapshot.last_included_term_, offset,
                                   snapshot.payload_size_, snapshot.payload_checksum_, false, std::move(data)});
   }
@@ -1396,7 +1396,7 @@ TEST(RaftNodeTest, HeartbeatsCannotStarveMultiChunkSnapshotProgress) {
     ASSERT_LT(delayed->next_offset_, snapshot.payload_size_);
     expected_offset = delayed->next_offset_;
     if (chunks == 1) {
-      EXPECT_EQ(expected_offset, 2U * CHUNK_BYTES);
+      EXPECT_EQ(expected_offset, 2U * chunk_bytes);
     }
     next = take_snapshot_request(1, 3);
     ASSERT_TRUE(next.has_value());

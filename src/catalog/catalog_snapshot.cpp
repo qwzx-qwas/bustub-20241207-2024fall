@@ -404,8 +404,7 @@ auto CatalogSnapshotCodec::Decode(const std::vector<std::byte> &bytes) -> Catalo
         throw std::runtime_error("unsupported replicated primary-key definition");
       }
     }
-    snapshot.tables_.push_back(
-        {table_oid, std::move(table_name), std::move(schema), first_page_id, std::move(primary_key)});
+    snapshot.tables_.push_back({table_oid, std::move(table_name), std::move(schema), first_page_id, primary_key});
   }
 
   std::unordered_set<index_oid_t> index_oids;

@@ -226,6 +226,12 @@ previous index. Recovery must install that generation, replay through the durabl
 before that finishes. This procedure belongs in the external harness;
 there is intentionally no production "corrupt", "force snapshot", or "skip fsync" endpoint.
 
+Do not use the presence of two `SNAPSHOT-*` names as proof that the synchronous snapshot Tick has returned: the image
+rename precedes final retained bridge-log work. Before sending graceful `TERM`, issue one bounded production status
+request to the target and require `status=OK` plus `last_applied` at or beyond the committed suffix. This is a
+publication fence, not a retry of the scenario. Keep the harness's process-exit timeout unchanged so a quiescent node
+that cannot stop remains a real failure.
+
 ## Cleanup
 
 Build trees belong in `/tmp` (or another operator-selected directory outside the repository). At a completed milestone,

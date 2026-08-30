@@ -97,10 +97,9 @@ auto Planner::PlanSelect(const SelectStatement &statement) -> AbstractPlanNodeRe
       deferred_column_names.emplace_back(std::move(name));
     }
     if (statement.is_distinct_) {
-      plan = std::make_shared<ProjectionPlanNode>(
-          std::make_shared<Schema>(ProjectionPlanNode::RenameSchema(
-              ProjectionPlanNode::InferProjectionSchema(deferred_exprs), deferred_column_names)),
-          std::move(deferred_exprs), std::move(plan));
+      auto distinct_schema = std::make_shared<Schema>(ProjectionPlanNode::RenameSchema(
+          ProjectionPlanNode::InferProjectionSchema(deferred_exprs), deferred_column_names));
+      plan = std::make_shared<ProjectionPlanNode>(std::move(distinct_schema), deferred_exprs, std::move(plan));
     } else {
       defer_projection = true;
     }
@@ -173,10 +172,9 @@ auto Planner::PlanSelect(const SelectStatement &statement) -> AbstractPlanNodeRe
   }
 
   if (defer_projection) {
-    plan = std::make_shared<ProjectionPlanNode>(
-        std::make_shared<Schema>(ProjectionPlanNode::RenameSchema(
-            ProjectionPlanNode::InferProjectionSchema(deferred_exprs), deferred_column_names)),
-        std::move(deferred_exprs), std::move(plan));
+    auto deferred_schema = std::make_shared<Schema>(ProjectionPlanNode::RenameSchema(
+        ProjectionPlanNode::InferProjectionSchema(deferred_exprs), deferred_column_names));
+    plan = std::make_shared<ProjectionPlanNode>(std::move(deferred_schema), std::move(deferred_exprs), std::move(plan));
   }
 
   return plan;

@@ -79,6 +79,18 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
 - 本机 VSCode/WSL 资源限制是强制运行约束：一次只运行一个重型构建/测试，本地 CMake 使用 `-j1`，
   不并发启动编译器、sanitizer、E2E 或测试子代理。这只是主机调度约束，不改变“每场景一次、
   无重试”的验收语义；独立 GitHub runner 仍运行完整 public regression/SQLLogic/sanitizer/TSan 门禁。
+- `22d51cc` 的 run `33311990646` 在 Release E2E-11 发现了独立于 M8 协议的测试竞态：第二个
+  `SNAPSHOT-*` 完成 rename 时，同一 Tick 可能仍在完成 retained bridge-log 边界，脚本却立即用 10 秒
+  `TERM` 门禁测量关停。修复保留 10 秒门禁和单次场景语义，在两代文件可见后通过正式 status API 建立
+  快照发布完成屏障，并要求字面 `status=OK` 与 `last_applied >= suffix_index`；损坏最新文件、独立解析前一代
+  index 和 bridge replay oracle 均未改变。fresh Release recovery matrix 已单次通过 E2E-02/06/07/09/11/12。
+- 同一 run 首次真正执行完整 `check-clang-tidy`，暴露 21 个唯一诊断：20 个是 include、命名、值类别和
+  标准算法等机械清理，另一个是 `PlanSelect` 在同一函数调用中推断 schema 与 move 表达式容器造成的真实
+  求值顺序/use-after-move 风险。修复先建立 schema；DISTINCT 分支保留一份很小的 `shared_ptr` 容器副本，
+  避免后续条件路径观察 moved-from 状态。18 个报错 translation unit 已按资源约束逐个 tidy 通过。
+- 修复后使用单线程 Release 增量构建链接全部受影响目标；9 个 GoogleTest 二进制以真实状态、持久目录、
+  畸形帧、随机选举、快照恢复和 TCP loopback 通过 71/71，vector-index SQLLogic production 链亦通过。
+  22 个改动 C/C++ 文件通过 format/cpplint，E2E shell 通过 `bash -n`，`git diff --check` 通过。
 - 只有包含 `20f1af2` 的最终文档 HEAD 所触发 workflow 全部必需 jobs 终态成功，才能把这次 CI 收敛记为
   完成；远端 run ID/结果由最终交接报告记录，不为了回填动态编号再制造 docs-only CI 循环。
 

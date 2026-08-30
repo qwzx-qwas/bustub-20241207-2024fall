@@ -90,12 +90,8 @@ auto StateManifestCodec::IsSafeRelativePath(const std::string &value) -> bool {
   if (path.is_absolute() || path.has_root_path() || path.lexically_normal() != path) {
     return false;
   }
-  for (const auto &component : path) {
-    if (component == ".." || component == "." || component.empty()) {
-      return false;
-    }
-  }
-  return true;
+  return std::all_of(path.begin(), path.end(),
+                     [](const auto &component) { return component != ".." && component != "." && !component.empty(); });
 }
 
 auto StateManifestCodec::Encode(const StateManifest &manifest) -> std::vector<std::byte> {

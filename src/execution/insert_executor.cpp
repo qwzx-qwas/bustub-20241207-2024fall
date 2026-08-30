@@ -28,7 +28,7 @@ auto MaterializeTupleForSchema(const Tuple &tuple, const Schema &source_schema, 
   for (uint32_t col_idx = 0; col_idx < target_schema.GetColumnCount(); col_idx++) {
     values.push_back(tuple.GetValue(&source_schema, col_idx));
   }
-  return Tuple(values, &target_schema);
+  return {std::move(values), &target_schema};
 }
 
 /** 作用：识别当前索引是否属于向量索引，便于只对该类索引执行阶段一维护逻辑。 */

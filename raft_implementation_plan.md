@@ -1742,7 +1742,7 @@ artifact 目录，共 5,057,640,577 bytes；复扫无 M8 `/tmp` 项、后台 nod
 产物或未解释的未跟踪文件。仓库来源审计另以 `2a1d2ce` 删除 1,347 个过时嵌套副本文件和四个根目录产物，
 共 44,467,543 bytes，并只对四个根路径加入 anchored ignore。M8 至此完成并停止。
 
-#### M8 推送后全量 CI 收敛（`20f1af2`）
+#### M8 推送后全量 CI 收敛（`20f1af2` 与 E2E-11 发布屏障）
 
 `66591c1` 首次在修正后的 `main` trigger 上跑到完整 workflow。M8 ASan/UBSan 与 Release 各六条
 进程链、TSan 和 Release SQLLogic jobs 已通过，但 Ubuntu Clang/GCC 在默认 `all` Build 提前失败，
@@ -1761,6 +1761,23 @@ GitHub runners 上的 public regression/SQLLogic/sanitizer/TSan 范围。本地�
 HNSW 7/7、printer 真实插入/删除及空运行目录，受影响 native translation units 逐个 tidy 与 WASM
 syntax-only 通过。包含该修正的最终文档 HEAD 必须由远端完整 workflow 全绿后才能标记本次收敛完成；
 不为回填动态 run ID 再制造 docs-only CI 循环。
+
+`22d51cc` 触发的 run `33311990646` 随后在 Release E2E-11 暴露测试时序缺口：脚本只观察到第二个
+`SNAPSHOT-*` 文件完成 rename 就立即发送 `TERM`，但同一同步 Tick 仍可能在完成 retained bridge-log
+边界；CI 因此在 10 秒关停门禁内强杀节点 1。修复不放宽关停超时，也不重试该失败 run，而是在文件数量
+达到两代后发出一次 30 秒上限的正式 status 请求；该请求与快照 Tick 经过同一节点互斥边界，成功响应且
+`last_applied >= suffix_index` 才允许停止节点。最新文件截断、独立 header 解析、上一代 index 与 bridge
+replay oracle 均保持不变。修复后的 Release recovery matrix 在 fresh 目录单次通过，完整覆盖
+E2E-02/06/07/09/11/12。
+
+同一 run 首次进入完整 `check-clang-tidy` 后又暴露 21 个唯一诊断。20 个属于 include 顺序、局部常量命名、
+不必要 move、标准算法替代及测试 helper 参数等机械清理；另一个是 `PlanSelect` 在同一调用中一边根据
+`deferred_exprs` 推断 schema、一边 move 该容器的真实求值顺序/use-after-move 风险。修复将 schema 推断
+明确排在 move 之前，并在 DISTINCT 分支复制很小的 `shared_ptr` vector，确保后续条件路径不会观察
+moved-from 状态。18 个报错 translation unit 按 WSL 串行约束逐个通过 clang-tidy。随后单线程 Release
+增量构建链接全部受影响生产/测试目标；9 个 GoogleTest 二进制通过 71/71，覆盖真实 DB 状态、持久目录、
+畸形 frame、随机选举、快照恢复和 TCP loopback，vector-index SQLLogic production 链亦通过。22 个改动
+C/C++ 文件通过 format/cpplint，E2E shell 通过 `bash -n`，`git diff --check` 通过。
 
 ### 方案结构复审与基线维护（2026-08-30）
 

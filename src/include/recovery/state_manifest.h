@@ -46,7 +46,7 @@ class StateManifestCodec {
 
   static auto Encode(const StateManifest &manifest) -> std::vector<std::byte>;
   static auto Decode(const std::vector<std::byte> &bytes) -> StateManifest;
-  static auto IsSafeRelativePath(const std::string &path) -> bool;
+  static auto IsSafeRelativePath(const std::string &value) -> bool;
 };
 
 struct SelectedRecoveryPoint {

@@ -381,8 +381,6 @@ auto TupleCodecV1::Encode(const Tuple &tuple, const Schema &schema) -> std::vect
     }
     switch (type) {
       case TypeId::BOOLEAN:
-        writer.PutU8(static_cast<uint8_t>(value.GetAs<int8_t>()));
-        break;
       case TypeId::TINYINT:
         writer.PutU8(static_cast<uint8_t>(value.GetAs<int8_t>()));
         break;
