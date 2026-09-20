@@ -1,0 +1,7 @@
+{
+  "passed": false,
+  "error": "Traceback (most recent call last):\n  File \"/home/qwzx/projects/bustub-20241207-2024fall/tools/storage_baseline/run.py\", line 406, in main\n    baseline.run()\n  File \"/home/qwzx/projects/bustub-20241207-2024fall/tools/storage_baseline/run.py\", line 294, in run\n    self.write(\"CREATE TABLE baseline(id int PRIMARY KEY, value int, padding varchar(512));\")\n  File \"/home/qwzx/projects/bustub-20241207-2024fall/tools/storage_baseline/run.py\", line 194, in write\n    raise RuntimeError(f\"write failed: {result}\")\nRuntimeError: write failed: {'request_id': 1, 'status': 4, 'node_id': 3, 'leader_ready': 1, 'leader_id': 3, 'leader_address': '127.0.0.1:38203', 'term': 1, 'commit_index': 1, 'last_applied': 1, 'published_applied_index': 1, 'snapshot_base_index': 0, 'read_timestamp': None, 'payload': b'invalid replicated table column'}\n",
+  "phases": [],
+  "recovery": [],
+  "final": null
+}

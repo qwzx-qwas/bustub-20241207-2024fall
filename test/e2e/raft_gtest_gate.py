@@ -32,6 +32,7 @@ TEST_BINARIES = (
     "raft_state_machine_test",
     "sql_command_preparer_test",
     "raft_node_test",
+    "raft_fault_schedule_test",
     "bustub_state_machine_test",
     "catalog_snapshot_test",
     "log_store_test",

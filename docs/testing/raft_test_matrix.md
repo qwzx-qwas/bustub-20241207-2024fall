@@ -5,13 +5,17 @@
 | Layer | Meaning | Primary targets |
 | --- | --- | --- |
 | Unit | Pure codec, durable record, invariant, and power-loss decisions | `*_codec_test`, `stable_store_test`, `log_store_test`, `snapshot_store_test`, recovery tests |
-| Component | Multiple production modules with deterministic test-owned transport/storage | `raft_node_test`, `bustub_state_machine_test`, `raft_bustub_cluster_test` |
+| Component | Multiple production modules with deterministic test-owned transport/storage | `raft_node_test`, `raft_fault_schedule_test`, `bustub_state_machine_test`, `raft_bustub_cluster_test` |
 | TCP integration | Three production `DistributedNode` assemblies, stable client/Raft frames, real loopback TCP, and real per-node directories | `distributed_node_test`, `tcp_transport_test` |
 | Process E2E | Formal `bustub-node` and `bustub-client` executables controlled only by one shared external process harness | `raft_process_harness.sh` + four focused fault timelines + `raft_m0_m7_chain.sh` + `raft_m8_payload_binding.sh` |
 
 The TCP integration target is production-like but is not described as a three-process test: its three nodes share the
 GoogleTest process. The six shell timelines are the process boundary evidence. Low-cost algorithm combinations remain
 in unit/component tests; process E2E is reserved for lifecycle, filesystem, signal, and formal CLI/protocol boundaries.
+
+The [MIT 6.5840-inspired schedule suite](raft_mit_scenarios.md) adds 16 component cases for repeated elections,
+quorum loss, rejoin, seeded RPC faults, churn, snapshot transfer, and full-cluster recovery. It is included in the
+component gate and can be selected independently with `ctest -L raft-mit-scenarios`.
 
 ## M8 completed gate: write-retry payload binding
 

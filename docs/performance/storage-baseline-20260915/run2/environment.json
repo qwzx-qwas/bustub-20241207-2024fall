@@ -1,0 +1,40 @@
+{
+  "config": {
+    "build_dir": "/tmp/bustub-storage-baseline-build",
+    "runtime_dir": "/tmp/bustub-storage-baseline-20260915-run2",
+    "report_dir": "/home/qwzx/projects/bustub-20241207-2024fall/docs/performance/storage-baseline-20260915/run2",
+    "port_base": 38100,
+    "rows": 1000,
+    "operations": 500,
+    "snapshot_threshold": 64,
+    "seed": 20260915
+  },
+  "utc_start": "2026-09-15T13:15:31Z",
+  "git_head": "1bd6ae81cddef73fd04345eb18e530fca1cd7b1f",
+  "git_status": "M docs/testing/raft_test_matrix.md\n M test/CMakeLists.txt\n M test/e2e/raft_gtest_gate.py\n?? docs/performance/\n?? docs/testing/raft_mit_scenarios.md\n?? test/raft/raft_fault_schedule_test.cpp\n?? tools/storage_baseline/",
+  "tracked_diff_sha256": "e0b063a79bf4698e4e1e29f3c9ce7e27cd9b2b3cfcd4aaaa3c02f5b74b43c43c",
+  "node_binary_sha256": "32cd41d77067c9e503758af926ea12a48d32e6c9f152dd25df2b6dd42eeda120",
+  "runner_sha256": "ee966e122488616dad29083cbd0890b3b5ff33a139f377321064a547e047f3af",
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "logical_cpus": 32,
+  "cpu_model": "model name\t: AMD Ryzen 9 7945HX with Radeon Graphics",
+  "meminfo": "MemTotal:        7964380 kB\nMemFree:         4646684 kB\nMemAvailable:    5728416 kB\nBuffers:           74084 kB\nCached:          1129276 kB\nSwapCached:            0 kB\nActive:           384068 kB\nInactive:        2111112 kB\nActive(anon):       5440 kB\nInactive(anon):  1303240 kB\nActive(file):     378628 kB\nInactive(file):   807872 kB\nUnevictable:           0 kB\nMlocked:               0 kB\nSwapTotal:       2097152 kB\nSwapFree:        2097152 kB\nDirty:              1444 kB\nWriteback:             0 kB\nAnonPages:       1292112 kB\nMapped:           490228 kB\nShmem:             16836 kB\nKReclaimable:      69820 kB\nSlab:             251488 kB\nSReclaimable:      69820 kB\nSUnreclaim:       181668 kB\nKernelStack:       11760 kB\nPageTables:        30864 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:     6079340 kB\nCommitted_AS:    4944620 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      119524 kB\nVmallocChunk:          0 kB\nPercpu:            13568 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:         0 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:     16384 kB\nFilePmdMapped:         0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:       74752 kB\nDirectMap2M:     6051840 kB\nDirectMap1G:    10485760 kB\n",
+  "cmake": [
+    "CMAKE_BUILD_TYPE:STRING=Release",
+    "CMAKE_CXX_COMPILER:STRING=/usr/bin/g++"
+  ],
+  "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "scope": "single host, 3 processes, loopback, closed loop concurrency=1, OS cache retained",
+  "durability": "production Raft synchronous persistence; page stream flush alone is not fsync",
+  "not_measured": [
+    "physical device write amplification",
+    "power-loss/torn writes",
+    "true cold cache",
+    "high disk occupancy",
+    "maximum throughput/load sweep",
+    "multi-host network",
+    "long-duration steady state",
+    "new FS GC/deferred paths",
+    "isolated 4 KiB device IO"
+  ]
+}

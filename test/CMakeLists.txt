@@ -37,6 +37,9 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
     if (bustub_test_name STREQUAL "tcp_transport_test" OR bustub_test_name STREQUAL "distributed_node_test")
         list(APPEND bustub_test_labels "distributed-e2e")
     endif ()
+    if (bustub_test_name STREQUAL "raft_fault_schedule_test")
+        list(APPEND bustub_test_labels "raft-mit-scenarios")
+    endif ()
     if (bustub_test_name STREQUAL "tcp_transport_test" OR
             bustub_test_name STREQUAL "raft_node_test" OR
             bustub_test_name STREQUAL "session_table_test" OR
@@ -97,6 +100,7 @@ set(RAFT_COMPONENT_GATE_TARGETS
         raft_state_machine_test
         sql_command_preparer_test
         raft_node_test
+        raft_fault_schedule_test
         bustub_state_machine_test
         catalog_snapshot_test
         log_store_test
