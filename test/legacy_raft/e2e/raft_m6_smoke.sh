@@ -6,7 +6,7 @@ build_dir=${1:-/tmp/bustub-raft-build-clang}
 port_base=${2:-27100}
 artifact_root=${3:-"/tmp/bustub-raft-m6-smoke-$$"}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-source "${script_dir}/raft_process_harness.sh"
+source "${script_dir}/../../support/raft_process_harness.sh"
 raft_harness_init "${build_dir}" "${port_base}" "${artifact_root}" m6-smoke
 
 raft_timeline_step "E2E-01/03/08/13: start three production processes and elect a ready Leader"

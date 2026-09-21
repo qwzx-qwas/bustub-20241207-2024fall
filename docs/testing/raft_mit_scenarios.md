@@ -1,6 +1,6 @@
 # MIT 6.5840-inspired Raft fault schedules
 
-`test/raft/raft_fault_schedule_test.cpp` adds 16 component cases inspired by the election, agreement, persistence,
+`test/legacy_raft/raft/raft_fault_schedule_test.cpp` adds 16 component cases inspired by the election, agreement, persistence,
 and compaction scenarios in the [MIT 6.5840 Raft lab](https://pdos.csail.mit.edu/6.824/labs/lab-raft1.html).
 These are independently written C++ tests against BusTub's production Raft core, KV state machine, durable stores,
 and recovery entry point. They complement the existing SQL, TCP, process, and filesystem power-loss tests.
@@ -67,7 +67,7 @@ Select one reproducible scenario directly:
 ```
 
 The target also belongs to `build-raft-component-gates`, the `raft` CTest label, and the checked component manifest
-in `test/e2e/raft_gtest_gate.py`, so existing component CI runs it. Reconfigure CMake after adding a test source.
+in `test/legacy_raft/e2e/raft_gtest_gate.py`, so existing component CI runs it. Reconfigure CMake after adding a test source.
 For diagnosed sanitizer startup failures on WSL, follow the whole-gate procedure in
 [the E2E runbook](raft_e2e_runbook.md); retain the failed attempt and do not retry individual failed tests to obtain a pass.
 

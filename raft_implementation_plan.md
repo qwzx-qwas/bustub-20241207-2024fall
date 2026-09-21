@@ -1238,12 +1238,12 @@ tools/bustub-client/CMakeLists.txt
 tools/bustub-client/bustub-client.cpp
 
 # M6 shared process harness + smoke; M7 recovery/fault timelines and final gate
-test/e2e/raft_process_harness.sh
-test/e2e/raft_m6_smoke.sh
-test/e2e/raft_m7_snapshot_crash.sh
-test/e2e/raft_m7_snapshot_transfer.sh
-test/e2e/raft_m7_recovery_matrix.sh
-test/e2e/raft_m0_m7_chain.sh              # historical name; M3-M7 distributed state only
+test/support/raft_process_harness.sh
+test/legacy_raft/e2e/raft_m6_smoke.sh
+test/legacy_raft/e2e/raft_m7_snapshot_crash.sh
+test/legacy_raft/e2e/raft_m7_snapshot_transfer.sh
+test/legacy_raft/e2e/raft_m7_recovery_matrix.sh
+test/legacy_raft/e2e/raft_m0_m7_chain.sh              # historical name; M3-M7 distributed state only
 ```
 
 ## 测试要求
@@ -1355,7 +1355,7 @@ E2E-12 使用 production 调度下的大型真实 batch 和并发读压力，对
 - 使用操作系统进程控制执行 `SIGKILL`、重启和退出码检查。
 - 网络故障由测试进程拥有的代理或系统级隔离层制造；production 节点只看到正常的连接、断开、延迟和丢包。
 - 快照损坏场景由外部 harness 在节点停止后修改该测试自己的临时文件；不得为此给 production 节点增加“损坏快照”API。
-- M6/M7 只允许复用一个 `test/e2e/raft_process_harness.sh` 管理节点启动、随机选举区间、Leader 定位/重定位、客户端重试、状态等待、停止和 PID trap；场景脚本只表达 E2E 时间线与断言，公共生命周期逻辑不得复制回各脚本。
+- M6/M7 只允许复用一个 `test/support/raft_process_harness.sh` 管理节点启动、随机选举区间、Leader 定位/重定位、客户端重试、状态等待、停止和 PID trap；场景脚本只表达 E2E 时间线与断言，公共生命周期逻辑不得复制回各脚本。
 - M6/M7 按工作流 D 的唯一 owner 表合计覆盖 E2E-01 至 E2E-15，
   不允许因各模块测试已通过而删掉完整链路验证。
 
@@ -1447,7 +1447,7 @@ bustub-node                 # production executable
 bustub-client               # production client
 *_test                      # test/CMakeLists.txt 自动发现，可使用 test/include
 build-raft-component-gates  # 已实现的 M0–M7 组件目标聚合
-test/e2e/*.sh               # 外部 harness/场景，启动正式二进制
+test/legacy_raft/e2e/*.sh               # 外部 harness/场景，启动正式二进制
 ```
 
 `bustub_test_support`/`bustub_cluster_e2e_test` 若在架构图中出现，只能表示上述测试依赖桶，
@@ -1933,7 +1933,7 @@ Session 空洞/过旧、64 次固定 seed canonical permutation、Manifest 跨�
 该修订的源码验收为 Clang 14 ASan/UBSan 25 个二进制/81 个测试全部通过，四条正式进程时间线覆盖 E2E-01～15，
 TSan 核心为 15/15 + 4/4；CI 新增正式矩阵、独立 nightly schedule、固定 GTest seeds 与失败 artifact。统一
 CTest 在本宿主 PRE_TEST discovery 阶段遇到空输出 pre-main 139，未进入测试体，因此以
-`test/e2e/raft_gtest_gate.py` 固化同一严格规则逐二进制运行；仅 SIGSEGV/139 且 stdout/stderr 均为空可在五次
+`test/legacy_raft/e2e/raft_gtest_gate.py` 固化同一严格规则逐二进制运行；仅 SIGSEGV/139 且 stdout/stderr 均为空可在五次
 总尝试内重试，其他失败立即终止。最终脚本运行发生 17 次该宿主启动抖动，并曾正确拒绝有输出的 TCP bind
 失败。本次没有重跑历史 Release SQLLogicTest 40/40，
 因为改动不触及单机 SQL 语义。回补仍属于 M7 验收修正，不进入 V2；完成清理门禁后继续等待用户命令。

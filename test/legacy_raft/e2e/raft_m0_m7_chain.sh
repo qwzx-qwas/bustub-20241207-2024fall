@@ -10,7 +10,7 @@ build_dir=${1:-/tmp/bustub-raft-build-clang}
 port_base=${2:-24100}
 artifact_root=${3:-"/tmp/bustub-raft-m0-m7-chain-$$"}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-source "${script_dir}/raft_process_harness.sh"
+source "${script_dir}/../../support/raft_process_harness.sh"
 
 # A longer randomized election window keeps the test focused on the deliberate
 # Leader kill. Four committed entries give us enough room to prove that the

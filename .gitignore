@@ -114,6 +114,17 @@ tmp/
 /core
 /core.*
 
+# Local test payloads and extracted runs. Keep summaries and integrity manifests
+# in Git; compressed evidence stays on this machine or in an external artifact store.
+/test-results/*
+!/test-results/README.md
+!/test-results/cleanup-summary.json
+!/test-results/*/
+/test-results/*/*
+!/test-results/*/README.md
+!/test-results/*/SHA256SUMS
+!/test-results/*/cleanup-verification.json
+
 
 #==============================================================================#
 # Eclipse

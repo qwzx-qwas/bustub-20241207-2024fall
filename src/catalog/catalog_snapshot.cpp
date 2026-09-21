@@ -133,7 +133,7 @@ auto DecodeSchema(ByteReader *reader) -> Schema {
       throw std::runtime_error("invalid catalog column definition");
     }
     if (type == TypeId::VARCHAR || type == TypeId::VECTOR) {
-      if (length == 0 || length > std::numeric_limits<uint8_t>::max()) {
+      if (length == 0) {
         throw std::runtime_error("invalid variable-length catalog column");
       }
       const auto logical_length = type == TypeId::VECTOR ? length / sizeof(double) : length;

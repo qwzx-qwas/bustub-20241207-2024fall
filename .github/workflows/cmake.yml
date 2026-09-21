@@ -135,7 +135,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: halt_on_error=1
         run: >-
-          python3 test/e2e/raft_gtest_gate.py
+          python3 test/legacy_raft/e2e/raft_gtest_gate.py
           ${{runner.temp}}/bustub-raft-asan
           ${{runner.temp}}/raft-component-logs
       - name: Run formal process timelines
@@ -143,12 +143,12 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: halt_on_error=1
         run: |
-          bash test/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-asan 18100 ${{runner.temp}}/m6-artifacts
-          bash test/e2e/raft_m7_snapshot_crash.sh ${{runner.temp}}/bustub-raft-asan 19100 ${{runner.temp}}/m7-artifacts
-          bash test/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-asan 20100 ${{runner.temp}}/m7-transfer-artifacts
-          bash test/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-asan 21100 ${{runner.temp}}/m7-matrix-artifacts
-          bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-asan 25100 ${{runner.temp}}/m0-m7-chain-artifacts
-          bash test/e2e/raft_m8_payload_binding.sh ${{runner.temp}}/bustub-raft-asan 26100 ${{runner.temp}}/m8-payload-binding-artifacts
+          bash test/legacy_raft/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-asan 18100 ${{runner.temp}}/m6-artifacts
+          bash test/legacy_raft/e2e/raft_m7_snapshot_crash.sh ${{runner.temp}}/bustub-raft-asan 19100 ${{runner.temp}}/m7-artifacts
+          bash test/legacy_raft/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-asan 20100 ${{runner.temp}}/m7-transfer-artifacts
+          bash test/legacy_raft/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-asan 21100 ${{runner.temp}}/m7-matrix-artifacts
+          bash test/legacy_raft/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-asan 25100 ${{runner.temp}}/m0-m7-chain-artifacts
+          bash test/legacy_raft/e2e/raft_m8_payload_binding.sh ${{runner.temp}}/bustub-raft-asan 26100 ${{runner.temp}}/m8-payload-binding-artifacts
       - name: Upload process diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -183,12 +183,12 @@ jobs:
           bustub-node bustub-client -j2
       - name: Run production process timelines once
         run: |
-          bash test/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-release 18100 ${{runner.temp}}/release-m6
-          bash test/e2e/raft_m7_snapshot_crash.sh ${{runner.temp}}/bustub-raft-release 19100 ${{runner.temp}}/release-m7-crash
-          bash test/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-release 20100 ${{runner.temp}}/release-m7-transfer
-          bash test/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-release 21100 ${{runner.temp}}/release-m7-matrix
-          bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-release 25100 ${{runner.temp}}/release-m0-m7-chain
-          bash test/e2e/raft_m8_payload_binding.sh ${{runner.temp}}/bustub-raft-release 26100 ${{runner.temp}}/release-m8-payload-binding
+          bash test/legacy_raft/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-release 18100 ${{runner.temp}}/release-m6
+          bash test/legacy_raft/e2e/raft_m7_snapshot_crash.sh ${{runner.temp}}/bustub-raft-release 19100 ${{runner.temp}}/release-m7-crash
+          bash test/legacy_raft/e2e/raft_m7_snapshot_transfer.sh ${{runner.temp}}/bustub-raft-release 20100 ${{runner.temp}}/release-m7-transfer
+          bash test/legacy_raft/e2e/raft_m7_recovery_matrix.sh ${{runner.temp}}/bustub-raft-release 21100 ${{runner.temp}}/release-m7-matrix
+          bash test/legacy_raft/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-release 25100 ${{runner.temp}}/release-m0-m7-chain
+          bash test/legacy_raft/e2e/raft_m8_payload_binding.sh ${{runner.temp}}/bustub-raft-release 26100 ${{runner.temp}}/release-m8-payload-binding
       - name: Upload process diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -257,10 +257,10 @@ jobs:
         run: |
           for iteration in 1 2 3; do
             echo "process_iteration=${iteration}" | tee -a ${{runner.temp}}/nightly-artifacts/seeds.txt
-            bash test/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-nightly \
+            bash test/legacy_raft/e2e/raft_m6_smoke.sh ${{runner.temp}}/bustub-raft-nightly \
               $((18100 + iteration * 500)) ${{runner.temp}}/nightly-artifacts/m6-${iteration}
           done
-          bash test/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-nightly \
+          bash test/legacy_raft/e2e/raft_m0_m7_chain.sh ${{runner.temp}}/bustub-raft-nightly \
             24100 ${{runner.temp}}/nightly-artifacts/m0-m7-chain
       - name: Upload nightly seeds and diagnostics
         if: always()

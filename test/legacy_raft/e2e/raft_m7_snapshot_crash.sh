@@ -6,7 +6,7 @@ build_dir=${1:-/tmp/bustub-raft-build-clang}
 port_base=${2:-29100}
 artifact_root=${3:-"/tmp/bustub-raft-m7-snapshot-crash-$$"}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-source "${script_dir}/raft_process_harness.sh"
+source "${script_dir}/../../support/raft_process_harness.sh"
 # ASan makes a full database snapshot much slower than a release build. Keep
 # the timeout randomized, but use a deterministic test range wide enough that
 # the capture itself does not manufacture unrelated elections.

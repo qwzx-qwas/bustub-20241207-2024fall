@@ -249,7 +249,7 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
 - 已明确选择 V1 同步持久化 API：`CommandLog::{Append,TruncateSuffix}`、`StableStore::Update`、
   `LogStore::{Append,ReplaceSuffix,InstallSnapshotBase}` 成功返回即表示 durability barrier 完成，失败直接抛出。
   已删除三个 ready `DurableFuture` 适配层及所有对应的立即 `.get()`；没有引入异步 completion 或存储调度器。
-- `test/recovery/power_loss_storage.h` 现在是共享的命名故障注入框架，事件固定为 `before_write`、
+- `test/legacy_raft/recovery/power_loss_storage.h` 现在是共享的命名故障注入框架，事件固定为 `before_write`、
   `after_fsync`、`after_rename`、`after_dir_fsync`，并按事件类型记录 occurrence 与路径历史。
 - Snapshot 发布、StableStore、CommandLog 和 LogStore 原子替换共享 old-or-new oracle；
   InstallSnapshot 只共享命名事件框架，它使用 `max(H,S)`、pre-install term/suffix 和 committed-range
@@ -263,7 +263,7 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
 
 ## Harness、framing 与流式快照补强（2026-08-29）
 
-- `test/e2e/raft_process_harness.sh` 统一持有三节点启动、同一随机选举区间、ready Leader 搜索与重定位、
+- `test/support/raft_process_harness.sh` 统一持有三节点启动、同一随机选举区间、ready Leader 搜索与重定位、
   已识别请求的有限交付重试、状态等待、信号停止和 PID trap；每次 node launch 只有一次进程尝试。
 - M7 会先等上一快照代正式发布，再监视由 1600 行有效业务数据触发的新 `capture-*`，避免错误命中旧
   capture。当前运行确实在 capture 窗口 SIGKILL 当前 Leader，并逐字面恢复完整快照、bridge suffix 与触发
@@ -322,8 +322,8 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
   源码树无新增 CMake/Ninja/对象库、测试 XML、profraw、core 或后台 node/client/test 进程；production 源码对
   test harness、GTest、PowerLossStorage、InMemoryRaftTransport/ManualClock 的反向依赖扫描为 0。
 - 当前工作树更新为 157 项正式交付：61 个已跟踪修改、96 个新增文件；新增项为 docs 4、方案/交接 2、
-  src 57、test 29、tools 4。相对上次 155 项只增加 `test/common/versioned_frame_test.cpp` 与共享
-  `test/e2e/raft_process_harness.sh`，二者都是已注册测试/复用 harness，不是中间产物。仓库占用约 556 MiB。
+  src 57、test 29、tools 4。相对上次 155 项只增加 `test/legacy_raft/recovery/versioned_frame_test.cpp` 与共享
+  `test/support/raft_process_harness.sh`，二者都是已注册测试/复用 harness，不是中间产物。仓库占用约 556 MiB。
 - 实验快照范围收敛使用的 `/tmp/bustub-raft-experimental-snapshot-build`（956 MiB）与 M7 artifact（1.4 MiB）
   已在验证后精确删除；`/tmp/bustub-*`、源码树 CMake/对象/XML/profraw/core 和后台 node/client/test 进程均为空。
   工作树仍为 157 项正式交付（61 个已跟踪修改、96 个新增文件、0 个删除），仓库占用仍约 556 MiB。
@@ -349,7 +349,7 @@ window、多个 in-flight proposal、迁移或 rolling upgrade。
 - RaftNode 新增 durable-before-send、投票与响应乱序、单向丢包、InstallSnapshot 跨子系统崩溃矩阵；同时
   补齐 SessionTable、CommandBatch permutation、Manifest cross-copy 与 SQL/主键准入边界。
 - 该修订源码 ASan/UBSan：25 个二进制/81 个测试通过；四条进程时间线通过；TSan：15/15 + 4/4 通过。
-  该修订当时的门禁已固化为 `test/e2e/raft_gtest_gate.py`；它只重试 stdout/stderr 均为空的 SIGSEGV/139，
+  该修订当时的门禁已固化为 `test/legacy_raft/e2e/raft_gtest_gate.py`；它只重试 stdout/stderr 均为空的 SIGSEGV/139，
   当时的最终脚本
   运行发生 17 次该宿主启动抖动，且曾正确拒绝沙箱中的 TCP bind 失败，证明不会吞掉测试体错误。
   历史 Release SQLLogicTest 40/40 未重跑，因为本轮不改变单机 SQL 执行语义。

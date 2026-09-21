@@ -505,7 +505,8 @@ auto TupleCodecV1::Decode(const std::vector<std::byte> &bytes, const Schema &sch
       }
       case TypeId::VARCHAR: {
         const auto size = reader.ReadU32();
-        if (size > reader.Remaining() || size + 1 > schema.GetColumn(column).GetStorageSize()) {
+        // The declared VARCHAR length bounds the payload, not Value's trailing NUL.
+        if (size > reader.Remaining() || size > schema.GetColumn(column).GetStorageSize()) {
           throw std::runtime_error("encoded VARCHAR exceeds its schema");
         }
         const auto raw = reader.ReadBytes(size);

@@ -152,6 +152,7 @@ raft_start_message_proxy() {
   mkdir -p "${controls}"
   python3 "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/raft_message_proxy.py" \
     --listen-port "${proxy_port}" --target-port "$(raft_port "${node_id}")" --controls "${controls}" \
+    "${@:4}" \
     >"${controls}/proxy.log" 2>&1 &
   RAFT_PROXY_PIDS[${node_id}]=$!
   RAFT_PROXY_CONTROLS[${node_id}]=${controls}
@@ -254,7 +255,7 @@ raft_start_node() {
     --client-listen "127.0.0.1:$(raft_client_port "${node_id}")" \
     --election-timeout-min-ms "${RAFT_ELECTION_TIMEOUT_MIN_MS}" \
     --election-timeout-max-ms "${RAFT_ELECTION_TIMEOUT_MAX_MS}" \
-    --client-timeout-ms 3000 \
+    --client-timeout-ms "${RAFT_CLIENT_TIMEOUT_MS:-3000}" \
     "${RAFT_EXTRA_NODE_ARGS[@]}" \
     "${peer_args[@]}" >>"${log_path}" 2>&1 &
   RAFT_NODE_PIDS[${node_id}]=$!

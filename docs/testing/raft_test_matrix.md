@@ -97,7 +97,7 @@ All builds are outside the source tree. See `raft_e2e_runbook.md` for the no-pro
 cmake --build /tmp/bustub-raft-build-clang --target \
   build-raft-component-gates bustub-node bustub-client -j2
 
-python3 test/e2e/raft_gtest_gate.py \
+python3 test/legacy_raft/e2e/raft_gtest_gate.py \
   /tmp/bustub-raft-build-clang /tmp/raft-component-logs
 
 cmake --build /tmp/bustub-raft-build-release --target sqllogictest -j2
@@ -108,12 +108,12 @@ cmake --build /tmp/bustub-raft-build-tsan --target \
   tcp_transport_test raft_node_test session_table_test bustub_state_machine_test distributed_node_test -j2
 ctest --test-dir /tmp/bustub-raft-build-tsan --output-on-failure -L raft-tsan-core
 
-bash test/e2e/raft_m6_smoke.sh /tmp/bustub-raft-build-clang 18100 /tmp/raft-m6
-bash test/e2e/raft_m7_snapshot_crash.sh /tmp/bustub-raft-build-clang 19100 /tmp/raft-m7-crash
-bash test/e2e/raft_m7_snapshot_transfer.sh /tmp/bustub-raft-build-clang 20100 /tmp/raft-m7-transfer
-bash test/e2e/raft_m7_recovery_matrix.sh /tmp/bustub-raft-build-clang 21100 /tmp/raft-m7-matrix
-bash test/e2e/raft_m0_m7_chain.sh /tmp/bustub-raft-build-clang 25100 /tmp/raft-m0-m7-chain
-bash test/e2e/raft_m8_payload_binding.sh /tmp/bustub-raft-build-clang 26100 /tmp/raft-m8-payload-binding
+bash test/legacy_raft/e2e/raft_m6_smoke.sh /tmp/bustub-raft-build-clang 18100 /tmp/raft-m6
+bash test/legacy_raft/e2e/raft_m7_snapshot_crash.sh /tmp/bustub-raft-build-clang 19100 /tmp/raft-m7-crash
+bash test/legacy_raft/e2e/raft_m7_snapshot_transfer.sh /tmp/bustub-raft-build-clang 20100 /tmp/raft-m7-transfer
+bash test/legacy_raft/e2e/raft_m7_recovery_matrix.sh /tmp/bustub-raft-build-clang 21100 /tmp/raft-m7-matrix
+bash test/legacy_raft/e2e/raft_m0_m7_chain.sh /tmp/bustub-raft-build-clang 25100 /tmp/raft-m0-m7-chain
+bash test/legacy_raft/e2e/raft_m8_payload_binding.sh /tmp/bustub-raft-build-clang 26100 /tmp/raft-m8-payload-binding
 
 cmake --build /tmp/bustub-raft-build-clang --target check-raft-process-chain
 ```

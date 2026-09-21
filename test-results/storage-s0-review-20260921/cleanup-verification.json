@@ -1,0 +1,12 @@
+{
+  "removed_temporary_workspace": "/tmp/bustub-s0-review-8_g97wkj",
+  "removed_logical_file_bytes": 869891738,
+  "temporary_workspace_absent": true,
+  "generated_test_caches_removed": true,
+  "archive_sha256_verified": "ca4a5e8d907cf77f0dbb8412a3d88b8636db1b10b4f01c9c3c592e563845241f",
+  "archives_ignored_by_git": true,
+  "production_unchanged_this_review": true,
+  "common_workloads_unchanged_this_review": true,
+  "checked_at": "2026-09-21T15:32:54.092225+00:00",
+  "final_source_cleanup": "workload.py EOF blank line removed; AST unchanged; 25 harness checks passed again"
+}

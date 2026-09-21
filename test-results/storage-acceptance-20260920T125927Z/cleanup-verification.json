@@ -1,0 +1,14 @@
+{
+  "status": "verified_and_cleaned",
+  "utc": "2026-09-21T03:41:44.165604+00:00",
+  "existing_archive": "passed-results.tar.xz",
+  "existing_archive_sha256": "1758467d397d212bf3ed91cbca97926addff4990f89f0578f7675535dadca483",
+  "remaining_archive": "remaining-evidence.tar.xz",
+  "remaining_archive_sha256": "e5e4aa13e654e493400d6853691d6887d39047505062d4fabd213a2ec00575eb",
+  "verified_files": 438,
+  "remaining_archive_bytes": 7505156,
+  "deleted_expanded_files": 438,
+  "deleted_allocated_bytes": 143544320,
+  "all_previous_failures_timeouts_and_interruptions_preserved": true,
+  "test_source_preserved": true
+}

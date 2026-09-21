@@ -46,8 +46,7 @@ TEST_BINARIES = (
 def discovered_test_binaries(repository_root: Path) -> set[str]:
     sources = []
     for directory in ("recovery", "raft", "distributed"):
-        sources.extend((repository_root / "test" / directory).rglob("*_test.cpp"))
-    sources.append(repository_root / "test" / "common" / "versioned_frame_test.cpp")
+        sources.extend((repository_root / "test" / "legacy_raft" / directory).rglob("*_test.cpp"))
     return {source.stem for source in sources}
 
 
@@ -113,7 +112,7 @@ def main() -> int:
     if args.timeout_seconds < 1:
         print("--timeout-seconds must be positive", file=sys.stderr)
         return 2
-    repository_root = Path(__file__).resolve().parents[2]
+    repository_root = Path(__file__).resolve().parents[3]
     try:
         validate_binary_manifest(repository_root)
     except RuntimeError as error:

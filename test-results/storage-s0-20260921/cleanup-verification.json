@@ -1,0 +1,15 @@
+{
+  "scope": "owned S0 temporary workspace only",
+  "removed": "/tmp/bustub-s0-jmd4q3co",
+  "removed_logical_file_bytes": 871393759,
+  "temporary_workspace_absent": true,
+  "archive_sha256_verified": "576e05ccc3e2f244bdac292514de28e3cc15b9be40fa3db65c2de7ba6018a3ad",
+  "archived_snapshot_matches_final_files": true,
+  "unrelated_input_hashes_unchanged": true,
+  "preserved": [
+    "production and test sources",
+    "all prior test-results archives",
+    "test-results/storage-s0-20260921/results.tar.gz"
+  ],
+  "checked_at": "2026-09-21T15:13:09.696786+00:00"
+}

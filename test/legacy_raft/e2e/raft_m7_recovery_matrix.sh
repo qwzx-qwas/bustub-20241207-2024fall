@@ -8,7 +8,7 @@ artifact_root=${3:-"/tmp/bustub-raft-m7-recovery-matrix-$$"}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 run_minority_and_fresh_read() (
-  source "${script_dir}/raft_process_harness.sh"
+  source "${script_dir}/../../support/raft_process_harness.sh"
   raft_harness_init "${build_dir}" "${port_base}" "${artifact_root}/minority" m7-minority
   for node_id in 1 2 3
   do
@@ -103,7 +103,7 @@ run_minority_and_fresh_read() (
 
 run_full_restart() (
   local scenario_port=$((port_base + 1000))
-  source "${script_dir}/raft_process_harness.sh"
+  source "${script_dir}/../../support/raft_process_harness.sh"
   raft_harness_init "${build_dir}" "${scenario_port}" "${artifact_root}/restart" m7-restart \
     --snapshot-threshold-entries 4
   raft_timeline_step "E2E-07: publish a snapshot, retain a committed suffix, and stop every process"
@@ -159,7 +159,7 @@ run_full_restart() (
 
 run_corrupt_latest() (
   local scenario_port=$((port_base + 2000))
-  source "${script_dir}/raft_process_harness.sh"
+  source "${script_dir}/../../support/raft_process_harness.sh"
   raft_harness_init "${build_dir}" "${scenario_port}" "${artifact_root}/corrupt" m7-corrupt \
     --snapshot-threshold-entries 2
   raft_timeline_step "E2E-11: retain two snapshot generations and a bridge suffix"
@@ -276,7 +276,7 @@ run_atomic_batch_reads() (
   # heartbeat headroom as the canonical-capture scenario.
   RAFT_ELECTION_TIMEOUT_MIN_MS=2000
   RAFT_ELECTION_TIMEOUT_MAX_MS=4000
-  source "${script_dir}/raft_process_harness.sh"
+  source "${script_dir}/../../support/raft_process_harness.sh"
   raft_harness_init "${build_dir}" "${scenario_port}" "${artifact_root}/atomic" m7-atomic
   raft_timeline_step "E2E-12: read continuously while a 1600-row batch is prepared and applied"
   raft_start_all_nodes

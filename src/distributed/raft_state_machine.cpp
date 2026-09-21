@@ -31,6 +31,7 @@
 #include "planner/planner.h"
 #include "raft/snapshot_store.h"
 #include "recovery/canonical_snapshot.h"
+#include "storage/byte_range.h"
 #include "storage/disk/disk_manager.h"
 
 namespace bustub {
@@ -205,21 +206,26 @@ void BusTubSnapshotBundleCodec::EncodeFiles(uint64_t last_included_index, const 
 auto BusTubSnapshotBundleCodec::DecodeFile(const DurableFileSlice &payload, DurableStorage *storage)
     -> BusTubSnapshotBundleFileView {
   constexpr uint64_t fixed_bytes = BUNDLE_MAGIC.size() + sizeof(uint32_t) * 2 + sizeof(uint64_t) * 4;
-  if (storage == nullptr || payload.size_ < fixed_bytes || payload.size_ > MAX_STREAM_BUNDLE_BYTES) {
+  const auto payload_range = StorageByteRange::Create(payload.offset_, payload.size_);
+  if (storage == nullptr || !payload_range.has_value() || payload.size_ < fixed_bytes ||
+      payload.size_ > MAX_STREAM_BUNDLE_BYTES) {
     throw std::runtime_error("invalid streamed BusTub snapshot bundle size");
   }
-  auto read_u64 = [&](uint64_t offset) {
-    const auto bytes = storage->ReadFileRange(payload.path_, payload.offset_ + offset, sizeof(uint64_t));
-    if (bytes.size() != sizeof(uint64_t)) {
-      throw std::runtime_error("truncated streamed BusTub snapshot bundle length");
+  const auto slice_at = [&](uint64_t offset, uint64_t size) -> DurableFileSlice {
+    const auto range = payload_range->Subrange(offset, size);
+    if (!range.has_value()) {
+      throw std::runtime_error("file range exceeds streamed BusTub snapshot bundle");
     }
+    return {payload.path_, range->Offset(), range->Size()};
+  };
+  auto read_u64 = [&](uint64_t offset) {
+    const auto bytes =
+        ReadExact(storage, slice_at(offset, sizeof(uint64_t)), sizeof(uint64_t), "snapshot bundle length");
     ByteReader reader(bytes);
     return reader.ReadU64();
   };
-  const auto first = storage->ReadFileRange(payload.path_, payload.offset_, BUNDLE_MAGIC.size() + 20);
-  if (first.size() != BUNDLE_MAGIC.size() + 20) {
-    throw std::runtime_error("truncated streamed BusTub snapshot bundle header");
-  }
+  const auto first =
+      ReadExact(storage, slice_at(0, BUNDLE_MAGIC.size() + 20), BUNDLE_MAGIC.size() + 20, "snapshot bundle header");
   ByteReader header(first);
   if (header.ReadBytes(BUNDLE_MAGIC.size()) != std::vector<std::byte>(BUNDLE_MAGIC.begin(), BUNDLE_MAGIC.end()) ||
       header.ReadU32() != FORMAT_VERSION) {
@@ -229,36 +235,29 @@ auto BusTubSnapshotBundleCodec::DecodeFile(const DurableFileSlice &payload, Dura
   result.last_included_index_ = header.ReadU64();
   const auto database_size = header.ReadU64();
   uint64_t cursor = first.size();
-  if (database_size > payload.size_ - cursor) {
-    throw std::runtime_error("database file exceeds streamed snapshot bundle");
-  }
-  result.database_ = {payload.path_, payload.offset_ + cursor, database_size};
+  result.database_ = slice_at(cursor, database_size);
   cursor += database_size;
-  if (payload.size_ - cursor < sizeof(uint64_t)) {
-    throw std::runtime_error("streamed snapshot bundle is missing catalog length");
-  }
   const auto catalog_size = read_u64(cursor);
   cursor += sizeof(uint64_t);
-  if (catalog_size > CatalogSnapshotCodec::MAX_CATALOG_BYTES || catalog_size > payload.size_ - cursor) {
+  if (catalog_size > CatalogSnapshotCodec::MAX_CATALOG_BYTES) {
     throw std::runtime_error("catalog file exceeds streamed snapshot bundle");
   }
-  result.catalog_ = {payload.path_, payload.offset_ + cursor, catalog_size};
+  result.catalog_ = slice_at(cursor, catalog_size);
   cursor += catalog_size;
-  if (payload.size_ - cursor < sizeof(uint64_t)) {
-    throw std::runtime_error("streamed snapshot bundle is missing session length");
-  }
   const auto session_size = read_u64(cursor);
   cursor += sizeof(uint64_t);
-  if (session_size > 64U * 1024U * 1024U || session_size > payload.size_ - cursor ||
-      payload.size_ - cursor - session_size != sizeof(uint32_t)) {
+  if (session_size > 64U * 1024U * 1024U) {
     throw std::runtime_error("session file exceeds streamed snapshot bundle");
   }
-  result.sessions_ = {payload.path_, payload.offset_ + cursor, session_size};
+  result.sessions_ = slice_at(cursor, session_size);
+  cursor += session_size;
+  if (payload.size_ - cursor != sizeof(uint32_t)) {
+    throw std::runtime_error("session file exceeds streamed snapshot bundle");
+  }
 
-  const DurableFileSlice protected_body{payload.path_, payload.offset_ + BUNDLE_MAGIC.size(),
-                                        payload.size_ - BUNDLE_MAGIC.size() - sizeof(uint32_t)};
+  const auto protected_body = slice_at(BUNDLE_MAGIC.size(), payload.size_ - BUNDLE_MAGIC.size() - sizeof(uint32_t));
   const auto expected_bytes =
-      storage->ReadFileRange(payload.path_, payload.offset_ + payload.size_ - sizeof(uint32_t), sizeof(uint32_t));
+      ReadExact(storage, slice_at(cursor, sizeof(uint32_t)), sizeof(uint32_t), "snapshot bundle checksum");
   ByteReader expected(expected_bytes);
   if (ChecksumSlice(storage, protected_body) != expected.ReadU32()) {
     throw std::runtime_error("streamed BusTub snapshot bundle checksum mismatch");

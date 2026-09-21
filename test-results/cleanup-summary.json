@@ -1,0 +1,34 @@
+{
+  "batches": [
+    {
+      "status": "verified_and_cleaned",
+      "utc": "2026-09-21T03:41:44.165604+00:00",
+      "existing_archive": "passed-results.tar.xz",
+      "existing_archive_sha256": "1758467d397d212bf3ed91cbca97926addff4990f89f0578f7675535dadca483",
+      "remaining_archive": "remaining-evidence.tar.xz",
+      "remaining_archive_sha256": "e5e4aa13e654e493400d6853691d6887d39047505062d4fabd213a2ec00575eb",
+      "verified_files": 438,
+      "remaining_archive_bytes": 7505156,
+      "deleted_expanded_files": 438,
+      "deleted_allocated_bytes": 143544320,
+      "all_previous_failures_timeouts_and_interruptions_preserved": true,
+      "test_source_preserved": true
+    },
+    {
+      "status": "verified_and_cleaned",
+      "utc": "2026-09-21T03:44:51.736658+00:00",
+      "existing_archive": "successful-evidence.tar.xz",
+      "existing_archive_sha256": "803a95e9be4e72fe9357c5716810ea77ea3e3ff562b728de1d7a88be8cb30ed1",
+      "remaining_archive": "remaining-evidence.tar.xz",
+      "remaining_archive_sha256": "cdad1550eb727a6af32990af2e27c608ac91f5062033f1186edee500c4ece40b",
+      "verified_files": 895,
+      "remaining_archive_bytes": 65100956,
+      "deleted_expanded_files": 817,
+      "deleted_allocated_bytes": 6475083776,
+      "all_previous_failures_timeouts_and_interruptions_preserved": true,
+      "test_source_preserved": true
+    }
+  ],
+  "temporary_build_removed": "/tmp/bustub-t0-reviewed-binaries",
+  "test_code_retained": true
+}

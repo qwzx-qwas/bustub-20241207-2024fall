@@ -6,7 +6,7 @@ build_dir=${1:-/tmp/bustub-raft-build-clang}
 port_base=${2:-30100}
 artifact_root=${3:-"/tmp/bustub-raft-m7-snapshot-transfer-$$"}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-source "${script_dir}/raft_process_harness.sh"
+source "${script_dir}/../../support/raft_process_harness.sh"
 RAFT_ELECTION_TIMEOUT_MIN_MS=800
 RAFT_ELECTION_TIMEOUT_MAX_MS=1600
 raft_harness_init "${build_dir}" "${port_base}" "${artifact_root}" m7-snapshot-transfer \

@@ -31,7 +31,7 @@ inject a fixed timeout source or `MakeSeededElectionTimeoutSource(seed)` instead
 
 ```bash
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
-  python3 test/e2e/raft_gtest_gate.py \
+  python3 test/legacy_raft/e2e/raft_gtest_gate.py \
   /tmp/bustub-raft-build-clang /tmp/bustub-raft-component-logs
 ```
 
@@ -65,22 +65,22 @@ production RPC, configuration flag, or default path is added for fault injection
 ## Formal process timelines
 
 ```bash
-bash test/e2e/raft_m6_smoke.sh \
+bash test/legacy_raft/e2e/raft_m6_smoke.sh \
   /tmp/bustub-raft-build-clang 18100 /tmp/bustub-raft-m6-smoke-current
 
-bash test/e2e/raft_m7_snapshot_crash.sh \
+bash test/legacy_raft/e2e/raft_m7_snapshot_crash.sh \
   /tmp/bustub-raft-build-clang 19100 /tmp/bustub-raft-m7-snapshot-crash-current
 
-bash test/e2e/raft_m7_snapshot_transfer.sh \
+bash test/legacy_raft/e2e/raft_m7_snapshot_transfer.sh \
   /tmp/bustub-raft-build-clang 20100 /tmp/bustub-raft-m7-snapshot-transfer-current
 
-bash test/e2e/raft_m7_recovery_matrix.sh \
+bash test/legacy_raft/e2e/raft_m7_recovery_matrix.sh \
   /tmp/bustub-raft-build-clang 21100 /tmp/bustub-raft-m7-recovery-matrix-current
 
-bash test/e2e/raft_m0_m7_chain.sh \
+bash test/legacy_raft/e2e/raft_m0_m7_chain.sh \
   /tmp/bustub-raft-build-clang 25100 /tmp/bustub-raft-m0-m7-chain-current
 
-bash test/e2e/raft_m8_payload_binding.sh \
+bash test/legacy_raft/e2e/raft_m8_payload_binding.sh \
   /tmp/bustub-raft-build-clang 26100 /tmp/bustub-raft-m8-payload-binding-current
 ```
 
@@ -88,7 +88,7 @@ Keep every scenario's listener, client, proxy, and derived sub-scenario port bel
 range. On Linux the usual range begins at 32768; an all-message proxy creates many short-lived outbound connections, so
 using an ephemeral source port as a fixed listener can create a real bind collision during a one-shot node restart.
 
-All timelines source `test/e2e/raft_process_harness.sh`; node startup, the common randomized election interval, Leader
+All timelines source `test/support/raft_process_harness.sh`; node startup, the common randomized election interval, Leader
 discovery/redirection, narrowly classified delivery retry for identified requests, status waits, shutdown, and PID
 cleanup live only there. Each requested node launch has exactly one process attempt; a crash/signal is never treated as
 a startup retry. A `strict` client assertion has one process and destination, while `eventually` may resend the same
@@ -158,11 +158,11 @@ artifact root under a stable child-only personality, for example:
 
 ```bash
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-  setarch x86_64 -R python3 test/e2e/raft_gtest_gate.py \
+  setarch x86_64 -R python3 test/legacy_raft/e2e/raft_gtest_gate.py \
   /tmp/bustub-raft-build-clang /tmp/bustub-raft-component-logs-wsl
 
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-  setarch x86_64 -R bash test/e2e/raft_m0_m7_chain.sh \
+  setarch x86_64 -R bash test/legacy_raft/e2e/raft_m0_m7_chain.sh \
   /tmp/bustub-raft-build-clang 25100 /tmp/raft-m0-m7-chain-wsl
 ```
 

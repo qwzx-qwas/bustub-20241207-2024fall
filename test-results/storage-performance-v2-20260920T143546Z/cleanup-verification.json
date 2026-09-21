@@ -1,0 +1,14 @@
+{
+  "status": "verified_and_cleaned",
+  "utc": "2026-09-21T03:44:51.736658+00:00",
+  "existing_archive": "successful-evidence.tar.xz",
+  "existing_archive_sha256": "803a95e9be4e72fe9357c5716810ea77ea3e3ff562b728de1d7a88be8cb30ed1",
+  "remaining_archive": "remaining-evidence.tar.xz",
+  "remaining_archive_sha256": "cdad1550eb727a6af32990af2e27c608ac91f5062033f1186edee500c4ece40b",
+  "verified_files": 895,
+  "remaining_archive_bytes": 65100956,
+  "deleted_expanded_files": 817,
+  "deleted_allocated_bytes": 6475083776,
+  "all_previous_failures_timeouts_and_interruptions_preserved": true,
+  "test_source_preserved": true
+}

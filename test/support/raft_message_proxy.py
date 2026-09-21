@@ -2,6 +2,7 @@
 """External one-frame Raft proxy with file-controlled loss and snapshot replay."""
 
 import argparse
+import json
 import pathlib
 import signal
 import socket
@@ -143,6 +144,27 @@ def snapshot_response(message: bytes) -> dict[str, int]:
     }
 
 
+def append_summary(message_type: int, message: bytes) -> dict:
+    """Observe only fields needed to prove catch-up, not log payload contents."""
+    term, offset = take_u64(message, 0)
+    if message_type == 3:
+        leader, offset = take_u64(message, offset)
+        request, offset = take_u64(message, offset)
+        previous, offset = take_u64(message, offset)
+        _, offset = take_u64(message, offset)
+        _, offset = take_u64(message, offset)
+        has_context, offset = take_u8(message, offset)
+        if has_context:
+            _, offset = take_u64(message, offset)
+        count, offset = take_u32(message, offset)
+        return {"term": term, "leader_id": leader, "request_id": request,
+                "prev_log_index": previous, "entry_count": count}
+    request, offset = take_u64(message, offset)
+    success, offset = take_u8(message, offset)
+    match, offset = take_u64(message, offset)
+    return {"term": term, "request_id": request, "success": success, "match_index": match}
+
+
 def fields_text(fields: dict[str, int | str]) -> str:
     return " ".join(f"{name}={value}" for name, value in fields.items()) + "\n"
 
@@ -158,7 +180,7 @@ def read_watch(path: pathlib.Path) -> dict[str, int]:
 
 
 class Proxy:
-    def __init__(self, target_port: int, controls: pathlib.Path):
+    def __init__(self, target_port: int, controls: pathlib.Path, observe: bool = False, node_id: int = 0):
         self.target_port = target_port
         self.controls = controls
         self.lock = threading.Lock()
@@ -166,6 +188,39 @@ class Proxy:
         self.snapshot_identity: tuple[str, int, int, int, int] | None = None
         self.next_snapshot_offset = 0
         self.recorded_offsets: dict[int, bytes] = {}
+        self.observe = observe
+        self.node_id = node_id
+        self.forward_lock = threading.Lock()
+        self.rules = {"generation": 0, "blocked_from": [], "drop_all": False}
+        self.rules_error = None
+
+    def event(self, value: dict) -> None:
+        with (self.controls / "events.jsonl").open("a", encoding="utf-8") as output:
+            output.write(json.dumps({"format_version": 1, "monotonic_ns": time.monotonic_ns(),
+                                     "node": self.node_id, **value}, sort_keys=True) + "\n")
+
+    def control_loop(self) -> None:
+        try:
+            while True:
+                path = self.controls / "rules.json"
+                if path.exists():
+                    rules = json.loads(path.read_text())
+                    if rules["generation"] > self.rules["generation"]:
+                        if (not isinstance(rules["drop_all"], bool) or
+                                any(node not in (1, 2, 3) for node in rules["blocked_from"])):
+                            raise ValueError("invalid proxy rules")
+                        # ACK follows all older sendall actions. New actions check
+                        # this generation under the same lock; no global IO lock.
+                        with self.forward_lock:
+                            self.rules = rules
+                            self.event({"event": "rules_applied", **rules})
+                            temporary = self.controls / "ack.tmp"
+                            temporary.write_text(json.dumps({**rules, "monotonic_ns": time.monotonic_ns()}))
+                            temporary.replace(self.controls / "ack.json")
+                time.sleep(0.01)
+        except Exception as error:
+            self.rules_error = str(error)
+            (self.controls / "last-error").write_text(str(error))
 
     def forward(self, frame: bytes) -> None:
         with socket.create_connection(("127.0.0.1", self.target_port), timeout=2) as target:
@@ -234,7 +289,33 @@ class Proxy:
 
     def handle(self, connection: socket.socket) -> None:
         frame = read_frame(connection)
-        from_node, to_node, _, message_type, message = message_view(frame)
+        from_node, to_node, group, message_type, message = message_view(frame)
+        if self.observe:
+            if to_node != self.node_id or from_node not in (1, 2, 3) or group != "storage-acceptance":
+                raise ValueError("observed route differs from configured acceptance cluster")
+            detail = {}
+            if message_type in (3, 4):
+                detail = append_summary(message_type, message)
+            elif message_type == 5:
+                detail = snapshot_request(message)
+                detail.pop("data")
+            elif message_type == 6:
+                detail = snapshot_response(message)
+            with self.forward_lock:
+                if self.rules_error:
+                    raise RuntimeError(self.rules_error)
+                event = {"from": from_node, "to": to_node, "type": message_type,
+                         "generation": self.rules["generation"], **detail}
+                if self.rules["drop_all"] or from_node in self.rules["blocked_from"]:
+                    self.event({"event": "blocked", **event})
+                    return
+                try:
+                    self.forward(frame)
+                except (ConnectionError, TimeoutError, OSError):
+                    self.event({"event": "transport_failed", **event})
+                    raise
+                self.event({"event": "forwarded", **event})
+            return
         # "drop" blocks every inbound message to this target. "drop-from-N"
         # blocks only one sender, allowing the other two voters to retain their
         # majority link while an old Leader is isolated bidirectionally.
@@ -267,13 +348,17 @@ def main() -> None:
     parser.add_argument("--listen-port", type=int, required=True)
     parser.add_argument("--target-port", type=int, required=True)
     parser.add_argument("--controls", type=pathlib.Path, required=True)
+    parser.add_argument("--observe", action="store_true", help="metadata-only acceptance observations; no replay copies")
+    parser.add_argument("--node-id", type=int, choices=(1, 2, 3))
     arguments = parser.parse_args()
     # An ignored disposition survives exec. Reset it explicitly so cleanup is
     # reliable even when the test runner ignores SIGTERM for background jobs.
     signal.signal(signal.SIGTERM, terminate_on_signal)
     arguments.controls.mkdir(parents=True, exist_ok=True)
-    proxy = Proxy(arguments.target_port, arguments.controls)
-    threading.Thread(target=proxy.replay_loop, daemon=True).start()
+    if arguments.observe and arguments.node_id is None:
+        parser.error("--observe requires --node-id")
+    proxy = Proxy(arguments.target_port, arguments.controls, arguments.observe, arguments.node_id or 0)
+    threading.Thread(target=proxy.control_loop if arguments.observe else proxy.replay_loop, daemon=True).start()
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -284,6 +369,8 @@ def main() -> None:
             connection, _ = listener.accept()
             with connection:
                 try:
+                    if arguments.observe:
+                        connection.settimeout(2)
                     proxy.handle(connection)
                 except (ConnectionError, TimeoutError) as error:
                     # A target process may deliberately be stopped or isolated.

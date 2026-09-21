@@ -95,7 +95,7 @@ class Column {
    * @param type type whose size is to be determined
    * @return size in bytes
    */
-  static auto TypeSize(TypeId type, uint32_t length = 0) -> uint8_t {
+  static auto TypeSize(TypeId type, uint32_t length = 0) -> uint32_t {
     switch (type) {
       case TypeId::BOOLEAN:
       case TypeId::TINYINT:

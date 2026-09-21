@@ -135,16 +135,16 @@ machine exposes only file creation/installation. The compatibility codec is capp
 Run the production-binary smoke test outside a sandbox that blocks loopback sockets:
 
 ```bash
-bash test/e2e/raft_m6_smoke.sh \
+bash test/legacy_raft/e2e/raft_m6_smoke.sh \
   /tmp/bustub-raft-build-clang 28300 /tmp/bustub-raft-m6-smoke-current
 
-bash test/e2e/raft_m7_snapshot_crash.sh \
+bash test/legacy_raft/e2e/raft_m7_snapshot_crash.sh \
   /tmp/bustub-raft-build-clang 29100 /tmp/bustub-raft-m7-snapshot-crash-current
 
-bash test/e2e/raft_m7_snapshot_transfer.sh \
+bash test/legacy_raft/e2e/raft_m7_snapshot_transfer.sh \
   /tmp/bustub-raft-build-clang 30100 /tmp/bustub-raft-m7-snapshot-transfer-current
 
-bash test/e2e/raft_m7_recovery_matrix.sh \
+bash test/legacy_raft/e2e/raft_m7_recovery_matrix.sh \
   /tmp/bustub-raft-build-clang 32100 /tmp/bustub-raft-m7-recovery-matrix-current
 ```
 

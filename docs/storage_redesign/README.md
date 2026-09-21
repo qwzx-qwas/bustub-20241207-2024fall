@@ -1,17 +1,21 @@
 # 本地对象存储重构主方案：Raft / BusTub / FS / ObjectIO
 
-更新时间：2026-09-20（Asia/Shanghai）
+更新时间：2026-09-21（Asia/Shanghai）
 
 ## 0. 当前状态、文档入口与工作顺序
 
-本文件收录截至 2026-09-20 对话形成的目标架构，包含统一 ObjectIO、减少重复持久化、模块分工、实现顺序和待定项。用户认可总体方向；各子模块的详细方案、具体接口与测试仍需逐个讨论。
+本文件收录截至 2026-09-21 对话形成的目标架构，包含统一 ObjectIO、减少重复持久化、查询链复用、页 IO 并发、A 层空间复用、模块分工、实现顺序和待定项。各子模块的具体接口、格式、参数与测试仍需逐个冻结；本次收录不表示生产实现已完成。
 
-- 当前成果：主方案、子模块文档入口和未启用的实现 prompt 已建立。
-- 当前实现状态：本轮目标架构的所有模块均为“未完成”。既有同名代码和历史 Raft 里程碑，不等于已满足本方案。
-- 下一步：先讨论 [总体测试设计](testing_plan.md)，然后逐模块讨论方案、更新 prompt、按用户当轮分配实现。
+- 当前成果：主方案、子模块文档入口和分阶段实现 prompt 已建立；S0 prompt 已执行，其他阶段仍未启用。
+- 当前实现状态：S0/F00 的共同契约、最小范围类型和约定验证已完成，见 [S0 执行记录](s0_execution_20260921.md)；其他模块仍未完成。既有同名代码和历史 Raft 里程碑，不等于已满足本方案。
+- 本轮 T0 执行与归档已结束：C1–C5 的 10 个参数点通过；P1/P2/P4 已测量并核对业务结果，P2 的超时和重试如实保留；P3 一小时完成 8,421/200,000 次操作，未完成完整轮次，不能作为 GC 空间稳定性基线。见 [最新运行记录](testing_execution_20260921.md) 和 [归档入口](../../test-results/storage-performance-v2-20260920T143546Z/README.md)。历史资格失败保留为诊断证据，不代替后续正式观测。
+- 下一步：讨论 [S1 / F01 BlockDevice](modules/block-device.md)，明确首个后端、对齐、定位 IO、缓冲生命周期、真实错误和持久化屏障，再安排 F02 及最小资源/状态接入。P3 未覆盖的长期空间稳定性保留为后续验证限制，不把性能慢或 `t+` 观测改成虚假通过，也不因此无限重复旧基线。
+- 第二轮评审方向已获用户“执行方案”授权；S0 当轮按 [F00 §6.13](modules/storage-contracts.md#613-s0-当轮实施范围用户授权后落定) 完成契约、最小范围类型和验证，其他阶段接口/格式仍逐个讨论。
 - 子模块入口见第 14 节。所有模块有独立 Markdown 文件，模板见 [module_template.md](module_template.md)。
 - 文档写入不授权自动实现代码、编写或运行未讨论的测试，也不授权自动推进后续模块。
-- 既有未审查的性能结果不作为有效基线；测试执行方式和验收门槛留待讨论。
+- 仅引用已经审查、按约定执行的共同负载观测；未覆盖能力不推定通过。新模块的风险、接口及必要验收仍随子方案讨论。
+- 本轮改进的覆盖、冲突和代码兼容审查见 [2026-09-21 方案审查](design_review_20260921.md)。
+- S0 测试对照总方案的修正、保留/清理及提交前验证见 [测试复审](s0_test_review_20260921.md)。本地压缩证据与 Git 摘要的边界见 [归档入口](../../test-results/README.md)。
 - 测试的已定实施约束见 [总体测试设计](testing_plan.md)；场景、预期、故障和资源的候选表见 [测试场景建议](testing_scenarios.md)。候选参数不表示已经批准执行。
 
 历史契约阅读入口：[Raft 实施方案](../../raft_implementation_plan.md)、[执行交接](../../raft_execution_handoff.md)、[现有测试矩阵](../testing/raft_test_matrix.md)。这些文件用于了解已有正式路径、协议和历史证据。本方案的 S0–S13 是 FS 新阶段，不是历史 Raft M0–M8 的重新编号；本轮新方向不自动扩大未分配的实现任务，也不借历史验收为新代码背书。
@@ -65,7 +69,7 @@
 4. 每项性能场景有独立评价目标，同一次运行采集多项指标；不为每层重复建镜像测试。无关性能任务不能同时争抢资源；场景内计划好的并发、后台活动和事先约定的统计重复不属于重复建设。
 5. 比较必须固定内容版本、数据、完成语义、重试、计时及资源口径。更换机器后重新测旧版；总内存包含相关缓存与工作缓冲，不能只对齐 BufferPool。
 6. 进程终止、虚拟机重启和掉电模型分别记录。WSL/文件模拟、真实块设备和跨主机部署的结论分开；不以进程重启证明掉电安全，不以本机三个进程证明独立故障域。
-7. 场景规模、机器配置、运行次数和门槛仍待讨论。测试代码及旧基线未审查前不开始 S0–S13 的生产改造；文档更新不表示测试或模块已完成。
+7. 当前共同负载配置、次数和观察时限以已审查的 T0 文档与运行记录为准；后续新增能力、故障模型或验收门槛仍需讨论。保留原始 `t+`、未知结果及 P3 未覆盖项；文档更新不表示生产模块已完成。
 
 ## 2. 目标与集群边界
 
@@ -79,6 +83,10 @@
 - BlockDevice：裸设备访问及持久化屏障；开发可提供文件模拟后端。
 
 FS 的范围是节点内。PG、Pool、MON、CRUSH 及独立存储复制协议属于另一个架构方向，不属于本轮依赖。当前没有为三个静态节点再新增多套独立 Raft 分片。
+
+这里“对象”是可寻址的数据容器，OSD 在 Ceph 中是承担存储服务的守护进程，不能把对象改名为 OSD。副本 Pool 的部分目标由本项目 Raft 的复制、多数派提交和追赶承担，但 Pool 的放置、故障域、EC 编码等职责并未因此全部实现。增量日志追赶与快照安装分别承担增量/完整恢复起点的作用，不引入 Ceph PG 的 peering、recovery、backfill 协议或 MON/OSDMap。节点本地物理损坏仍须被 FS 检出并上报，Raft 不是任意坏块的自动修复器；相关比较与取舍见 [第二轮审查](design_review_20260921.md#7-第二轮复核与补充)。
+
+对照 [Ceph 存储集群](https://docs.ceph.com/en/latest/architecture/storage-cluster/)、[Pool/放置职责](https://docs.ceph.com/en/latest/architecture/dynamic-cluster-management/) 和 [PG 状态](https://docs.ceph.com/en/latest/rados/operations/pg-states/)：本项目采用本地对象间接寻址及分阶段恢复的组织思路，跨节点权威继续由已有 Raft 保持，不将上述对照写成已实现独立存储集群。
 
 ```text
                       客户端
@@ -108,6 +116,8 @@ flowchart TB
     Raft <--> Peers["其他两个节点"]
     Raft --> Apply["已提交命令按序 Apply / 完整发布"]
     Apply --> A["BusTub A：业务 SQL、表、索引、事务、BufferPool"]
+    A --> Space["F36：记录清理、页内整理、已有页复用"]
+    Space --> Page
     Access -. "通过读屏障的查询" .-> A
     Raft --> Logs["LogStore"]
     Raft --> Stable["StableStore / HardState"]
@@ -126,7 +136,7 @@ flowchart TB
 
 业务路径：Raft → Apply → A → 页适配 → FS。Raft 自身的 LogStore、StableStore、SnapshotStore 另有直接进入 FS 的持久化路径。
 
-节点的状态控制、资源预算与恢复编排是横切职责；它们不要求每次普通 IO 同步往返全局控制器。
+节点的状态控制、资源预算与恢复编排是横切职责；它们不要求每次普通 IO 同步往返全局控制器。F35 负责协议事件与请求阶段推进；F26 管页生命周期，F36 判断记录/页能否回收。三者不合并成一个全局事务或 GC 决策器。
 
 ## 4. 对象模型与统一 ObjectIO
 
@@ -143,6 +153,8 @@ flowchart TB
 | Superblock | 已知位置的引导对象 | 约定引导位置 |
 
 extent 表示一段连续设备范围，如“设备 D、起点 X、长度 L”。对象逻辑上连续，物理上可以由多个 extent 组成。
+
+连续分配是 F12 的择优目标，不是追加/读取的正确性前提。多个页打包到一个对象不保证物理相邻，也不自动减少要访问的逻辑页数；随机点查不默认扩大预读。A 的页内空闲摘要描述“页里还能放多少记录”，FS bitmap 描述“设备哪些范围可分配”，两者不能混为一张分配表。
 
 ```mermaid
 flowchart TB
@@ -197,6 +209,8 @@ offset    = (page_id % K) × page_size
 
 K 尚未确定。这允许避免持久化一张可计算的 page→object 重复表。B 持久化对象逻辑范围→extent 的真正映射。
 
+“数据库身份”必须区分 A/B 及业务工作库的重建代次。当前恢复/快照安装会建立新工作库，页号可能重新从低位分配；新工作库不能误用旧对象、旧帧或旧 IO 回调。对象代次、内容版本、帧代次和 Journal 段代次各有作用，不能共用一个含义不明的 generation。
+
 分层 bitmap：L0 保存基础分配事实，L1 以上提供全空闲/部分空闲/无空闲等搜索摘要。高层摘要尽量重建；预留与提交分开；坏块/隔离另行表达。连续空闲长度等查找信息待子方案确定。
 
 ### 5.3 持久化子系统
@@ -210,6 +224,8 @@ DurabilityService（组织边界，不是额外一套日志）
 ```
 
 B 提供元数据恢复记录；JournalService 统一负责 WAL/Journal 的实际记录与刷盘。RecoveryDispatcher 按类型把元数据恢复交给 B，把 Deferred 恢复交给读取/写回路径。
+
+共享 [F00 完成契约](modules/storage-contracts.md#67-完成是几项事实不是一条通用枚举流水线)：缓冲归还、字节 IO 完成、本地事务 durable、本地版本发布、Raft 提交/应用分别确认。F00 是类型与约定，不增一层运行服务。默认本地事务成功具备 durable 和发布，设备字节 IO 的完成不提供同等保证；旧同步 Store 契约在 S8 保留，异步协议推进归 S13。
 
 参考 [Ceph SeaStore](https://docs.ceph.com/en/latest/dev/crimson/seastore/) 的事务接口协调职责，用于本项目提交、日志和映射的分工；本项目继续以 B 作为元数据引擎，不照搬其完整后端和线程模型。
 
@@ -250,6 +266,7 @@ CommitBatch
 - Snapshot 发布通过清单引用，避免临时正文再复制到正式正文。
 - 可重建索引、位图摘要、运行状态不默认独立持久化。
 - 一批次是原子边界；多个批次可 group commit。LSN 递增不等于 IO 已连续 durable，不能跳过未完成空洞。
+- 批次身份和日志位置表达不同概念，不要求必有两套持久化计数器；能由提交记录位置唯一识别批次时可复用表示，但恢复仍须知道批次范围和完整性。对不存在依赖的请求不强加全局发布顺序。
 - ObjectRef / PayloadRef 需表达身份、代次、范围及完整性。持久引用变化须原子提交；临时读者和 IO 也要保护内容。
 - Raft log 与 Journal 分段管理生命周期，避免长期日志拖住短周期恢复记录。
 
@@ -284,6 +301,8 @@ RMW 决定如何组装完整处理单元，COW 决定是否写到新位置；二
 
 具体阈值未冻结。未保护的原地覆盖不作为默认。设备对齐也不等于掉电原子性。
 
+若一次请求混合 Common 和 Deferred，一个原子批次必须同时等待 Common 正文的 durable 依赖，并记录 Deferred 的恢复正文；不能让其中一部分先作为整个事务成功发布。RMW 扩大的实际写入范围也进入冲突和保护判断。
+
 ### 7.1 Common
 
 ```text
@@ -310,6 +329,8 @@ Common 仍需提交元数据，所以经过 CommitPipeline；正文无需提前�
 ```
 
 同范围写回维护顺序与代次；旧任务不能覆盖新版本。快照或旧读者仍保护的范围不能直接原地覆盖。恢复只能执行有效提交且适用于目标代次的任务。
+
+新增安全约束：原地落位若会重写整个物理处理单元，恢复内容必须覆盖该故障模型下可能损坏的全部有效字节。只记录修改的 100 B，不能默认保护同块另外 3996 B；须证明其可恢复，或改走 COW/受保证的写入方式。Journal 自己的追加也不能破坏已确认 durable 的旧前缀；校验和只检测损坏，尾块保护和安全截尾边界在 F06/F07 中设计。
 
 参考 [BlueStore 写入策略](https://docs.ceph.com/en/latest/dev/bluestore/) 对数据先写新位置和日志保护覆盖的区分，内化为本项目两条持久化顺序；不直接套用文档中的尺寸阈值或全部实现模式。
 
@@ -361,6 +382,8 @@ B 恢复后
 
 裁剪还须确认 Deferred 和其他引用已解除。某一页曾写回一次，不代表其 FULL 恢复基础可以立即删除。更细并发 checkpoint 不是隐含的第一阶段要求。
 
+暂停的是新元数据修改的准入，不能封死已接受批次完成、错误处理和 checkpoint 自身所需资源。S10 不把“所有 Deferred 必须落位”作为建立元数据 checkpoint 的无条件前提；仍待落位的描述/正文继续可恢复并保留。崩溃发生在新入口发布之前时，旧入口和保留日志也必须恢复已经确认的提交，不能只挑 checksum 合法的旧入口而静默丢失新提交。
+
 ## 9. Raft Store、业务库 A 与恢复点
 
 ### 9.1 LogStore
@@ -374,6 +397,8 @@ B 恢复后
 
 参考 [TiKV Raft Engine](https://github.com/tikv/raft-engine#design) 的追加段、内存位置索引与协作 GC，内化到 F23/F29；不因此为当前集群新增多套 Raft 分片。
 
+批量写入和组提交分开：多条 entry 可合并范围 IO，多次写入也可共享一次持久化屏障；不能把不同业务命令合成一条，不能把本地 durable 当作多数派提交。F23 管 entry/段语义，F07 管本地 Journal 恢复批次，F02 承担实际 IO；Raft 正文仍写最终日志段，不为使用批量能力而再复制进 Journal。批量字节、条数、等待时限待冻结；单在途提案时合并机会有限，F35 后续提供安全并发。
+
 ### 9.2 StableStore
 
 保留 current_term、voted_for、commit_index 等当前项目约定。上层判断单调性与投票规则，ControlKV/B 提供本地持久化。依赖 term/vote 的消息仍遵守持久化先行关系。格式兼容或迁移需要单独讨论。
@@ -384,6 +409,8 @@ B 恢复后
 
 参考 [Btrfs reflink](https://btrfs.readthedocs.io/en/stable/Glossary.html#term-reflink) 的共享 extent 与修改时 COW，用于本项目版本共享。当前 canonical 快照与物理数据库页格式不同，不能自动获得页共享或增量快照。
 
+这是原有 F25/F28/F14 的 S11 方向，不新增快照模块。[RocksDB checkpoint](https://rocksdb.org/blog/2015/11/10/use-checkpoints-for-efficient-snapshots.html) 通过共享不可变 SST 降低复制成本；内化为固定业务恢复边界后共享不可变对象版本/extent，而不是对 BusTub 可变页直接做文件硬链接。压缩降低容量和传输量，不自动消除 canonical 全表构建；跨节点复用还须验证接收端的相同基础内容。
+
 ### 9.4 A 页适配与业务恢复
 
 A 保留 SQL、Catalog、表、索引、事务和 BufferPool。页适配处理对象范围、错误传播、页版本、在途缓冲及释放请求；页 IO 并发还需要解除现有上层持锁等待等限制。
@@ -393,6 +420,12 @@ A 保留 SQL、Catalog、表、索引、事务和 BufferPool。页适配处理�
 业务恢复点必须一致捕获表、索引、Catalog、会话去重、分配状态、applied index 及对应对象版本/映射根。单独持久化 applied index 不代表业务页可恢复。只有该恢复链成立，才能依赖 Raft 日志而不再为 A 默认增加另一套业务 WAL。
 
 B checkpoint 恢复本地元数据；A checkpoint/快照恢复业务状态，不能混用。索引物理保存还是重建、业务暂停边界及现有格式兼容，留给 F28 讨论。
+
+### 9.5 写入准备复用既有查询链（F35 / S13）
+
+当前分布式 SELECT 已复用 Binder → Planner → Optimizer → Executor，并以 `BeginReadAt(published_applied_index)` 配合可见性保护读取；UPDATE/DELETE 准备仅经过 Binder/Planner 后手动扫描。改进优先复用现有只读子计划、扫描/索引/过滤执行器，在同一受保护视图内取得完整旧行、RID 与旧版本，再生成现有逻辑复制命令。不能执行普通 Update/DeleteExecutor 提前修改业务数据，也不重新解析一条拼接的 SELECT SQL。
+
+现有索引规则支持列与常量等值、左右互换及同列 OR，但尚未提取 AND 中的等值条件；索引点查不保证已检查任意剩余谓词。复用时保留完整条件过滤、输出 schema 和旧版本一致性。参照 [SQLite 查询计划](https://www.sqlite.org/eqp.html) 对读取访问路径和语句结果的分工，落点为现有优化器与 SqlCommandPreparer 的薄适配；详细限制见 [F35](modules/raft-pipeline.md)。该项可独立验收，保持 S13 归属，不借基线测试提前改生产。
 
 ## 10. GC、缓存、资源和状态
 
@@ -410,6 +443,10 @@ A 判断 tuple/undo/页存活性；Raft/LogStore 判断日志截断；SnapshotSt
 
 GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft index、Journal LSN 的全局最小值代替各模块判断。基础 COW 回收随 S7 实现；A 先清理页链、索引和事务引用，再请求整页释放。
 
+新增 [F36 A 记录与表页空间管理](modules/table-space-management.md)：清除已无读者需要的旧记录、保持存活 slot 身份进行页内碎片整理、寻找并复用有空闲空间的旧页，再由 F26/F22/F12 完成安全整页释放。页内整理不立即减少页数；复用抑制后续增长；跨页搬迁/合并才可能主动减少页数，属于后续可选范围。当前 tuple 需放入单页，F36 不默认引入跨页大记录或记录的长期 page 配额。
+
+参照 PostgreSQL [VACUUM](https://www.postgresql.org/docs/17/routine-vacuuming.html)、[slot 间接定位](https://www.postgresql.org/docs/17/storage-page-layout.html)、[Free Space Map](https://www.postgresql.org/docs/17/storage-fsm.html)，分别内化为安全清理、稳定 RID 的页内搬动、可重建的空闲空间搜索摘要；候选页加锁后重查实际空间。其 [HOT](https://www.postgresql.org/docs/17/storage-hot.html) 通过同页版本链减少索引更新，并非直接覆盖旧行；保持 RID 原地修改与 HOT 分开评估，旧版本保护、所有索引键、日志恢复和页格式明确前不直接启用。
+
 ### 10.2 缓存
 
 | 内容 | 主要位置 |
@@ -422,6 +459,10 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 | 快照 | 流式缓冲与有限预读 |
 
 默认不再建设通用的 FS 干净业务页缓存。不冻结 70/30，先保留工作内存和前进所需资源，再讨论可淘汰缓存比例。直接设备 IO 还需要合适后端与对齐策略，裸设备不自动消除所有内存复制。
+
+F26 在短映射锁内登记 Loading、保护帧及合并同页等待；锁外等待 IO/页内容锁；独立页经 F02 有界并行。帧复用代次、写回版本、错误唤醒和脏页淘汰必须同时设计，不能只在 `future.get()` 前解锁。详见 [F26](modules/page-storage-adapter.md)。PostgreSQL 的 [buffer 管理](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/storage/buffer/README) 分开 pin、内容锁、映射和 IO 状态；RocksDB 的 [异步读取](https://rocksdb.org/blog/2022/10/07/asynchronous-io-in-rocksdb.html) 重叠独立块读取和有限预读，内化到本项目页生命周期与 IO 执行分工。
+
+BufferPool 未命中、OS 文件页缓存未命中、可执行代码页缺页是不同事件。绕过 OS 缓存后须在相同总内存预算下重分 A/B/工作缓冲，不能保留极小 A 缓存却假定读取必然更快。参考 [RocksDB Direct IO](https://github.com/facebook/rocksdb/wiki/Direct-IO) 的应用缓存/预读责任。二进制函数重排的局部性思路可借鉴，但 [LLVM temporal profiling](https://clang.llvm.org/docs/UsersManual.html#profiling-with-instrumentation) 主要减少启动代码页缺页；它不是本轮数据页缓存方案或已证实的 P2/P3 解法。
 
 ### 10.3 状态视图
 
@@ -445,11 +486,16 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 - 物理完成乱序不能破坏逻辑可见顺序或 durable 连续边界。
 - 客户端成功要求 Raft 提交、按序 Apply 和完整业务发布。
 - 线性一致读取得安全 ReadIndex 后等待已发布应用位置满足要求；不能把正常 Apply 落后当成可读旧值的理由。
+- 实时顺序也是约束：若操作 X 已成功返回后操作 Y 才被调用，则线性化顺序必须 X 在 Y 前（`<H ⊆ <S`）；并发请求可按符合语义的顺序线性化，不能按 IO 回调到达顺序随意发布。具体证明与验证归 F35。
 - 多提案还要处理旧值/版本前置条件、请求身份、去重与冲突，不能只去掉单提案限制。
 - 当前“每客户端只保留最后结果”和“Leader 全局仅一个未完成新写提案”是两个独立限制，两项改进统一纳入 F35 / S13。全局多提案细化原有流水线目标，单客户端多请求及多结果窗口补足原有去重要求；不新增同职责模块或 S14。归属、协作边界见 [F35 §2.1](modules/raft-pipeline.md#21-唯一归属与协作边界)，候选方案及开源参考见该文档第 4–5 节。详细设计待讨论；不得为压测提前改变旧版语义。
 - 结果不确定时不得盲目当作未提交重用序号或返回普通业务拒绝；具体处置在相应模块讨论。
 
 参考 [etcd/raft](https://github.com/etcd-io/raft/blob/main/README.md) 的协议决策与外部执行分离，内化为 F35 的持久化、消息和 Apply 依赖；本项目业务准备/可见性仍需单独设计。
+
+F35 采用 event-loop 风格推进协议与请求状态，耗时 Prepare、持久化、Apply、Snapshot 经各自有界工作队列执行。投递满时保留有界 pending 并背压入口，不在协议循环中等待 worker 腾位；pending、排队、执行及未消费完成结果共同限制数量和字节。接受工作时保证完成结果有容量，通知可合并而结果不可遗失；避免 worker 与 event loop 因互等队列形成死锁。初期 Apply 仍按序；Prepare 依赖、durable 顺序和读屏障不因分线程而消失。
+
+借鉴 [etcd/raft 异步存储接口](https://github.com/etcd-io/raft/blob/main/doc.go) 的本地追加/应用消息及完成响应，内化为 F35 阶段执行与完成协议；完成容量、pending 总预算和公平调度是本项目要补齐的实现约束。F35 接收阶段完成，F02 处理具体 IO，F33 汇总节点条件，三者不共用一条逐 IO 的全局审批队列。
 
 ## 12. 节点启动与关闭
 
@@ -470,11 +516,11 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 
 ## 13. 先测试设计，再逐阶段实现
 
-**T0：先完成改造前后的正确性与性能测试设计。** [testing_plan.md](testing_plan.md) 记录已定约束与待定项，[testing_scenarios.md](testing_scenarios.md) 给出待审查候选表。顺序为：讨论场景与资源 → 审查测试实现 → 运行并记录旧系统基线 → 逐模块改造 → 用冻结的测试内容复测。当前没有批准具体执行命令、阈值或性能结论；模块新风险所需的必要测试随模块方案补齐。
+**T0：共同测试已编写、复审，本轮旧系统测量与归档结束。** [testing_plan.md](testing_plan.md) 记录约束；[最新执行记录](testing_execution_20260921.md) 保留正确性结果、P1/P2/P4 测量、P2 超时和 P3 `3600s+` 及未覆盖项。S0 已完成当轮范围，下一步进入 S1 讨论；逐模块改造后复用冻结内容，新增风险随模块补充。不能从本次本机/进程故障证据推定掉电安全或完整 GC 稳定性。
 
 | 顺序 | 模块方案所在文档 | 阶段目标 | 是否完成 |
 | --- | --- | --- | --- |
-| S0 | [F00 存储契约与共享类型](modules/storage-contracts.md) | 明确共享契约、对象身份、原子边界、完成与错误语义。 | 未完成 |
+| S0 | [F00 存储契约与共享类型](modules/storage-contracts.md) | 明确共享契约、最小范围类型、兼容与必要验证；不提前实现其他模块。 | 已完成，见执行记录 |
 | S1 | [F01 BlockDevice](modules/block-device.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 建立设备与有界 IO 基础、缓冲所有权、资源记账及最小生命周期/错误状态。 | 未完成 |
 | S2 | [F03 Superblock 与引导对象](modules/bootstrap.md)<br>[F04 RegionManager](modules/region-manager.md)<br>[F05 MetadataBackend](modules/metadata-backend.md)<br>[F06 JournalBackend](modules/journal-backend.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 基础对象与已知引导位置可访问；区域和直接页/Journal 后端可定位。 | 未完成 |
 | S3 | [F31 资源预算与背压基础](modules/resource-budget.md)<br>[F16 Admission](modules/admission.md)<br>[F07 JournalService](modules/journal-service.md) | Journal 有界准入、原子记录编码、批量刷盘、读取与有效边界扫描。 | 未完成 |
@@ -483,23 +529,39 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 | S6 | [F12 Allocator](modules/allocator.md)<br>[F13 对象元数据与 extent 映射](modules/object-mapping.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md) | 普通对象的分配、映射、引用和寻址进入统一 ObjectIO。 | 未完成 |
 | S7 | [F15 StorageAPI](modules/storage-api.md)<br>[F16 Admission](modules/admission.md)<br>[F17 Sequencer](modules/sequencer.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F19 CommitPipeline 与 TxContext](modules/commit-pipeline.md)<br>[F20 VersionPublisher](modules/version-publisher.md)<br>[F21 ReadResolver](modules/read-resolver.md)<br>[F22 GCService](modules/gc-service.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md) | 对象创建/读写/删除、Common、原子发布及基础回收形成可恢复闭环。 | 未完成 |
 | S8 | [F23 LogStore](modules/raft-log-store.md)<br>[F24 StableStore / HardState](modules/raft-stable-store.md)<br>[F25 SnapshotStore](modules/snapshot-store.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 接入 Raft 日志段、HardState 控制记录和快照引用发布，保留协议与恢复约束。 | 未完成 |
-| S9 | [F26 BusTub A 页适配与页 IO 接入](modules/page-storage-adapter.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 业务页接入 FS，处理错误传播、页版本、IO 等待与整页释放。 | 未完成 |
+| S9 | [F26 BusTub A 页适配与页 IO 接入](modules/page-storage-adapter.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 先完成 F26 页生命周期与接入，再完成 F36 页内整理/复用；整页释放以引用和恢复条件成立为前提。 | 未完成 |
 | S10 | [F27 DeferredWriteback 与待落位索引](modules/deferred-writeback.md)<br>[F07 JournalService](modules/journal-service.md)<br>[F10 B CheckpointManager](modules/metadata-checkpoint.md)<br>[F11 RecoveryDispatcher](modules/recovery-dispatcher.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F16 Admission](modules/admission.md)<br>[F17 Sequencer](modules/sequencer.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F19 CommitPipeline 与 TxContext](modules/commit-pipeline.md)<br>[F20 VersionPublisher](modules/version-publisher.md)<br>[F21 ReadResolver](modules/read-resolver.md)<br>[F22 GCService](modules/gc-service.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F33 NodeStateController](modules/node-state-controller.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | Deferred 从提交后可读到有序落位及安全裁剪的完整路径。 | 未完成 |
-| S11 | [F28 BusTub A 业务 Checkpoint](modules/business-checkpoint.md)<br>[F13 对象元数据与 extent 映射](modules/object-mapping.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F25 SnapshotStore](modules/snapshot-store.md)<br>[F22 GCService](modules/gc-service.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 可靠业务恢复点、固定对象版本与共享快照，具体共享/压缩/增量范围再讨论。 | 未完成 |
-| S12 | [F22 GCService](modules/gc-service.md)<br>[F29 日志段整理](modules/log-segment-cleaner.md)<br>[F30 校验扫描与损坏上报](modules/integrity-scrubber.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 完整回收、日志整理、校验扫描和前后台资源协调。 | 未完成 |
-| S13 | [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md) | F35 内先明确业务依赖，再推进多客户端有界提案，随后扩展单客户端请求/结果窗口及恢复兼容；保留读屏障，并进行已约定的 IO/策略调优。 | 未完成 |
+| S11 | [F28 BusTub A 业务 Checkpoint](modules/business-checkpoint.md)<br>[F13 对象元数据与 extent 映射](modules/object-mapping.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F25 SnapshotStore](modules/snapshot-store.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F22 GCService](modules/gc-service.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 可靠业务恢复点、固定版本与共享快照；F36 清理和页释放接入该引用/恢复边界，格式与增量范围仍需冻结。 | 未完成 |
+| S12 | [F22 GCService](modules/gc-service.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F29 日志段整理](modules/log-segment-cleaner.md)<br>[F30 校验扫描与损坏上报](modules/integrity-scrubber.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 完整回收、页清理/日志整理预算、校验扫描和前后台协调。 | 未完成 |
+| S13 | [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md) | F35 先明确业务依赖、复用查询链，再分离事件推进与耗时执行，演进多客户端/单客户端窗口；复核 F36 回收与新读者并发条件，保留读屏障。 | 未完成 |
 
 阶段表是依赖顺序，不表示每个模块只在该阶段出现一次。特别是 B 在 S4 已需要准入、排序、提交和发布的最小能力；S7 扩展同一套组件服务普通对象，S10 再扩展 Deferred，不建立第二套同职责实现。F02 先基础对象，再普通对象；F33/F34 的生命周期支持从早期持续完善。
 
 本阶段只能实现用户当轮已分配的范围。未定义的参数、接口与失败分支按第 1.1 节处理。
 
+### 13.1 S9 内部顺序及跨阶段衔接
+
+1. 设计时先冻结 F36 的记录可回收条件、slot/页格式及旧 RID 失效规则；不默认套用课程事务 GC 的时间戳到 Raft 状态机。
+2. S9.1：F26 完成页 IO 接入、加载/写回/淘汰生命周期与错误传播，复用已建立的 F02/F22 能力。
+3. S9.2：F36 完成无用记录清理、页内碎片整理、空闲 slot/已有页复用，保留完整业务结果及当前恢复链。
+4. S9.3：引用、页号复用及崩溃恢复条件均成立后，接通空页脱链与 F26 → F22 → F12 释放；条件缺失时只暂缓此子项并记录原因，不能先做不安全的释放。
+5. S11：F36 与 F28/F14 同步 checkpoint、共享版本和 COW 保护。S12：完善扫描/清理预算。S13：F35 引入新读者和 Prepare 并发时复核 F36 的安全条件。
+
+F36 的首轮物理空间复用先于持久业务 checkpoint 格式冻结，降低后续重复迁移。跨页搬迁、完整 HOT、跨页大记录不是第一版隐含任务。F26 如修改 A/B 共用 BufferPool 代码，必须同时核对 F08 的私有元数据页与 WAL 先行约束。
+
+性能归因保留版本边界：旧系统 → S9.1 页 IO/FS 接入 → S9.2/S9.3 A 层空间管理 → S13 查询访问路径 → S13 并发流水线。按需要使用同一测试内容复测，不复制多套测试，不把 SQL/并发收益全部归于 FS；P3 仍只能与旧版相同观察期限内的完成量比较。
+
+### 13.2 S0 已完成范围与下一步
+
+[F00 §6.13](modules/storage-contracts.md#613-s0-当轮实施范围用户授权后落定) 已完成共同契约、现有流式快照实际使用的范围类型及 10 项定向验证；没有消费者的运行接口和磁盘格式仍在其所属阶段冻结。下一步讨论 F01 的设备接口和保证，再接入 F02 的有界执行及 F31/F32/F33 的最小支撑能力。S1 的详细方案与测试尚待讨论；F35/F36 不提前实施。
+
 ## 14. 模块目录与完成状态
 
-每行文档包含职责、阶段、依赖、开源参考、本地落点、待讨论项、详细方案位置、测试约束、未启用 prompt 和完成证据栏。
+每行文档包含职责、阶段、依赖、开源参考、本地落点、待讨论项、详细方案位置、测试约束、prompt 状态和完成证据栏。完成状态仅对应模块已约定范围，不代替后续依赖模块的实现。
 
 | 模块与专用方案文档 | 阶段 | 模块介绍 | 是否完成 |
 | --- | --- | --- | --- |
-| [F00 存储契约与共享类型](modules/storage-contracts.md) | S0 | 明确对象、引用、完成语义、原子边界和各模块的数据归属。 | 未完成 |
+| [F00 存储契约与共享类型](modules/storage-contracts.md) | S0 | 明确对象、引用、完成语义、原子边界和各模块的数据归属。 | 已完成（§6.13 当轮范围） |
 | [F01 BlockDevice](modules/block-device.md) | S1 | 提供设备读写、能力查询、持久化屏障和真实错误结果。 | 未完成 |
 | [F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md) | S1、S2、S6、S13 | 让普通、基础和引导对象共用范围 IO、缓冲生命周期、调度与错误传播。 | 未完成 |
 | [F03 Superblock 与引导对象](modules/bootstrap.md) | S2 | 通过已知设备位置定位格式、设备身份、区域和恢复入口。 | 未完成 |
@@ -525,7 +587,7 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 | [F23 LogStore](modules/raft-log-store.md) | S8 | 将现有 Raft 日志语义适配到最终日志段对象。 | 未完成 |
 | [F24 StableStore / HardState](modules/raft-stable-store.md) | S8 | 保留 term、vote、commit 的协议约束，将正文存入 B 控制记录。 | 未完成 |
 | [F25 SnapshotStore](modules/snapshot-store.md) | S8、S11 | 管理不可变快照正文、清单发布、接收传输与保留。 | 未完成 |
-| [F26 BusTub A 页适配与页 IO 接入](modules/page-storage-adapter.md) | S9 | 让业务页保持页语义，经对象范围接口访问 FS。 | 未完成 |
+| [F26 BusTub A 页适配与页 IO 接入](modules/page-storage-adapter.md) | S9 | 页/帧加载、写回、淘汰与范围适配，经有界对象 IO 访问 FS。 | 未完成 |
 | [F27 DeferredWriteback 与待落位索引](modules/deferred-writeback.md) | S10 | 消费已提交恢复正文并安全写入最终位置。 | 未完成 |
 | [F28 BusTub A 业务 Checkpoint](modules/business-checkpoint.md) | S11 | 建立能与 Raft 日志尾部组成完整业务恢复链的本地恢复点。 | 未完成 |
 | [F29 日志段整理](modules/log-segment-cleaner.md) | S12 | 整理部分有效的 Raft 日志段，并原子替换有效段清单。 | 未完成 |
@@ -534,7 +596,8 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 | [F32 缓存职责与内存策略](modules/cache-policy.md) | S1、S4、S9、S12、S13 | 划清 A 页缓存、B 页缓存、解码元数据及工作缓冲职责。 | 未完成 |
 | [F33 NodeStateController](modules/node-state-controller.md) | S1、S5、S8、S10、S12 | 将模块事实汇总为节点阶段、可叠加条件与操作能力。 | 未完成 |
 | [F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | S2、S5、S8、S9、S10、S11 | 按依赖打开设备、B、Store、业务状态，并正确关闭入口和排空工作。 | 未完成 |
-| [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md) | S13 | 负责全局有界多提案、业务依赖与线性一致读，以及单客户端多请求、结果保留和安全重试/回收。 | 未完成 |
+| [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md) | S13 | 复用只读准备链，分离事件推进与耗时执行，处理业务依赖、多提案、读屏障及会话窗口。 | 未完成 |
+| [F36 A 记录与表页空间管理](modules/table-space-management.md) | S9、S11、S12、S13 | 判断记录/页存活性，整理页内碎片、复用槽位/已有页，安全释放空页；协作快照和并发演进。 | 未完成 |
 
 以下是组合名称或内部结构，而非第二个实现所有者：
 
@@ -545,7 +608,7 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 - 待落位索引：F27 的执行状态，与 F21/F14 协作。
 - ApplyExecutor / 业务可见性：现有业务正式路径，适配和并发调整归 F26/F35。
 - 客户端请求窗口 / SessionTable 演进：F35 内部职责；会话语义由 F35 定义，F25/F28 协作保存其恢复状态，不另建一套会话持久化服务。F35 业务流水线与 F19 本地存储事务流水线分属不同层次。
-- 业务 SQL/Catalog/表/索引：沿用 A；相关恢复点归 F28，不能以本次重构默认重写业务层。
+- 业务 SQL/Catalog/表/索引：沿用 A；只读准备访问路径归 F35，记录与页空间管理归 F36，恢复点归 F28。复用现有组件，不默认重写业务引擎或创建第二套查询器。
 
 ## 15. 待定参数、测试讨论和长期限制
 
@@ -560,16 +623,31 @@ GCService 统一预算和执行安排，不拿一个混合事务时间戳、Raft
 7. 缓存比例、在途 IO、批次、后台 GC 和写回预算。
 8. 快照共享格式、压缩与增量传输范围。
 9. 结果不确定、损坏、IO 故障及服务降级的具体边界。
-10. 完整测试代码、故障模型、独立判定依据和同保证下的新旧性能基线。
+10. 各新增模块的故障模型和必要验收；共同旧基线已归档，新版复测尚未执行，P3 完整稳定性仍未覆盖。
+11. F35 只读候选计划范围、完成容量和视图保护；F26 帧/写回代次及页 IO 完成语义；F36 页格式、回收条件和旧 RID/页号复用规则。
 
-讨论过的测试方向包括吞吐、尾延迟、写/读/网络放大、内存/设备饱和度、恢复时间、空间稳定性及后台干扰；它们当前只是方向，不是已通过或已批准的测试。
+共同负载已覆盖部分吞吐、延迟和恢复观测；写/读/网络放大归因、完整空间稳定性、掉电及新模块专属风险不能从已有结果推定。各项证据边界以 [最新执行报告](testing_execution_20260921.md) 为准。
 
 已有未审查的结果不作为基线。测试应说明承诺、风险、观察边界与独立判定依据，避免镜像每层实现细节、测第三方保证或保留历史重构痕迹。具体记录见测试文档。
 
 ## 16. 文档变更记录
 
+- 2026-09-21（S0 提交前复审）：按总方案修正负面样本 CRC 与读取范围观察，10 项 C++ 和 25 项测试器契约检查通过；保留必要回归，清理中间产物，明确 Git 忽略范围。证据见 [测试复审](s0_test_review_20260921.md)。
+- 2026-09-21（S0 执行）：按用户“执行方案”完成 F00 共同契约、范围类型及流式快照接入；新增 5 项、复用 5 项测试，Debug/ASan/UBSan/泄漏检测下全部通过。范围审查、检测器启动问题和压缩证据见 [S0 执行记录](s0_execution_20260921.md)。下一步讨论 S1/F01。
+- 2026-09-21（第二轮审查）：补齐完成语义、日志旧前缀、Deferred 物理覆盖范围、B 私有页接入阶段、checkpoint 前进条件、工作库身份和现有 Store 兼容；展开 F00 待认可评审稿。未实施代码或测试。
+- 2026-09-21：按用户要求收录查询链复用、F35 事件循环/有界完成、F26 页生命周期、批量与组提交、共享快照去重说明；新增 F36 并安排 S9/S11/S12/S13。修正过时 T0 状态，下一步转入 S0 契约讨论；[覆盖与兼容审查](design_review_20260921.md) 记录已解决冲突和未定项。仅文档更新，生产模块均未完成。
+- 2026-09-20：用户授权最终审查、运行和归档。17 项 Python 自检、7 份 Go 模型历史、修复后 16 项 C++ 回归及 C1–C5 共 10 个参数点通过；发现并修复表页写越界、端口预检和快照完成证据误判。P2 资格失败的慢读取/心跳阻塞证据已保存，性能基线未建立；详见 [运行记录](testing_execution_20260920.md)。
+- 2026-09-20：按用户要求补齐 T0-C 的 P1/P3/P4 并统一审查全部新测试；17 项 Python 风险自检及正式客户端/节点构建通过。三节点资格运行、冻结配置与正式旧基线仍未完成，详见 [C 子方案](testing_batch_c.md) 和 [整体审查](testing_review_abc.md)。
+- 2026-09-20：用户要求修复已知问题并再审查；修复宽列完整持久化链路、C1 长度覆盖、未知写分类、C5 安装证据及 P2 模型测量干扰。9 项 Python 自检、7 份 Go 历史、15 项 C++ 定向回归通过；三节点资格运行和性能基线未执行，详见 [A/B 审查](testing_review_ab.md)。
+- 2026-09-20：按用户要求归档旧测试、分开 correctness/performance 文件，编写 B 的 C2–C5、固定 Porcupine 依赖并完成 A/B 统一静态审查。没有运行测试，T0 尚未验收。
+- 2026-09-20：审查 T0-A 及相关旧测试，移除完整 SQL 拼写断言；发现 VARCHAR 列长度截断导致建表阻塞、C1 缺少长度变化。记录未解决项与保留旧测试的理由；未改生产、未运行测试。
+- 2026-09-20：用户确认测试实施提案并保存检查点后，编写 T0-A 的 C1/P2 及共用测试基础；代码待审查，未执行测试。生产模块与有效基线均未完成。
 - 2026-09-20：明确全局单提案及单客户端单结果两项改进归 F35 / S13，区分原有目标与补充目标，并补齐内部实施顺序和跨模块协作边界；无新增模块或生产实现。
 - 2026-09-20：补充改造前后测试的三层隔离、真实 E2E、禁止测试侵入生产、场景去重、同条件比较和故障证据边界；增加候选场景表与课程测试、etcd、Ceph 等参考落点。仅更新文档，未编写或运行测试，未认可旧测量。
 - 2026-09-20：根据本次对话建立完整主方案、36 个独立模块入口、测试讨论入口和 prompt 模板。
-- 本次只落文档，未实现 FS 模块，未编写或运行系统测试，未把既有未审查测量升级为有效基线。
+- 初始整理阶段只落文档；截至 2026-09-21，本轮 A/B/C 审查、约定实测及归档已结束，限制见最新报告。FS、F35 与 F36 新实现仍未完成。
 - 后续每次讨论和实现都更新对应模块及主表；完成标记必须附代码、验证和清理证据。
+
+### T0-C v2 实测结果（2026-09-21）
+
+[执行、续跑与最终审查](testing_execution_20260921.md)：P1/P2/P4 已完成测量及业务核对；P3 完成一小时观察、确认 8,421/200,000 次操作，业务核对通过，完整空间稳定性未覆盖。旧系统性能如实保留，本轮未实施 F35/S13 或 FS 生产改造。

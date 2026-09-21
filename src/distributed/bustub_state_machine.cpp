@@ -191,8 +191,7 @@ auto BusTubStateMachine::DecodeSchema(const std::vector<ReplicatedColumnDefiniti
       throw std::runtime_error("invalid or duplicate replicated column name");
     }
     if (column.type_ == TypeId::VARCHAR || column.type_ == TypeId::VECTOR) {
-      if (column.storage_size_ == 0 || column.storage_size_ > std::numeric_limits<uint8_t>::max() ||
-          (column.type_ == TypeId::VECTOR && column.storage_size_ % sizeof(double) != 0)) {
+      if (column.storage_size_ == 0 || (column.type_ == TypeId::VECTOR && column.storage_size_ % sizeof(double) != 0)) {
         throw std::runtime_error("invalid replicated variable-length column");
       }
       decoded.emplace_back(

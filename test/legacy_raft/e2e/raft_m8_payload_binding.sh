@@ -6,7 +6,7 @@ build_dir=${1:-/tmp/bustub-raft-build-clang}
 port_base=${2:-26100}
 artifact_root=${3:-"/tmp/bustub-raft-m8-payload-binding-$$"}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-source "${script_dir}/raft_process_harness.sh"
+source "${script_dir}/../../support/raft_process_harness.sh"
 
 # Start every voter before the first election deadline. A common production
 # range also lets the test deterministically give an already-running voter an

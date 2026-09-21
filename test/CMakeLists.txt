@@ -2,6 +2,14 @@ cmake_minimum_required(VERSION 3.10)
 
 include(GoogleTest)
 
+# Explicit, opt-in test-side client bridge. No benchmark runs during ordinary
+# builds or CTest discovery; the user reviews T0 code before approving execution.
+add_executable(storage-e2e-driver EXCLUDE_FROM_ALL storage_acceptance/client_driver.cc)
+target_link_libraries(storage-e2e-driver bustub)
+set_target_properties(storage-e2e-driver PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test")
+add_custom_target(build-storage-e2e)
+add_dependencies(build-storage-e2e storage-e2e-driver bustub-node bustub-client)
+
 file(GLOB_RECURSE BUSTUB_TEST_SOURCES "${PROJECT_SOURCE_DIR}/test/*/*test.cpp")
 
 # #####################################################################################################################
@@ -31,8 +39,14 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
     add_dependencies(check-tests ${bustub_test_name})
 
     set(bustub_test_labels "unit")
-    if (bustub_test_source MATCHES "/test/(recovery|raft|distributed)/")
-        list(APPEND bustub_test_labels "raft")
+    if (bustub_test_source MATCHES "/test/legacy_raft/(recovery|raft|distributed)/")
+        list(APPEND bustub_test_labels "raft" "legacy-regression")
+    endif ()
+    if (bustub_test_source MATCHES "/test/storage_acceptance/")
+        list(APPEND bustub_test_labels "storage-contract")
+    endif ()
+    if (bustub_test_source MATCHES "/test/storage_redesign/")
+        list(APPEND bustub_test_labels "storage-redesign")
     endif ()
     if (bustub_test_name STREQUAL "tcp_transport_test" OR bustub_test_name STREQUAL "distributed_node_test")
         list(APPEND bustub_test_labels "distributed-e2e")
@@ -148,11 +162,11 @@ add_dependencies(check-tests sqllogictest)
 # creates a fresh artifact root for every CTest process and rejects reuse.
 add_test(
         NAME RaftProcessChain
-        COMMAND bash "${PROJECT_SOURCE_DIR}/test/e2e/raft_m0_m7_chain.sh" "${CMAKE_BINARY_DIR}" 24100)
+        COMMAND bash "${PROJECT_SOURCE_DIR}/test/legacy_raft/e2e/raft_m0_m7_chain.sh" "${CMAKE_BINARY_DIR}" 24100)
 set_tests_properties(
         RaftProcessChain
         PROPERTIES
-        LABELS "raft;distributed-e2e;raft-process-chain"
+        LABELS "raft;distributed-e2e;raft-process-chain;legacy-regression"
         RUN_SERIAL TRUE
         TIMEOUT 900)
 
@@ -161,11 +175,11 @@ set_tests_properties(
 # Leader replacement, snapshot publication, and a full three-node cold reopen.
 add_test(
         NAME RaftM8PayloadBinding
-        COMMAND bash "${PROJECT_SOURCE_DIR}/test/e2e/raft_m8_payload_binding.sh" "${CMAKE_BINARY_DIR}" 26100)
+        COMMAND bash "${PROJECT_SOURCE_DIR}/test/legacy_raft/e2e/raft_m8_payload_binding.sh" "${CMAKE_BINARY_DIR}" 26100)
 set_tests_properties(
         RaftM8PayloadBinding
         PROPERTIES
-        LABELS "raft;distributed-e2e;raft-process-chain;raft-m8"
+        LABELS "raft;distributed-e2e;raft-process-chain;raft-m8;legacy-regression"
         RUN_SERIAL TRUE
         TIMEOUT 600)
 add_custom_target(
