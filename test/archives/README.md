@@ -67,12 +67,14 @@ cp -R "$archive_scratch/package/$archive_module/test/." "$archive_scratch/source
 
 ## F01 恢复与风险交接
 
-F01 当前包为 9,449 字节；包内 MANIFEST.json 记录两个源码的哈希、基准提交与生产文件哈希、依赖及未覆盖项，RESTORE.md 提供外部目录恢复/运行命令。基准 d8ad4a0 本身没有 F01，需匹配后续生产源码哈希或使用本地结果包中的 source/ 快照。不要将其自动恢复到长期测试目录。
+F01 当前包为 9,316 字节；包内 MANIFEST.json 记录两个源码的哈希、基准提交与生产文件哈希、依赖及未覆盖项，RESTORE.md 提供外部目录恢复/运行命令。基准 d8ad4a0 本身没有 F01，需匹配后续生产源码哈希或使用本地结果包中的 source/ 快照。不要将其自动恢复到长期测试目录。
 
-提交前复审修正并发测试的 future 容器扩容异常路径，修正版 7 项重新通过；6 个 mutation 的对应用例/生产逻辑未变，沿用已核验的首轮证据，本次未重跑。当前包为修正版；首轮源码快照、哈希和清理记录继续保留在首轮结果包，不回写旧结果。见[复验证据](../../test-results/storage-f01-review-20260922/README.md)。
+提交前复审修正并发测试的 future 容器扩容异常路径，修正版 7 项重新通过；6 个 mutation 的对应用例/生产逻辑未变，提交前核验后沿用其历史结果，未重跑。当前包为修正版；包含问题测试的首轮结果包已按用户要求删除，首轮 mutation 原始日志不再保留。恢复生产源码及核验现存运行结果请使用[修正版复验包](../../test-results/storage-f01-review-20260922/README.md)。
 
 风险标识：F01/range-io、reject-invalid、concurrent、durability、failure-boundary。正常路径经过真实 BlockDevice 和 Direct 文件 IO；缺失能力/EINTR/EIO/短操作的部分边界为测试链接注入；独立真实文件截短单独记录。程序重开和刷新观察均不证明掉电安全。
 
 八项审查与逐例 oracle/最小 mutation/最终矩阵见 [F01 记录](../../docs/storage_redesign/f01_execution_20260922.md)。无生产测试 hook、内部 fd getter、测试默认路径或常驻注册；新正式 BlockDevice 接口由授权的 F01 职责需要，业务调用者尚待 F02，不能用这组通过冒称共同 E2E 已覆盖新后端。后续按共同 C/P 内容接入和去重；本轮小测试全部仅归档保留。
 
-结果包及清理证据见 [F01 本地结果](../../test-results/storage-f01-20260922/README.md)。原共同 C/P 源码和原归档没有被修改。
+现存结果包及清理证据见 [F01 修正版复验](../../test-results/storage-f01-review-20260922/README.md)，旧包删除见[首轮摘要](../../test-results/storage-f01-20260922/README.md)。原共同 C/P 源码和原归档没有被修改。
+
+旧包删除后仅同步了当前包的 manifest/恢复说明，测试源码和 runner 字节未变；当前包以本目录 SHA256SUMS 为准，复验清理记录内的包哈希描述复验当时版本。

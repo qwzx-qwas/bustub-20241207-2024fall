@@ -9,7 +9,7 @@
 
 本地压缩结果为 `F01-review-results.tar.gz`；哈希见 [SHA256SUMS](SHA256SUMS)。包内保存构建/执行命令、日志、XML、检测器配置与退出码、当前测试及生产源码快照和哈希、审查记录。结果包按已有规则仅在本地保存；Git 保留本入口、哈希、清理记录，小型测试源码包另行随 Git 保存。
 
-首轮包保留原样；它的清理记录描述当时版本，不能拿旧测试包哈希校验当前修正版。当前包和复验结果已逐文件核验，临时构建、二进制及设备文件的清理见 [cleanup-verification.json](cleanup-verification.json)。
+包含修正前测试的首轮结果包现已按用户要求删除，首轮 6 个 mutation 只保留历史核验摘要。本复验包中的测试已经修正，继续保留；包内文档/manifest 是复验时的快照，其中涉及旧包保留状态的描述以本页更新为准。临时构建、二进制及设备文件的清理见 [cleanup-verification.json](cleanup-verification.json)。
 
 ```sh
 cd test-results/storage-f01-review-20260922

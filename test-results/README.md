@@ -18,5 +18,5 @@
 | [S0 首轮](storage-s0-20260921/README.md) | 首轮 10 项定向验证及检测器启动诊断 |
 | [S0 提交前复审](storage-s0-review-20260921/README.md) | 范围测试修正后的验证、总方案对照与清理 |
 
-- [F01 / BlockDevice](storage-f01-20260922/README.md)：7 项文件 Direct 阶段检查与 6 个隔离 mutation；裸设备、掉电和业务接入未验。
+- [F01 / BlockDevice 首轮历史摘要](storage-f01-20260922/README.md)：7 项文件 Direct 阶段检查与 6 个隔离 mutation 的历史记录；包含问题测试的原结果包已按用户要求删除。裸设备、掉电和业务接入未验。
 - [F01 提交前复审](storage-f01-review-20260922/README.md)：并发测试稳定性修正后 7 项重新通过；生产源码未变，首轮变异证据核验后沿用。

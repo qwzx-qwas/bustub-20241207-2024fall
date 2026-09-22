@@ -29,5 +29,13 @@
     "test-results/storage-f01-20260922/F01-results.tar.gz",
     "docs/storage_redesign/f01_execution_20260922.md"
   ],
-  "notes": "Only this run scratch directory removed; old archives, common tests, user data and source unchanged outside stated modifications."
+  "notes": "Only this run scratch directory removed; old archives, common tests, user data and source unchanged outside stated modifications.",
+  "followup_removal": {
+    "reason": "User requested deletion of archive containing the unfixed stage test.",
+    "removed_path": "test-results/storage-f01-20260922/F01-results.tar.gz",
+    "removed_bytes": 54506,
+    "sha256": "76c77172bd40f43fa468609e092e3cb9ecb357a7ffa1b7ad4e90e13981a500b1",
+    "removed": true,
+    "replacement_results": "test-results/storage-f01-review-20260922/F01-review-results.tar.gz"
+  }
 }
