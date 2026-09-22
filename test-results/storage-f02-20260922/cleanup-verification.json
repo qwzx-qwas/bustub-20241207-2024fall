@@ -1,0 +1,48 @@
+{
+  "archives": [
+    {
+      "path": "test/archives/F02-object-io.tar.gz",
+      "bytes": 10474,
+      "sha256": "b0445c62bbfb52324d5745a79f883f9a9ca593d1e3eafc5bab80b51e7eefc45d"
+    },
+    {
+      "path": "test-results/storage-f02-20260922/F02-results.tar.gz",
+      "bytes": 51766,
+      "sha256": "deddb2295fb40278e673ac35b69fb6d8ea74c7a4ea7932a53609a3c29818983b"
+    }
+  ],
+  "archive_roundtrip_verified": true,
+  "checks_passed": 6,
+  "isolated_mutations_caught": 5,
+  "result_files": 60,
+  "runner_false_pass_fixed": true,
+  "source_matches_tested_manifest": true,
+  "working_directory": "/tmp/bustub-f02-review-b3gfkdu3",
+  "intermediate_files_removed": 1886,
+  "intermediate_bytes_removed": 104511897,
+  "no_permanent_stage_test_registration": true,
+  "existing_acceptance_sources_unchanged": true,
+  "f01_implementation_unchanged": true,
+  "f02_production_unchanged_during_review": true,
+  "six_cpp_tests_unchanged_during_review": true,
+  "raw_devices_touched": false,
+  "actual_power_loss_tested": false,
+  "cleanup_status": "completed",
+  "working_directory_removed": true,
+  "earlier_scratch_cleanups": [
+    {
+      "working_directory": "/tmp/bustub-f02-03fg7t12",
+      "intermediate_files_removed": 1875,
+      "intermediate_bytes_removed": 91933284,
+      "working_directory_removed": true
+    },
+    {
+      "working_directory": "/tmp/bustub-f02-final-x4qojy_1",
+      "intermediate_files_removed": 1863,
+      "intermediate_bytes_removed": 104216154,
+      "working_directory_removed": true
+    }
+  ],
+  "old_incomplete_oracle_archives_replaced": true,
+  "old_false_pass_runner_archives_replaced": true
+}

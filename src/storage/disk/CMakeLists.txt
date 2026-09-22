@@ -6,7 +6,7 @@ add_library(
     disk_scheduler.cpp)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_sources(bustub_storage_disk PRIVATE block_device.cpp)
+    target_sources(bustub_storage_disk PRIVATE block_device.cpp io_executor.cpp)
 endif()
 
 set(ALL_OBJECT_FILES
