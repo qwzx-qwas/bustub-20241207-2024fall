@@ -1,0 +1,28 @@
+{
+  "archives": [
+    {
+      "path": "test/archives/F01-block-device.tar.gz",
+      "bytes": 9449,
+      "sha256": "a38e5c123dd5a4f5b239229fd8d93ba69261bcd550938e6510c85cdf23b2e5f5"
+    },
+    {
+      "path": "test-results/storage-f01-review-20260922/F01-review-results.tar.gz",
+      "bytes": 33499,
+      "sha256": "79ea46a6742ab25be08043ec3df937ececf918181ae28a304f59183321546f8d"
+    }
+  ],
+  "archive_roundtrip_verified": true,
+  "production_matches_original_evidence": true,
+  "checks_passed": 7,
+  "mutations_rerun": false,
+  "original_mutation_evidence_verified": 6,
+  "working_directory": "/tmp/bustub-f01-review-p8s9ifwo",
+  "intermediate_files_removed": 1789,
+  "intermediate_bytes_removed": 39832341,
+  "no_permanent_stage_test_registration": true,
+  "raw_devices_touched": false,
+  "actual_power_loss_tested": false,
+  "f02_implemented": false,
+  "cleanup_status": "completed",
+  "working_directory_removed": true
+}

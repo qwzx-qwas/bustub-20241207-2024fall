@@ -1,0 +1,33 @@
+{
+  "archives": [
+    {
+      "path": "test/archives/F01-block-device.tar.gz",
+      "bytes": 8792,
+      "sha256": "39b312584de42801bff0adb44af2d8bf984d15efbd9cfcc0f1cb2571e7452afa"
+    },
+    {
+      "path": "test-results/storage-f01-20260922/F01-results.tar.gz",
+      "bytes": 54506,
+      "sha256": "76c77172bd40f43fa468609e092e3cb9ecb357a7ffa1b7ad4e90e13981a500b1"
+    }
+  ],
+  "archive_roundtrip_verified": true,
+  "working_directory": "/tmp/bustub-f01-Gdei4n",
+  "cleanup_status": "completed",
+  "no_permanent_stage_test_registration": true,
+  "common_acceptance_files_unchanged": 20,
+  "existing_production_files_unchanged_except_disk_cmake": 406,
+  "raw_devices_touched": false,
+  "actual_power_loss_tested": false,
+  "intermediate_files_removed": 1949,
+  "intermediate_bytes_removed": 109122929,
+  "stage_source_archive_bytes": 8792,
+  "result_archive_bytes": 54506,
+  "working_directory_removed": true,
+  "preserved": [
+    "test/archives/F01-block-device.tar.gz",
+    "test-results/storage-f01-20260922/F01-results.tar.gz",
+    "docs/storage_redesign/f01_execution_20260922.md"
+  ],
+  "notes": "Only this run scratch directory removed; old archives, common tests, user data and source unchanged outside stated modifications."
+}

@@ -5,6 +5,10 @@ add_library(
     disk_manager_memory.cpp
     disk_scheduler.cpp)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(bustub_storage_disk PRIVATE block_device.cpp)
+endif()
+
 set(ALL_OBJECT_FILES
     ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:bustub_storage_disk>
     PARENT_SCOPE)

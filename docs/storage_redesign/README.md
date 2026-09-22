@@ -6,10 +6,10 @@
 
 本文件收录截至 2026-09-22 对话形成的目标架构与实施约束，包含统一 ObjectIO、减少重复持久化、查询链复用、页 IO 并发、A 层空间复用、模块分工、实现顺序和待定项。各子模块的具体接口、格式、参数与测试仍需逐个冻结；本次收录不表示生产实现已完成。
 
-- 当前成果：主方案、子模块文档入口和分阶段实现 prompt 已建立；S0 prompt 已执行，其他阶段仍未启用。
-- 当前实现状态：S0/F00 的共同契约、最小范围类型和约定验证已完成，见 [S0 执行记录](s0_execution_20260921.md)；其他模块仍未完成。既有同名代码和历史 Raft 里程碑，不等于已满足本方案。
+- 当前成果：主方案、子模块文档入口和分阶段实现 prompt 已建立；S0 prompt 已执行；2026-09-22 用户授权执行 S1/F01 当轮范围，其他模块仍逐个讨论。
+- 当前实现状态：S0/F00 已完成，见 [S0 执行记录](s0_execution_20260921.md)；S1/F01 当轮 Linux 文件后端与约定验证已完成，见 [F01 执行与测试审查](f01_execution_20260922.md)。F01 裸设备实测、其余 S1 模块及后续阶段仍未完成。既有同名代码和历史 Raft 里程碑，不等于已满足本方案。
 - 本轮 T0 执行与归档已结束：C1–C5 的 10 个参数点通过；P1/P2/P4 已测量并核对业务结果，P2 的超时和重试如实保留；P3 一小时完成 8,421/200,000 次操作，未完成完整轮次，不能作为 GC 空间稳定性基线。见 [最新运行记录](testing_execution_20260921.md) 和 [归档入口](../../test-results/storage-performance-v2-20260920T143546Z/README.md)。历史资格失败保留为诊断证据，不代替后续正式观测。
-- 下一步：讨论 [S1 / F01 BlockDevice](modules/block-device.md)，明确首个后端、对齐、定位 IO、缓冲生命周期、真实错误和持久化屏障，再安排 F02 及最小资源/状态接入。P3 未覆盖的长期空间稳定性保留为后续验证限制，不把性能慢或 `t+` 观测改成虚假通过，也不因此无限重复旧基线。
+- 下一步：讨论 [F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md) 的有界执行、缓冲所有权和完成依赖，沿用 [F01](modules/block-device.md) 已落实的默认 Direct/实际对齐/错误与刷新契约；不自动实施后续模块。P3 未覆盖的长期空间稳定性保留为后续验证限制，不把性能慢或 `t+` 观测改成虚假通过，也不因此无限重复旧基线。
 - 第二轮评审方向已获用户“执行方案”授权；S0 当轮按 [F00 §6.13](modules/storage-contracts.md#613-s0-当轮实施范围用户授权后落定) 完成契约、最小范围类型和验证，其他阶段接口/格式仍逐个讨论。
 - 子模块入口见第 14 节。所有模块有独立 Markdown 文件，模板见 [module_template.md](module_template.md)。
 - 文档写入不授权自动实现代码、编写或运行未讨论的测试，也不授权自动推进后续模块。
@@ -18,7 +18,7 @@
 - S0 测试对照总方案的修正、保留/清理及提交前验证见 [测试复审](s0_test_review_20260921.md)。本地压缩证据与 Git 摘要的边界见 [归档入口](../../test-results/README.md)。
 - 测试的已定实施约束见 [总体测试设计](testing_plan.md)；场景、预期、故障和资源的候选表见 [测试场景建议](testing_scenarios.md)。候选参数不表示已经批准执行。
 - 每次新增或修改测试后，必须执行 [§1.5 测试设计审查](#15-每次新增或修改测试后的强制设计审查)。这项要求适用于现有和新建子模块及其实现 prompt；历史审查或运行通过不能替代当前改动的审查。
-- 测试常驻、阶段归档和跨模块接入按 [§1.6](#16-测试演进跨模块复用与阶段退出) 执行：长期主线是共同生产 E2E 正确性／性能套件。F00 和 T0 的阶段性小测试已改为[按模块压缩归档](../../test/archives/README.md)，不再由默认入口发现；归档不代表其风险已全部被 E2E 接管。
+- 测试常驻、阶段归档和跨模块接入按 [§1.6](#16-测试演进跨模块复用与阶段退出) 执行：长期主线是共同生产 E2E 正确性／性能套件。F00、T0 和 F01 的阶段性小测试已改为[按模块压缩归档](../../test/archives/README.md)，不再由默认入口发现；归档不代表其风险已全部被 E2E 接管。
 
 历史契约阅读入口：[Raft 实施方案](../../raft_implementation_plan.md)、[执行交接](../../raft_execution_handoff.md)、[现有测试矩阵](../testing/raft_test_matrix.md)。这些文件用于了解已有正式路径、协议和历史证据。本方案的 S0–S13 是 FS 新阶段，不是历史 Raft M0–M8 的重新编号；本轮新方向不自动扩大未分配的实现任务，也不借历史验收为新代码背书。
 
@@ -147,6 +147,7 @@
 | 场景／风险标识 | 内容维护者／相关模块 | 当前真实路径或模拟边界 | 待接入能力／阶段 | 共同 E2E 关联及覆盖差异 | 退出方式／证据 |
 | --- | --- | --- | --- | --- | --- |
 | C1–C5、P1–P4 | T0；各存储、页 IO、恢复及 Raft 模块引用 | 已有正式三节点客户端、数据库和文件存储路径 | 各模块就绪后接入新生产实现，同内容复测 | 常驻共同套件；不按模块复制 | 持续维护；历史运行见 T0 执行记录 |
+| F01/range-io、reject-invalid、concurrent、durability、failure-boundary | F01；后续 F02/F26/恢复模块引用 | Linux 真实文件 Direct；系统调用故障注入另行标记 | F02 有界执行，S8/S9 业务接入；裸设备及掉电另验 | C/P 尚未经过新后端；错误细节未等价接管 | 本轮按 F01 压缩归档；见 [执行记录](f01_execution_20260922.md)，缺口保留 |
 | F00/range-boundary | F00；后续范围／ObjectIO 消费者引用 | 范围值类型及真实文件解码；非三节点 E2E | 相关生产入口就绪后评估从真实链路触发非法范围／损坏输入 | C4/C5 正常恢复不完整覆盖恶意长度与地址溢出 | 本轮小测试压缩归档，缺口保留，不能标已替代 |
 | T0/sql-payload-recovery | T0；业务页和恢复模块引用 | 真实单节点 SQL、重放、快照 | 需要时在 C1/C4 内容中讨论等价边界验证 | 已有变长数据／重启覆盖；1025 字节拒绝和精确恢复边界未完整等价 | 本轮压缩归档，场景扩展另行冻结 |
 | T0/harness-oracle | T0 测试工具维护者 | Python 脚本响应、报告样本、Go 人工历史自检 | 工具变化时按需临时复核；不自动升级为数据库 E2E | C/P 继续使用实际模型／驱动／报告；自检与真实业务证据分开 | 本轮压缩归档，保留已知 oracle 缺口 |
@@ -192,7 +193,7 @@
 - 本地 FS：对象、映射、分配、提交、IO、回收与本地恢复。
 - MetadataEngine B：复用 BusTub 存储组件，管理 FS 元数据。
 - ObjectIO：普通数据、Raft log、snapshot、FS Journal、元数据和引导内容的统一对象范围 IO。
-- BlockDevice：裸设备访问及持久化屏障；开发可提供文件模拟后端。
+- BlockDevice：裸设备访问及持久化屏障；开发可提供真实文件后端。**新 F01 默认 O_DIRECT，Buffered 必须显式选择，不自动降级。Direct 的内存、偏移和长度约束从已打开后端查询，不能统一假定为 4 KiB，也不能用页大小或 st_blksize 代替。** 查询不到可靠能力则明确失败。IO 完成、持久化和原子性分别表达；文件 Direct 验证不等于裸设备/掉电验证。F02/F26 负责满足缓冲与写入规划约束，F01 不隐藏复制或 RMW。
 
 FS 的范围是节点内。PG、Pool、MON、CRUSH 及独立存储复制协议属于另一个架构方向，不属于本轮依赖。当前没有为三个静态节点再新增多套独立 Raft 分片。
 
@@ -628,12 +629,12 @@ F35 采用 event-loop 风格推进协议与请求状态，耗时 Prepare、持�
 
 ## 13. 先测试设计，再逐阶段实现
 
-**T0：共同测试已编写、复审，本轮旧系统测量与归档结束。** [testing_plan.md](testing_plan.md) 记录约束；[最新执行记录](testing_execution_20260921.md) 保留正确性结果、P1/P2/P4 测量、P2 超时和 P3 `3600s+` 及未覆盖项。S0 已完成当轮范围，下一步进入 S1 讨论；逐模块改造后复用冻结内容，新增风险随模块补充。不能从本次本机/进程故障证据推定掉电安全或完整 GC 稳定性。
+**T0：共同测试已编写、复审，本轮旧系统测量与归档结束。** [testing_plan.md](testing_plan.md) 记录约束；[最新执行记录](testing_execution_20260921.md) 保留正确性结果、P1/P2/P4 测量、P2 超时和 P3 `3600s+` 及未覆盖项。S0 及 S1/F01 当轮文件后端已完成，下一步讨论 S1/F02；逐模块改造后复用冻结内容，新增风险随模块补充。不能从本次本机/进程故障证据推定掉电安全或完整 GC 稳定性。
 
 | 顺序 | 模块方案所在文档 | 阶段目标 | 是否完成 |
 | --- | --- | --- | --- |
 | S0 | [F00 存储契约与共享类型](modules/storage-contracts.md) | 明确共享契约、最小范围类型、兼容与必要验证；不提前实现其他模块。 | 已完成，见执行记录 |
-| S1 | [F01 BlockDevice](modules/block-device.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 建立设备与有界 IO 基础、缓冲所有权、资源记账及最小生命周期/错误状态。 | 未完成 |
+| S1 | [F01 BlockDevice](modules/block-device.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 建立设备与有界 IO 基础、缓冲所有权、资源记账及最小生命周期/错误状态。 | 部分完成：F01 当轮文件后端已完成；其余及裸设备实测未完成 |
 | S2 | [F03 Superblock 与引导对象](modules/bootstrap.md)<br>[F04 RegionManager](modules/region-manager.md)<br>[F05 MetadataBackend](modules/metadata-backend.md)<br>[F06 JournalBackend](modules/journal-backend.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 基础对象与已知引导位置可访问；区域和直接页/Journal 后端可定位。 | 未完成 |
 | S3 | [F31 资源预算与背压基础](modules/resource-budget.md)<br>[F16 Admission](modules/admission.md)<br>[F07 JournalService](modules/journal-service.md) | Journal 有界准入、原子记录编码、批量刷盘、读取与有效边界扫描。 | 未完成 |
 | S4 | [F16 Admission](modules/admission.md)<br>[F17 Sequencer](modules/sequencer.md)<br>[F19 CommitPipeline 与 TxContext](modules/commit-pipeline.md)<br>[F20 VersionPublisher](modules/version-publisher.md)<br>[F08 MetadataEngine B](modules/metadata-engine.md)<br>[F05 MetadataBackend](modules/metadata-backend.md)<br>[F07 JournalService](modules/journal-service.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md) | 先补 B 所需排序、元数据批次提交和发布，再完成 B 私有页、页格式、FULL/PATCH 与树适配。 | 未完成 |
@@ -663,9 +664,9 @@ F36 的首轮物理空间复用先于持久业务 checkpoint 格式冻结，降�
 
 性能归因保留版本边界：旧系统 → S9.1 页 IO/FS 接入 → S9.2/S9.3 A 层空间管理 → S13 查询访问路径 → S13 并发流水线。按需要使用同一测试内容复测，不复制多套测试，不把 SQL/并发收益全部归于 FS；P3 仍只能与旧版相同观察期限内的完成量比较。
 
-### 13.2 S0 已完成范围与下一步
+### 13.2 S0 / F01 已完成范围与下一步
 
-[F00 §6.13](modules/storage-contracts.md#613-s0-当轮实施范围用户授权后落定) 已完成共同契约、现有流式快照实际使用的范围类型及 10 项定向验证；没有消费者的运行接口和磁盘格式仍在其所属阶段冻结。下一步讨论 F01 的设备接口和保证，再接入 F02 的有界执行及 F31/F32/F33 的最小支撑能力。S1 的详细方案与测试尚待讨论；F35/F36 不提前实施。
+[F00 §6.13](modules/storage-contracts.md#613-s0-当轮实施范围用户授权后落定) 已完成共同契约、现有流式快照实际使用的范围类型及 10 项定向验证；没有消费者的运行接口和磁盘格式仍在其所属阶段冻结。[F01 当轮执行](f01_execution_20260922.md) 已完成默认 Direct 的 Linux 文件验证：7 项通过、6 个改坏版本被发现，测试按模块压缩。裸设备和掉电未测，旧业务路径尚未切换。下一步讨论 F02 有界执行及 F31/F32/F33 的最小支撑；只有 F01 当轮契约已冻结，其余详细接口/测试仍需讨论，F35/F36 不提前实施。
 
 ## 14. 模块目录与完成状态
 
@@ -674,7 +675,7 @@ F36 的首轮物理空间复用先于持久业务 checkpoint 格式冻结，降�
 | 模块与专用方案文档 | 阶段 | 模块介绍 | 是否完成 |
 | --- | --- | --- | --- |
 | [F00 存储契约与共享类型](modules/storage-contracts.md) | S0 | 明确对象、引用、完成语义、原子边界和各模块的数据归属。 | 已完成（§6.13 当轮范围） |
-| [F01 BlockDevice](modules/block-device.md) | S1 | 提供设备读写、能力查询、持久化屏障和真实错误结果。 | 未完成 |
+| [F01 BlockDevice](modules/block-device.md) | S1 | 默认 Direct、实际对齐、定位 IO、持久化屏障和真实错误。 | 当轮文件后端已完成；裸设备实测未完成 |
 | [F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md) | S1、S2、S6、S13 | 让普通、基础和引导对象共用范围 IO、缓冲生命周期、调度与错误传播。 | 未完成 |
 | [F03 Superblock 与引导对象](modules/bootstrap.md) | S2 | 通过已知设备位置定位格式、设备身份、区域和恢复入口。 | 未完成 |
 | [F04 RegionManager](modules/region-manager.md) | S2 | 管理元数据、Journal 与普通数据区域的边界和寻址描述。 | 未完成 |
@@ -728,7 +729,7 @@ F36 的首轮物理空间复用先于持久业务 checkpoint 格式冻结，降�
 
 1. 对象打包页数 K、日志段与 Journal 段目标大小。
 2. 元数据和 Journal 容量、扩展、空闲与紧急预留。
-3. 设备对齐、最小分配、校验单位；这些单位不必相同。
+3. 具体设备的能力数值、最小分配、校验单位；F01 已确定运行时探测实际对齐而非全局固定数值，这些单位不必相同。
 4. 完整页/增量编码、记录上限、磁盘格式、版本与兼容方案。
 5. Common/Deferred 阈值和可安全覆盖的条件。
 6. checkpoint 周期、并发方式和恢复时间目标。
@@ -743,6 +744,10 @@ F36 的首轮物理空间复用先于持久业务 checkpoint 格式冻结，降�
 已有未审查的结果不作为基线。测试应说明承诺、风险、观察边界与独立判定依据，避免镜像每层实现细节、测第三方保证或保留历史重构痕迹。具体记录见测试文档。
 
 ## 16. 文档变更记录
+
+- 2026-09-22（F01 提交前复审）：按八项要求复核实现与实际归档源码，修正并发阶段测试的容器扩容异常路径，7 项复验通过。生产实现未变，首轮 6 个 mutation 证据核验后沿用；更新压缩包，F02 保持待审未执行。见 [F01 复审](f01_execution_20260922.md#10-提交前代码与测试复审2026-09-22)。
+
+- 2026-09-22（F01 执行）：默认 Direct、statx 实际对齐、固定容量定位 IO、明确错误与独立 Flush 已实现；7 项阶段验证通过，6 个隔离 mutation 被发现，源码/结果压缩归档。文件实测内存 4 / 偏移 512 字节，不写成默认常量。裸设备、掉电和 SQL/Raft 接入未验，下一步讨论 F02。
 
 - 2026-09-21（S0 提交前复审）：按总方案修正负面样本 CRC 与读取范围观察，10 项 C++ 和 25 项测试器契约检查通过；保留必要回归，清理中间产物，明确 Git 忽略范围。证据见 [测试复审](s0_test_review_20260921.md)。
 - 2026-09-21（S0 执行）：按用户“执行方案”完成 F00 共同契约、范围类型及流式快照接入；新增 5 项、复用 5 项测试，Debug/ASan/UBSan/泄漏检测下全部通过。范围审查、检测器启动问题和压缩证据见 [S0 执行记录](s0_execution_20260921.md)。下一步讨论 S1/F01。
