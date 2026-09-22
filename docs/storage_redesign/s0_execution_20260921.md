@@ -1,5 +1,7 @@
 # S0 / F00 执行与审查记录
 
+后续状态（2026-09-22）：本文保留原运行事实。阶段小测试现已按用户要求压缩至[模块源码归档](../../test/archives/README.md)，旧路径和命令仅供在对应版本的隔离源码目录恢复使用；共同 C/P 套件及原结果包保留。
+
 日期：2026-09-21（Asia/Shanghai）
 
 [主方案](README.md) · [F00 方案及实现 prompt](modules/storage-contracts.md) · [压缩结果](../../test-results/storage-s0-20260921/README.md)

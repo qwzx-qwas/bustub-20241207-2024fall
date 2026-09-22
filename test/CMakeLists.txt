@@ -11,6 +11,8 @@ add_custom_target(build-storage-e2e)
 add_dependencies(build-storage-e2e storage-e2e-driver bustub-node bustub-client)
 
 file(GLOB_RECURSE BUSTUB_TEST_SOURCES "${PROJECT_SOURCE_DIR}/test/*/*test.cpp")
+# Module archives are opt-in history, including any accidentally unpacked sources.
+list(FILTER BUSTUB_TEST_SOURCES EXCLUDE REGEX "/test/archives/")
 
 # #####################################################################################################################
 # MAKE TARGETS
@@ -41,12 +43,6 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
     set(bustub_test_labels "unit")
     if (bustub_test_source MATCHES "/test/legacy_raft/(recovery|raft|distributed)/")
         list(APPEND bustub_test_labels "raft" "legacy-regression")
-    endif ()
-    if (bustub_test_source MATCHES "/test/storage_acceptance/")
-        list(APPEND bustub_test_labels "storage-contract")
-    endif ()
-    if (bustub_test_source MATCHES "/test/storage_redesign/")
-        list(APPEND bustub_test_labels "storage-redesign")
     endif ()
     if (bustub_test_name STREQUAL "tcp_transport_test" OR bustub_test_name STREQUAL "distributed_node_test")
         list(APPEND bustub_test_labels "distributed-e2e")

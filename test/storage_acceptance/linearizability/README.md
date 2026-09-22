@@ -12,10 +12,9 @@
 
 ```bash
 go build -C test/storage_acceptance/linearizability -mod=readonly -p=1 -o /tmp/bustub-check-history .
-go test -C test/storage_acceptance/linearizability -mod=readonly -p=1 -c -o /tmp/bustub-model.test
 ```
 
-审查后再单独执行 `go test`。`model_test.go` 有七份手写业务历史，分别保护超时后执行、重试、重复执行、旧读、合法重叠、更新不可回退和整行原子可见；不为 Porcupine 搜索算法本身重复编写单元测试。
+2026-09-22：`model_test.go` 的七份手写历史已按用户要求移入 [T0 源码压缩归档](../../archives/README.md)，不再常驻本目录。真实 C2/C3 使用的 `main.go`、依赖和模型保持不变；手写业务 oracle 仍是 E2E 必需组件，不等于模拟数据库。需要复核模型自检时，在记录版本的隔离源码目录恢复、审查并运行，不能将当前目录下“没有测试文件”当作自检通过。
 
 本轮编译使用临时 Go 1.27.1 工具链，官方 Linux amd64 压缩包 SHA256：`63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445`。本环境可用 `/tmp/bustub-t0-toolchain/go/bin/go` 代替上述 `go`，依赖缓存位于 `/tmp/bustub-t0-gopath`（通过 GOPATH 指定）。没有安装到系统路径或修改生产依赖。编译成功不是模型样例运行通过。
 

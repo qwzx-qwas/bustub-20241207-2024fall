@@ -1,5 +1,7 @@
 # S0 测试对照总方案的提交前复审
 
+后续状态（2026-09-22）：本文保留当时的审查和运行事实。用户随后要求阶段小测试压缩退出常驻入口，F00 / T0 源码及新发现的审查限制见[模块归档](../../test/archives/README.md)；保留／退出以[主方案 §1.6](README.md#16-测试演进跨模块复用与阶段退出)为准。本文旧测试路径及命令需在记录版本的隔离目录恢复，不能直接当作当前工作树入口。
+
 日期：2026-09-21（Asia/Shanghai）
 
 [总方案 §1.4](README.md#14-改造前后测试的实施约束) · [总体测试设计](testing_plan.md) · [F00](modules/storage-contracts.md) · [首轮执行](s0_execution_20260921.md) · [本轮证据](../../test-results/storage-s0-review-20260921/README.md)

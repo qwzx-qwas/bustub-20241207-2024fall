@@ -2,7 +2,7 @@
 
 Performance protocol **t0-c-2** is defined in [the approved bounded-observation plan](../../docs/storage_redesign/testing_performance_observation.md). Service errors are recorded; they no longer require production optimization before measurement. Logical deadlines are censored observations, not successful samples. Stage budgets replace the old shared 600-second performance ceiling.
 
-**Status:** prior C1–C5 evidence is retained. The v2 runs have finished: P1/P2/P4 completed measurement and business validation; P3 completed a one-hour observation and business validation but did not cover full turnover. Final review and 25 harness contract checks passed. See [the v2 execution record](../../docs/storage_redesign/testing_execution_20260921.md). See [the v2 plan/review](../../docs/storage_redesign/testing_performance_observation.md).
+**Status:** prior C1–C5 evidence is retained. The v2 runs have finished: P1/P2/P4 completed measurement and business validation; P3 completed a one-hour observation and business validation but did not cover full turnover. Historical runs recorded 25 passing harness checks; the later design audit found self-check gaps, retained in the [module archive](../archives/README.md). Those passes do not establish complete oracle coverage. See [the v2 execution record](../../docs/storage_redesign/testing_execution_20260921.md) and [the v2 plan/review](../../docs/storage_redesign/testing_performance_observation.md).
 See the [final review, execution and archive record](../../docs/storage_redesign/testing_execution_20260920.md).
 See [A](../../docs/storage_redesign/testing_batch_a.md), [B and its implementation prompt](../../docs/storage_redesign/testing_batch_b.md),
 [C and its prompt](../../docs/storage_redesign/testing_batch_c.md), the [A/B/C review](../../docs/storage_redesign/testing_review_abc.md)
@@ -12,8 +12,11 @@ This directory is test-only. No E2E scenario executes on import or in normal CTe
 The production fixes preserve declared column lengths through replicated CREATE and catalog
 snapshot recovery, and permit exactly 1024 payload bytes without counting the internal NUL.
 C1 now exercises growth and shrinkage (`c1-resize-1`); the initial fixture and P2 stream are unchanged.
-`sql_storage_contract_test.cpp` checks real SQL, log replay, snapshot reopen and oversized-write
-rejection using the existing single-node runtime. This targeted CTest is separate from E2E qualification.
+As of 2026-09-22, the single-node `sql_storage_contract_test.cpp`, three Python self-check files,
+and Go `model_test.go` are compressed in the [T0 module archive](../archives/README.md).
+They no longer participate in working-tree CTest/unittest/Go test discovery. C1–C5/P1–P4 and
+all runtime tools below remain active and unchanged. Archival does not fix known self-check gaps
+or establish that E2E covers every retired boundary; those limits remain in the archive manifest.
 
 ## Review order
 
@@ -35,9 +38,6 @@ not a record of execution. Build only one heavy target at a time.
 cmake -S . -B /tmp/bustub-t0-release -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang-14 -DCMAKE_CXX_COMPILER=clang++-14
 cmake --build /tmp/bustub-t0-release --target build-storage-e2e -j1
-
-# Checks of the harness's own promises. These do not start production nodes.
-python3 -m unittest discover -s test/storage_acceptance -p 'test_*contracts.py'
 
 # Review and authorize qualification before running. Each output directory must be new.
 python3 test/storage_acceptance/run.py C1 --build /tmp/bustub-t0-release \
@@ -77,6 +77,7 @@ not a formal baseline. Correctness scenarios retain their existing budgets and r
   a fixed published boundary and direct target-replica contents before continuing business.
 
 C2/C3 need a separately built [Porcupine checker](linearizability/README.md); no Go dependency enters production.
+The checker and business model remain here; only handwritten model self-tests are archived.
 Example **after review and qualification approval** (fresh output each time):
 
 ```bash
