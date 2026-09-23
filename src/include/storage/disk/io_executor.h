@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -58,9 +59,39 @@ struct IOBatchData;
 class IOExecutor;
 
 /**
+ * Exclusive, move-only permission to use an external byte range. ForRead permits
+ * device IO to fill RAM; ForWrite permits IO to read immutable RAM. The caller
+ * must keep storage alive and enforce that access mode until release runs (pin
+ * alone is insufficient). The callback must retain any required owner, must not
+ * throw or block, and may run on a worker or the thread destroying an unsubmitted
+ * lease. It must not destroy/Shutdown the executor or unlock a thread-owned lock.
+ */
+class IOBufferLease {
+ public:
+  static auto ForRead(void *buffer, size_t capacity, std::function<void()> release) -> IOBufferLease;
+  static auto ForWrite(const void *buffer, size_t capacity, std::function<void()> release) -> IOBufferLease;
+  ~IOBufferLease();
+  IOBufferLease(IOBufferLease &&other) noexcept;
+  auto operator=(IOBufferLease &&other) noexcept -> IOBufferLease &;
+  IOBufferLease(const IOBufferLease &) = delete;
+  auto operator=(const IOBufferLease &) -> IOBufferLease & = delete;
+
+ private:
+  friend class IOExecutor;
+  friend struct IOBatchData;
+  IOBufferLease(IOOperation operation, const void *buffer, size_t capacity, std::function<void()> release);
+  void Release() noexcept;
+  IOOperation operation_;
+  const void *buffer_;
+  size_t capacity_;
+  std::function<void()> release_;
+};
+
+/**
  * Move-only owner of the batch's reserved buffers and result slots. Releasing
  * this handle abandons observation, not already accepted IO. Workers retain it
- * until safe; retained handles/results continue to consume the same budget.
+ * until safe. Retained results consume member slots and owned-buffer bytes, but
+ * external leases/borrowed capacity are returned before terminal publication.
  * Methods on a live handle may be used concurrently except move/destruction and
  * user access to buffer bytes, which the caller must synchronize.
  */
@@ -76,6 +107,7 @@ class IOBatch {
    * Exactly range.Size() bytes, aligned to this executor's device. Accessible
    * only before Submit or after terminal completion. Stop using all saved
    * pointers before Submit; a wait timeout does not return buffer ownership.
+   * External batches never expose addresses through this owned-buffer method.
    */
   auto Buffer(size_t member) -> char *;
   auto Phase() const -> IOBatchPhase;
@@ -107,6 +139,12 @@ struct IOPreparation {
 class IOExecutor {
  public:
   IOExecutor(BlockDevice &device, const IOExecutorOptions &options);
+  /** Explicit external-buffer capacity limit; zero disables external admission.
+   * Counts each lease's full capacity as retention pressure, not new RAM usage.
+   * The two-argument constructor only enables the existing owned-buffer path.
+   * This overload also permits a zero owned-byte limit when external is enabled.
+   */
+  IOExecutor(BlockDevice &device, const IOExecutorOptions &options, size_t max_external_buffer_bytes);
   ~IOExecutor();
   IOExecutor(const IOExecutor &) = delete;
   auto operator=(const IOExecutor &) -> IOExecutor & = delete;
@@ -118,6 +156,15 @@ class IOExecutor {
    * flush_after_writes requires at least one write. It is not a transaction.
    */
   auto TryPrepare(std::vector<IORequest> requests, bool flush_after_writes) -> IOPreparation;
+  /**
+   * Same range/ordering rules, with one matching lease per request. Accepted
+   * consumes leases (empties the vector); every rejection/exception leaves them
+   * with the caller. Never falls back to owned buffers. RAM ranges must not
+   * overlap if either permission allows filling RAM; cross-batch conflicts are
+   * the owner's responsibility. Member slots are shared with owned batches.
+   */
+  auto TryPrepareExternal(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases, bool flush_after_writes)
+      -> IOPreparation;
   /**
    * Accepted transfers buffer access to workers. All capacity was reserved in
    * TryPrepare; no wait for queue space. Stopped leaves the batch Prepared.

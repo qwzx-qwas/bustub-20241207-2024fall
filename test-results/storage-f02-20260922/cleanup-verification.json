@@ -1,5 +1,70 @@
 {
+  "date": "2026-09-23",
   "archives": [
+    {
+      "path": "test/archives/F02-object-io.tar.gz",
+      "bytes": 13840,
+      "sha256": "279c9dff0b193fede4f1072c8ed4d443043173ab6c3b4d2c8edf55c432c6e1ce"
+    },
+    {
+      "path": "test-results/storage-f02-20260922/F02-results.tar.gz",
+      "bytes": 165490,
+      "sha256": "9939976d7843707a57c86f54761e6376a7082d5cb88c6d2b9d2a906dad029abb"
+    }
+  ],
+  "replaced_archives": [
+    {
+      "path": "test/archives/F02-object-io.tar.gz",
+      "bytes": 13688,
+      "sha256": "ffcb68b81bbfd02b78e06aa735da15989dba947fde338a4d02641d1f38e66a7d"
+    },
+    {
+      "path": "test-results/storage-f02-20260922/F02-results.tar.gz",
+      "bytes": 158631,
+      "sha256": "d7572684b91b666229df56078be3160d0d9108a65ec5431227fa947f0ac0ce80"
+    }
+  ],
+  "old_versions_replaced_without_backup": true,
+  "archive_roundtrip_verified": true,
+  "checks_passed": 8,
+  "isolated_mutations_caught": 10,
+  "result_files": 91,
+  "runner_false_pass_fixed": true,
+  "source_matches_tested_manifest": true,
+  "working_directory": "/tmp/bustub-f02-review-owned-q7aiv6sp",
+  "no_permanent_stage_test_registration": true,
+  "existing_acceptance_sources_unchanged": true,
+  "f01_implementation_unchanged": true,
+  "production_changed_only_io_executor": true,
+  "f26_or_buffer_pool_integrated": false,
+  "raw_devices_touched": false,
+  "actual_power_loss_tested": false,
+  "cleanup_status": "completed",
+  "working_directory_removed": true,
+  "source_archive_members_verified": 4,
+  "result_archive_members_verified": 91,
+  "complete_xml_verified": true,
+  "mutation_assertions_verified": 10,
+  "document_local_links_verified": 398,
+  "temporary_source_build_images_and_mutant_binaries_removed": true,
+  "old_f01_error_archive_absent": true,
+  "unused_production_hooks_added": false,
+  "default_buffer_pool_migration_complete": false,
+  "earlier_scratch_cleanups": [
+    {
+      "working_directory": "/tmp/bustub-f02-external-0E6TmS",
+      "working_directory_removed": true,
+      "intermediate_files_removed": 1906,
+      "intermediate_bytes_removed": 166301625
+    },
+    {
+      "working_directory": "/tmp/bustub-f02-audit-kf78qe17",
+      "working_directory_removed": true,
+      "intermediate_files_removed": 1922,
+      "intermediate_bytes_removed": 189754194
+    }
+  ],
+  "earlier_replaced_archives": [
     {
       "path": "test/archives/F02-object-io.tar.gz",
       "bytes": 10474,
@@ -9,40 +74,25 @@
       "path": "test-results/storage-f02-20260922/F02-results.tar.gz",
       "bytes": 51766,
       "sha256": "deddb2295fb40278e673ac35b69fb6d8ea74c7a4ea7932a53609a3c29818983b"
-    }
-  ],
-  "archive_roundtrip_verified": true,
-  "checks_passed": 6,
-  "isolated_mutations_caught": 5,
-  "result_files": 60,
-  "runner_false_pass_fixed": true,
-  "source_matches_tested_manifest": true,
-  "working_directory": "/tmp/bustub-f02-review-b3gfkdu3",
-  "intermediate_files_removed": 1886,
-  "intermediate_bytes_removed": 104511897,
-  "no_permanent_stage_test_registration": true,
-  "existing_acceptance_sources_unchanged": true,
-  "f01_implementation_unchanged": true,
-  "f02_production_unchanged_during_review": true,
-  "six_cpp_tests_unchanged_during_review": true,
-  "raw_devices_touched": false,
-  "actual_power_loss_tested": false,
-  "cleanup_status": "completed",
-  "working_directory_removed": true,
-  "earlier_scratch_cleanups": [
-    {
-      "working_directory": "/tmp/bustub-f02-03fg7t12",
-      "intermediate_files_removed": 1875,
-      "intermediate_bytes_removed": 91933284,
-      "working_directory_removed": true
     },
     {
-      "working_directory": "/tmp/bustub-f02-final-x4qojy_1",
-      "intermediate_files_removed": 1863,
-      "intermediate_bytes_removed": 104216154,
-      "working_directory_removed": true
+      "path": "test/archives/F02-object-io.tar.gz",
+      "bytes": 13314,
+      "sha256": "cb0836fc66e8e232b62aca656682dea3f3d024e8df048fa2b9c226f2879a96d1"
+    },
+    {
+      "path": "test-results/storage-f02-20260922/F02-results.tar.gz",
+      "bytes": 150302,
+      "sha256": "11f8e27b3c0add4d5c6f3a7c12bb7d2d6d6cd93db1cd02ce246cf3c1a35d7e13"
     }
   ],
-  "old_incomplete_oracle_archives_replaced": true,
-  "old_false_pass_runner_archives_replaced": true
+  "production_unchanged_in_this_review": true,
+  "modified_cpp_scenarios": [
+    "BudgetIncludesPreparedRunningAndRetainedResults"
+  ],
+  "rollback_oracle_gap_reproduced_and_fixed": true,
+  "old_oracle_gap_archives_replaced": true,
+  "owned_rollback_oracle_gap_reproduced_and_fixed": true,
+  "intermediate_files_removed": 1938,
+  "intermediate_bytes_removed": 204277508
 }

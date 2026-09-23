@@ -42,6 +42,7 @@ F01 不解释 page、entry、object ID，不分配 extent，不做隐藏 RMW、�
 - [DurableStorage](../../../src/recovery/durable_storage.cpp) 的定位 IO、EINTR 处理和 fdatasync 是现有参考；其按路径追加、目录同步、rename 仍服务现有 Raft，不被本模块替换。ReadFileRange 的“最多读取”不能套作本模块精确读取。
 - [DiskManager](../../../src/storage/disk/disk_manager.cpp) 仍服务现有页路径，F26/S9 再接入新后端；当前零填充语义不能直接改成 F01 错误语义。
 - 当前帧使用 vector<char>，不保证 Direct 要求的内存对齐。F02/缓冲管理提供合规工作缓冲；F26 再讨论对齐帧及减少中转复制。本轮不提前修改 BufferPool。
+- S9 交接已收录于 [F26 数组子方案](array-buffer-pool.md) 和 [F02 §6.6](object-io.md#f02-external-buffers)：FrameArena 替换帧数据分配，F02 保留外部使用许可。F01 接受调用者字节缓冲的契约保持，不引入 PageGuard、目录或大页分配职责；新增能力尚未实施。
 
 ## 4. 开源参考与本地落点
 
@@ -97,6 +98,14 @@ Flush 调用同一打开实例的 fdatasync 并检查错误。调用者（后续
 
 O_DIRECT 不等于 O_SYNC、零拷贝、掉电原子覆盖；文件重开成功不证明掉电安全。COW/Journal/Deferred 承担更上层恢复保证。
 
+### 6.5 S9 FrameArena 接入边界（文档交接，接口不变）
+
+现有 ReadAt/WriteAt 使用调用者提供的地址和容量；F02 传自有缓冲或合法外部帧都须满足同一运行时能力。FrameArena 的 huge page 是内存机制，不是 F01 的设备单位或原子性。F01 不自动复制、填充、RMW、降级 Buffered，也不把任意 4 KiB 数据页当作合法对齐请求。
+
+F26 保证页版本和内容稳定，F02 使外部许可保持到设备不再访问；F01 只保证同步调用返回/抛异常后不再使用该次缓冲。超时和异步批次归还不下放 F01。仍由 F02 建立所需写完成后再 Flush 的顺序，F34 在排空及所有调用结束后关闭。
+
+F01 历史 S1 结果和完成状态不覆盖外部帧接入；新增风险由 F02/F26 验证并引用 F01/range-io、failure-boundary，不为相同设备契约重写镜像测试。
+
 ## 7. 当轮测试与验收
 
 采用真实文件 + 默认 Direct 的组件集成验证；不静默跳过 Direct 或以 Buffered 结果顶替。数据与位置相关且非空，用独立 POSIX 路径检查真实位置，防止生产读写犯同一偏移错误仍自证通过。
@@ -150,6 +159,8 @@ O_DIRECT 不等于 O_SYNC、零拷贝、掉电原子覆盖；文件重开成功�
 ```
 
 ## 10. 完成证据与变更记录
+
+- 2026-09-22（文档交接）：明确 F26 FrameArena/F02 外部许可接入维持现有字节设备契约；F01 生产代码、测试和历史完成证据未改。
 
 - 2026-09-20：建立子模块入口，未实施。
 - 2026-09-21：补充能力、并发/持久化边界，未实施。

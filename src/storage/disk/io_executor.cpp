@@ -29,28 +29,34 @@ auto Terminal(IOBatchPhase phase) -> bool { return phase == IOBatchPhase::Succee
 // Separate from the scheduling mutex: the last owner can free buffers and
 // return its reservation while a worker finishes under the scheduling lock.
 struct IOBudget {
-  explicit IOBudget(const IOExecutorOptions &options) : options_(options) {}
+  IOBudget(const IOExecutorOptions &options, size_t external_limit)
+      : options_(options), external_limit_(external_limit) {}
 
-  auto Reserve(size_t operations, size_t bytes) -> bool {
+  auto Reserve(size_t operations, size_t bytes, size_t external_bytes) -> bool {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (operations > options_.max_operations_ - operations_ || bytes > options_.max_buffer_bytes_ - bytes_) {
+    if (operations > options_.max_operations_ - operations_ || bytes > options_.max_buffer_bytes_ - bytes_ ||
+        external_bytes > external_limit_ - external_bytes_) {
       return false;
     }
     operations_ += operations;
     bytes_ += bytes;
+    external_bytes_ += external_bytes;
     return true;
   }
 
-  void Release(size_t operations, size_t bytes) {
+  void Release(size_t operations, size_t bytes, size_t external_bytes) {
     std::lock_guard<std::mutex> lock(mutex_);
     operations_ -= operations;
     bytes_ -= bytes;
+    external_bytes_ -= external_bytes;
   }
 
   IOExecutorOptions options_;
   std::mutex mutex_;
   size_t operations_{0};
   size_t bytes_{0};
+  size_t external_limit_;
+  size_t external_bytes_{0};
 };
 
 struct FreeBuffer {
@@ -74,8 +80,8 @@ struct IOAllocation {
 };
 
 struct IOCore {
-  IOCore(BlockDevice &device, const IOExecutorOptions &options)
-      : device_(device), info_(device.Info()), budget_(std::make_shared<IOBudget>(options)) {}
+  IOCore(BlockDevice &device, const IOExecutorOptions &options, size_t external_limit)
+      : device_(device), info_(device.Info()), budget_(std::make_shared<IOBudget>(options, external_limit)) {}
   BlockDevice &device_;
   BlockDeviceInfo info_;
   std::shared_ptr<IOBudget> budget_;
@@ -88,25 +94,51 @@ struct IOCore {
 }  // namespace
 
 struct IOBatchData {
-  IOBatchData(std::shared_ptr<IOCore> core, std::vector<IORequest> requests, bool flush, size_t bytes)
-      : core_(std::move(core)), requests_(std::move(requests)), flush_(flush), bytes_(bytes) {
+  IOBatchData(std::shared_ptr<IOCore> core, std::vector<IORequest> requests, bool flush, size_t bytes,
+              size_t external_bytes)
+      : core_(std::move(core)),
+        requests_(std::move(requests)),
+        flush_(flush),
+        bytes_(bytes),
+        external_bytes_(external_bytes),
+        external_(external_bytes != 0) {
     result_.operations_.resize(requests_.size());
-    buffers_.reserve(requests_.size());
-    for (const auto &request : requests_) {
-      buffers_.emplace_back(static_cast<size_t>(request.range_.Size()), core_->info_.memory_alignment_);
+    if (!external_) {
+      buffers_.reserve(requests_.size());
+      for (const auto &request : requests_) {
+        buffers_.emplace_back(static_cast<size_t>(request.range_.Size()), core_->info_.memory_alignment_);
+      }
     }
   }
 
   ~IOBatchData() {
+    ReturnExternal();
     buffers_.clear();
-    core_->budget_->Release(requests_.size(), bytes_);
+    core_->budget_->Release(requests_.size(), bytes_, 0);
+  }
+
+  auto Address(size_t member) const -> const void * {
+    return external_ ? leases_[member].buffer_ : buffers_[member].data_;
+  }
+
+  // No scheduling lock and no remaining IO users. Keep member/result slots until
+  // the last batch owner goes away, but do not pin external storage with results.
+  void ReturnExternal() {
+    if (external_bytes_ == 0) {
+      return;
+    }
+    leases_.clear();
+    core_->budget_->Release(0, 0, std::exchange(external_bytes_, 0));
   }
 
   std::shared_ptr<IOCore> core_;
   std::vector<IORequest> requests_;
   std::vector<IOAllocation> buffers_;
+  std::vector<IOBufferLease> leases_;
   bool flush_;
   size_t bytes_;
+  size_t external_bytes_;
+  bool external_;
   IOBatchResult result_;
   std::condition_variable done_;
   IOBatchPhase phase_{IOBatchPhase::Prepared};
@@ -119,7 +151,8 @@ struct IOBatchData {
 
 namespace {
 
-auto RequiredBytes(const std::vector<IORequest> &requests, bool flush, const BlockDeviceInfo &info) -> size_t {
+auto RequiredBytes(const std::vector<IORequest> &requests, bool flush, const BlockDeviceInfo &info, bool owned)
+    -> size_t {
   if (requests.empty()) {
     throw std::invalid_argument("empty IO batch");
   }
@@ -135,7 +168,7 @@ auto RequiredBytes(const std::vector<IORequest> &requests, bool flush, const Blo
         range.Offset() % info.offset_alignment_ != 0 || range.Size() % info.offset_alignment_ != 0) {
       throw std::invalid_argument("invalid device range in IO batch");
     }
-    const auto padding = static_cast<size_t>(info.memory_alignment_) - 1;
+    const auto padding = owned ? static_cast<size_t>(info.memory_alignment_) - 1 : 0;
     if (range.Size() > std::numeric_limits<size_t>::max() - padding ||
         range.Size() + padding > std::numeric_limits<size_t>::max() - bytes) {
       throw std::invalid_argument("IO batch allocation size overflow");
@@ -165,8 +198,14 @@ auto RequiredBytes(const std::vector<IORequest> &requests, bool flush, const Blo
   return bytes;
 }
 
-void Finish(const std::shared_ptr<IOBatchData> &batch, bool success) {
-  // Caller holds core_->mutex_; result slots were reserved before submission.
+void Finish(const std::shared_ptr<IOBatchData> &batch, bool success, std::unique_lock<std::mutex> &lock) {
+  // All members/Flush have stopped. Leave the batch on active_ while returning
+  // leases so Shutdown cannot finish early. No remaining member is dispatchable.
+  if (batch->external_) {
+    lock.unlock();
+    batch->ReturnExternal();
+    lock.lock();
+  }
   batch->phase_ = success ? IOBatchPhase::Succeeded : IOBatchPhase::Failed;
   batch->core_->active_.erase(batch->position_);
   batch->done_.notify_all();
@@ -211,10 +250,10 @@ void RunWorkers(const std::shared_ptr<IOCore> &core) {
         core->device_.Flush();
       } else {
         const auto &request = batch->requests_[member];
-        auto *buffer = batch->buffers_[member].data_;
+        const auto *buffer = batch->Address(member);
         const auto size = static_cast<size_t>(request.range_.Size());
         if (request.operation_ == IOOperation::Read) {
-          core->device_.ReadAt(request.range_, buffer, size);
+          core->device_.ReadAt(request.range_, const_cast<void *>(buffer), size);
         } else {
           core->device_.WriteAt(request.range_, buffer, size);
         }
@@ -230,7 +269,7 @@ void RunWorkers(const std::shared_ptr<IOCore> &core) {
     if (flush) {
       batch->result_.flush_error_ = error;
       batch->result_.writes_durable_ = !error;
-      Finish(batch, !error);
+      Finish(batch, !error, lock);
     } else {
       auto &result = batch->result_.operations_[member];
       result.outcome_ = error ? IOOutcome::Failed : IOOutcome::Succeeded;
@@ -242,13 +281,13 @@ void RunWorkers(const std::shared_ptr<IOCore> &core) {
         // Undispatched members stay NotStarted; already running IO must drain.
         batch->phase_ = IOBatchPhase::Draining;
         if (batch->running_ == 0) {
-          Finish(batch, false);
+          Finish(batch, false, lock);
         }
       } else if (batch->next_ == batch->requests_.size() && batch->running_ == 0) {
         if (batch->flush_) {
           batch->phase_ = IOBatchPhase::Flushing;
         } else {
-          Finish(batch, true);
+          Finish(batch, true, lock);
         }
       }
     }
@@ -258,6 +297,49 @@ void RunWorkers(const std::shared_ptr<IOCore> &core) {
 }
 
 }  // namespace
+
+IOBufferLease::IOBufferLease(IOOperation operation, const void *buffer, size_t capacity, std::function<void()> release)
+    : operation_(operation), buffer_(buffer), capacity_(capacity), release_(std::move(release)) {
+  if (buffer == nullptr || capacity == 0 || !release_) {
+    throw std::invalid_argument("external buffer requires storage and a release permission");
+  }
+}
+
+auto IOBufferLease::ForRead(void *buffer, size_t capacity, std::function<void()> release) -> IOBufferLease {
+  return {IOOperation::Read, buffer, capacity, std::move(release)};
+}
+
+auto IOBufferLease::ForWrite(const void *buffer, size_t capacity, std::function<void()> release) -> IOBufferLease {
+  return {IOOperation::Write, buffer, capacity, std::move(release)};
+}
+
+IOBufferLease::~IOBufferLease() { Release(); }
+
+IOBufferLease::IOBufferLease(IOBufferLease &&other) noexcept
+    : operation_(other.operation_),
+      buffer_(std::exchange(other.buffer_, nullptr)),
+      capacity_(std::exchange(other.capacity_, 0)),
+      release_(std::move(other.release_)) {}
+
+auto IOBufferLease::operator=(IOBufferLease &&other) noexcept -> IOBufferLease & {
+  if (this != &other) {
+    Release();
+    operation_ = other.operation_;
+    buffer_ = std::exchange(other.buffer_, nullptr);
+    capacity_ = std::exchange(other.capacity_, 0);
+    release_ = std::move(other.release_);
+  }
+  return *this;
+}
+
+void IOBufferLease::Release() noexcept {
+  if (buffer_ != nullptr) {
+    buffer_ = nullptr;
+    capacity_ = 0;
+    auto release = std::move(release_);
+    release();
+  }
+}
 
 IOBatch::IOBatch(std::shared_ptr<IOBatchData> data) : data_(std::move(data)) {}
 IOBatch::~IOBatch() = default;
@@ -274,6 +356,9 @@ auto IOBatch::Data() const -> IOBatchData & {
 auto IOBatch::Buffer(size_t member) -> char * {
   auto &data = Data();
   std::lock_guard<std::mutex> lock(data.core_->mutex_);
+  if (data.external_) {
+    throw std::logic_error("external buffer access belongs to its permission owner");
+  }
   if (data.phase_ != IOBatchPhase::Prepared && !Terminal(data.phase_)) {
     throw std::logic_error("IO batch still owns buffer access");
   }
@@ -314,12 +399,12 @@ auto IOBatch::Result() const -> const IOBatchResult & {
 }
 
 struct IOExecutor::Impl {
-  Impl(BlockDevice &device, const IOExecutorOptions &options) {
-    if (options.worker_count_ == 0 || options.max_operations_ == 0 || options.max_buffer_bytes_ == 0 ||
-        options.worker_count_ > options.max_operations_) {
+  Impl(BlockDevice &device, const IOExecutorOptions &options, size_t external_limit) {
+    if (options.worker_count_ == 0 || options.max_operations_ == 0 ||
+        (options.max_buffer_bytes_ == 0 && external_limit == 0) || options.worker_count_ > options.max_operations_) {
       throw std::invalid_argument("invalid IO executor limits");
     }
-    core_ = std::make_shared<IOCore>(device, options);
+    core_ = std::make_shared<IOCore>(device, options, external_limit);
     workers_.reserve(options.worker_count_);
     try {
       for (size_t i = 0; i < options.worker_count_; ++i) {
@@ -349,8 +434,10 @@ struct IOExecutor::Impl {
   std::once_flag shutdown_;
 };
 
-IOExecutor::IOExecutor(BlockDevice &device, const IOExecutorOptions &options)
-    : impl_(std::make_unique<Impl>(device, options)) {}
+IOExecutor::IOExecutor(BlockDevice &device, const IOExecutorOptions &options) : IOExecutor(device, options, 0) {}
+
+IOExecutor::IOExecutor(BlockDevice &device, const IOExecutorOptions &options, size_t max_external_buffer_bytes)
+    : impl_(std::make_unique<Impl>(device, options, max_external_buffer_bytes)) {}
 
 IOExecutor::~IOExecutor() { Shutdown(); }
 
@@ -359,24 +446,88 @@ auto IOExecutor::TryPrepare(std::vector<IORequest> requests, bool flush_after_wr
   if (requests.size() > core->budget_->options_.max_operations_) {
     return {IOAdmission::Full, std::nullopt};
   }
-  const auto bytes = RequiredBytes(requests, flush_after_writes, core->info_);
+  const auto bytes = RequiredBytes(requests, flush_after_writes, core->info_, true);
   const auto count = requests.size();
   {
     std::lock_guard<std::mutex> lock(core->mutex_);
     if (!core->accepting_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
-    if (!core->budget_->Reserve(count, bytes)) {
+    if (!core->budget_->Reserve(count, bytes, 0)) {
       return {IOAdmission::Full, std::nullopt};
     }
   }
   std::shared_ptr<IOBatchData> data;
   try {
-    data = std::make_shared<IOBatchData>(core, std::move(requests), flush_after_writes, bytes);
+    data = std::make_shared<IOBatchData>(core, std::move(requests), flush_after_writes, bytes, 0);
   } catch (...) {
-    core->budget_->Release(count, bytes);
+    core->budget_->Release(count, bytes, 0);
     throw;
   }
+  return {IOAdmission::Accepted, IOBatch(std::move(data))};
+}
+
+auto IOExecutor::TryPrepareExternal(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases,
+                                    bool flush_after_writes) -> IOPreparation {
+  const auto &core = impl_->core_;
+  if (requests.size() > core->budget_->options_.max_operations_) {
+    return {IOAdmission::Full, std::nullopt};
+  }
+  RequiredBytes(requests, flush_after_writes, core->info_, false);
+  if (leases.size() != requests.size()) {
+    throw std::invalid_argument("one external permission is required per IO member");
+  }
+  std::vector<size_t> sorted;
+  sorted.reserve(leases.size());
+  size_t bytes = 0;
+  for (size_t i = 0; i < leases.size(); ++i) {
+    const auto &lease = leases[i];
+    const auto address = reinterpret_cast<uintptr_t>(lease.buffer_);
+    if (lease.buffer_ == nullptr || !lease.release_ || lease.operation_ != requests[i].operation_ ||
+        lease.capacity_ < requests[i].range_.Size() || address % core->info_.memory_alignment_ != 0 ||
+        lease.capacity_ > std::numeric_limits<uintptr_t>::max() - address ||
+        lease.capacity_ > std::numeric_limits<size_t>::max() - bytes) {
+      throw std::invalid_argument("invalid external buffer permission");
+    }
+    bytes += lease.capacity_;
+    sorted.push_back(i);
+  }
+  std::sort(sorted.begin(), sorted.end(), [&leases](size_t a, size_t b) {
+    return reinterpret_cast<uintptr_t>(leases[a].buffer_) < reinterpret_cast<uintptr_t>(leases[b].buffer_);
+  });
+  uintptr_t previous_end = 0;
+  uintptr_t previous_fill_end = 0;
+  for (const auto i : sorted) {
+    const auto &lease = leases[i];
+    const auto begin = reinterpret_cast<uintptr_t>(lease.buffer_);
+    const bool fills_ram = lease.operation_ == IOOperation::Read;
+    if (begin < previous_fill_end || (fills_ram && begin < previous_end)) {
+      throw std::invalid_argument("conflicting external buffer permissions");
+    }
+    previous_end = std::max(previous_end, begin + lease.capacity_);
+    if (fills_ram) {
+      previous_fill_end = previous_end;
+    }
+  }
+  const auto count = requests.size();
+  {
+    std::lock_guard<std::mutex> lock(core->mutex_);
+    if (!core->accepting_) {
+      return {IOAdmission::Stopped, std::nullopt};
+    }
+    if (!core->budget_->Reserve(count, 0, bytes)) {
+      return {IOAdmission::Full, std::nullopt};
+    }
+  }
+  std::shared_ptr<IOBatchData> data;
+  try {
+    data = std::make_shared<IOBatchData>(core, std::move(requests), flush_after_writes, 0, bytes);
+  } catch (...) {
+    core->budget_->Release(count, 0, bytes);
+    throw;
+  }
+  // No throwing work after transfer: rejected/failed preparation keeps leases.
+  data->leases_.swap(leases);
   return {IOAdmission::Accepted, IOBatch(std::move(data))};
 }
 
