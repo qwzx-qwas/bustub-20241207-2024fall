@@ -555,4 +555,6 @@ auto IOExecutor::TrySubmit(IOBatch &batch) -> IOAdmission {
 
 void IOExecutor::Shutdown() { impl_->Shutdown(); }
 
+auto IOExecutor::DeviceInfo() const -> const BlockDeviceInfo & { return impl_->core_->info_; }
+
 }  // namespace bustub

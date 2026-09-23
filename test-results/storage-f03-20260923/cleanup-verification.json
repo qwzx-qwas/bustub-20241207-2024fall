@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-23",
+  "module": "F03",
+  "review": "source validation and test lifecycle/oracles",
+  "archives": {
+    "test/archives/F03-bootstrap.tar.gz": {
+      "sha256": "1e58ef0eb395a9b4d951e3eddbd2eb5c345971f1165516b4a76c69fc3be27c60",
+      "bytes": 12809,
+      "verified_files": 4
+    },
+    "test-results/storage-f03-20260923/F03-results.tar.gz": {
+      "sha256": "011019d8c99a197da10928ae64082648aa7be7b5a70da348d1e94edb9771c70a",
+      "bytes": 76914,
+      "verified_files": 82
+    }
+  },
+  "replaced_archives_sha256": {
+    "source": "426492d694e7cac1887e870574a36c1439c2a333fff4a5f9b200ca6a40dafed3",
+    "results": "2658a5dbbd7212476e929078e0f4ee22d1839661af09d0d2586c380b0e6c7d07",
+    "matched_production_files": 10
+  },
+  "old_f03_archives_retained": false,
+  "archive_verification": "every staged file and manifest entry verified; production hashes match workspace",
+  "removed_work_directory": "/tmp/bustub-f03-review-l18nwT",
+  "removed_file_count": 2010,
+  "removed_logical_bytes": 210815052,
+  "work_directory_absent": true,
+  "initial_execution_directory_still_absent": true,
+  "review_evidence_contents": "failed enhanced source-readback reproduction logs and a minimal production diff; no obsolete test suite or nested package",
+  "no_expanded_stage_tests_or_ctest_registration": true,
+  "result_archive_ignored": true,
+  "source_archive_not_ignored": true,
+  "previously_deleted_bad_f01_archive_still_absent": true,
+  "existing_f00_f01_f02_t0_archives_unchanged": true,
+  "common_tests_and_prior_production_unchanged_files": 66,
+  "review_only_production_change": "src/storage/disk/bootstrap_store.cpp private CheckRepairSource, used before write and after readback",
+  "tests_passed": 8,
+  "mutations_caught": 11,
+  "changes_committed": false
+}

@@ -149,6 +149,9 @@ class IOExecutor {
   IOExecutor(const IOExecutor &) = delete;
   auto operator=(const IOExecutor &) -> IOExecutor & = delete;
 
+  /** Device geometry for consumers resolving durable formats on this executor. */
+  auto DeviceInfo() const -> const BlockDeviceInfo &;
+
   /**
    * Non-waiting admission. Reserve all member slots, result storage and aligned
    * buffers before returning Prepared. Empty/invalid/conflicting member ranges
