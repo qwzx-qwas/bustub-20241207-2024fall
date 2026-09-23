@@ -478,4 +478,11 @@ auto BootstrapStore::Status() const -> BootstrapStatus {
 
 void BootstrapStore::Close() { impl_->Close(); }
 
+auto BootstrapStore::BindRegions() const -> RegionBinding {
+  if (impl_->closed_ || !impl_->opened_) {
+    throw std::logic_error("region binding requires a live open bootstrap instance");
+  }
+  return {&impl_->executor_, impl_->layout_->regions_};
+}
+
 }  // namespace bustub

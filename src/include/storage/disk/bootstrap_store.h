@@ -110,6 +110,12 @@ class BootstrapStore {
   void Close();
 
  private:
+  friend class RegionManager;
+  struct RegionBinding {
+    IOExecutor *executor_;
+    std::array<StorageByteRange, 3> regions_;
+  };
+  auto BindRegions() const -> RegionBinding;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

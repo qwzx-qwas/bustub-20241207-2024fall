@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-23",
+  "module": "F04",
+  "review_revision": "2026-09-23: safe callback ownership; disjoint identity and alignment rejection inputs",
+  "archives": {
+    "test/archives/F04-region-manager.tar.gz": {
+      "sha256": "e5447784ea1cc0a985bae3bcb5e7a361ff75f4f6bc828c2376ff8e9d8adbe6d6",
+      "bytes": 9692,
+      "verified_files": 4
+    },
+    "test-results/storage-f04-20260923/F04-results.tar.gz": {
+      "sha256": "449ab2d49d25e905fe316065ca31842b9ea1f8e1a47f2bf0d961ae85b3e11334",
+      "bytes": 107265,
+      "verified_files": 67
+    }
+  },
+  "production_files_verified": 12,
+  "tests_passed": 3,
+  "unchanged_f03_regression_passed": 8,
+  "isolated_mutations_caught": 6,
+  "removed_previous_work_directory": "/tmp/bustub-f04-review-9c9dn39g",
+  "previous_work_directory_absent": true,
+  "removed_work_directory": "/tmp/bustub-f04-final-review-291jc2sv",
+  "old_f04_archive_retained": false,
+  "first_f04_delivery": false,
+  "existing_f00_f01_f02_f03_t0_source_archives_unchanged": true,
+  "previous_bad_f01_result_archive_absent": true,
+  "result_archive_ignored": true,
+  "source_archive_not_ignored": true,
+  "common_and_prior_files_unchanged": 66,
+  "changes_committed": false,
+  "removed_file_count": 1889,
+  "removed_logical_bytes": 135184056,
+  "work_directory_absent": true,
+  "no_expanded_stage_tests_or_ctest_registration": true,
+  "verification_phase": "pre-commit; subsequent commit is recorded in Git history"
+}

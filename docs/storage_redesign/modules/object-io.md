@@ -383,3 +383,7 @@ F02 的失败不消费、异常安全及一次归还已由 §6.7 实现；F26 �
 F03 BootstrapStore 已通过本执行器完成固定槽位读取/写入/Flush 和后台修复，新增 DeviceInfo 供格式层查询同一 executor 设备的实际容量和对齐。没有改变准入、调度、外部许可或错误规则，没有增加测试 hook。F03 解析其受限已知槽位后调用已有范围批次，未建立第二条设备 IO 链；完整基础对象权限与区域封装仍在 F04/F05/F06 接续。
 
 自有工作缓冲现有真实消费者为 BootstrapStore::Impl::Read/Write。未来 S9 清理旧页缓冲路径时保留此引导用途，不能因为 BufferPool 改用帧就删除仍在使用的通用能力。[F03 组件证据](../f03_execution_20260923.md) 引用本模块依赖，不复制本模块的预算/调度完整测试。
+
+### F04 区域适配接入（2026-09-23）
+
+F04 已先验证区域所属和整批相对范围，再调用 TryPrepare/TryPrepareExternal；仍返回原 IOBatch 并由同一 executor 提交。F02 生产代码未改，未新增队列/事务/默认缓冲回退；基础对象页/段语义待 F05/F06，普通对象映射待 S6。引用 F04/region-binding、region-containment、io-adaptation 的三个场景，不复制 F02 全套测试。
