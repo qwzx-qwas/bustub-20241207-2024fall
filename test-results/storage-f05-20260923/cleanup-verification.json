@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-23",
+  "stage": "F05/S2",
+  "base_commit": "69ed1ddf17a8ca993cc70671909633dfde88fe76",
+  "source_archive": {
+    "path": "test/archives/F05-metadata-backend.tar.gz",
+    "sha256": "9b3075d899416093d6231e7269814f394056d9eb51725ba2c78f92263b3b51f3",
+    "bytes": 10210
+  },
+  "results_archive": {
+    "path": "test-results/storage-f05-20260923/F05-results.tar.gz",
+    "sha256": "7ef09d84527992bd17d0c5c5dbf0a5808de7c3a7aeee6658e90e6a3cef8f0e7b",
+    "bytes": 121383
+  },
+  "temporary_root_absent": true,
+  "removed_logical_file_bytes": 292756666,
+  "expanded_stage_tests_remaining": false,
+  "old_erroneous_F01_archive_absent": true,
+  "unchanged_tracked_sources_archives": 478,
+  "valid_prior_module_archives": "all existing SHA256SUMS verified; unchanged",
+  "intermediate_binaries_images": "removed with dedicated temporary directory",
+  "source_archive_in_git_scope": true,
+  "results_archive_ignored_by_existing_rules": true,
+  "test_results": {
+    "F05": "2/2",
+    "F04_original_regression": "3/3",
+    "isolated_mutations": "6/6 detected by reviewed assertions"
+  },
+  "scope_limits": [
+    "S4 allocation/recovery pending",
+    "no B/SQL/Raft E2E",
+    "no raw-device or physical power-loss evidence",
+    "no performance comparison"
+  ],
+  "removed_temp_roots": [
+    "/tmp/bustub-f05-39h8HR",
+    "/tmp/bustub-f05-review-4cuqq_e2"
+  ],
+  "old_F05_archives_replaced_without_backups": true,
+  "review": "docs/storage_redesign/f05_execution_20260923.md#九2026-09-23-再次复审变异脚本的对齐环境依赖",
+  "production_unchanged_in_review": true,
+  "two_cpp_test_scenarios_unchanged": true,
+  "geometry_review": "4096 test-side capability injection; correct and old equivalent mutation pass, revised extra-page mutation detected",
+  "recorded_before_commit": true,
+  "commit_preflight": {
+    "production_or_tests_changed": false,
+    "runtime_tests_rerun": false,
+    "source_and_evidence_hashes_verified": true,
+    "old_archives_and_expanded_artifacts_absent": true,
+    "only_document_commit_timing_clarified": true
+  }
+}

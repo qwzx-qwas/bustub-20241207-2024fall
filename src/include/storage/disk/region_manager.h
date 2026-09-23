@@ -33,6 +33,13 @@ class RegionHandle {
   RegionKind kind_;
 };
 
+/** Address-free capability description of one bound region. */
+struct RegionInfo {
+  uint64_t size_;
+  uint32_t memory_alignment_;
+  uint32_t offset_alignment_;
+};
+
 struct RegionIORequest {
   RegionHandle region_;
   IOOperation operation_;
@@ -64,11 +71,14 @@ class RegionManager {
   auto operator=(const RegionManager &) -> RegionManager & = delete;
 
   auto Region(RegionKind kind) const -> RegionHandle;
+  /** Validate handle ownership; report length and actual device IO alignment. */
+  auto Describe(const RegionHandle &region) const -> RegionInfo;
   auto TryPrepare(const std::vector<RegionIORequest> &requests, bool flush_after_writes) const -> IOPreparation;
   auto TryPrepareExternal(const std::vector<RegionIORequest> &requests, std::vector<IOBufferLease> &leases,
                           bool flush_after_writes) const -> IOPreparation;
 
  private:
+  auto ResolveRegion(const RegionHandle &region) const -> const StorageByteRange &;
   auto Resolve(const std::vector<RegionIORequest> &requests) const -> std::vector<IORequest>;
   std::shared_ptr<const RegionContext> context_;
 };

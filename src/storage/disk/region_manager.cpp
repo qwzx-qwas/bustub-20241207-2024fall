@@ -36,14 +36,24 @@ auto RegionManager::Region(RegionKind kind) const -> RegionHandle {
   return {context_, kind};
 }
 
+auto RegionManager::ResolveRegion(const RegionHandle &region) const -> const StorageByteRange & {
+  if (region.context_ != context_) {
+    throw std::invalid_argument("region handle belongs to another manager binding");
+  }
+  return context_->regions_[static_cast<size_t>(region.kind_)];
+}
+
+auto RegionManager::Describe(const RegionHandle &region) const -> RegionInfo {
+  const auto &range = ResolveRegion(region);
+  const auto &device = context_->executor_->DeviceInfo();
+  return {range.Size(), device.memory_alignment_, device.offset_alignment_};
+}
+
 auto RegionManager::Resolve(const std::vector<RegionIORequest> &requests) const -> std::vector<IORequest> {
   std::vector<IORequest> resolved;
   resolved.reserve(requests.size());
   for (const auto &request : requests) {
-    if (request.region_.context_ != context_) {
-      throw std::invalid_argument("region handle belongs to another manager binding");
-    }
-    const auto &region = context_->regions_[static_cast<size_t>(request.region_.kind_)];
+    const auto &region = ResolveRegion(request.region_);
     const auto range = region.Subrange(request.offset_, request.size_);
     if (!range || request.size_ == 0) {
       throw std::invalid_argument("IO range is outside its storage region or empty");

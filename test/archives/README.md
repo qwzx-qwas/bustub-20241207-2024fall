@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-09-23（F05）：新增 [F05-metadata-backend.tar.gz](F05-metadata-backend.tar.gz)，仅含两项正式页 IO 组件场景和 runner；2/2、6 个变异通过，复用原 F04 三项回归。见 [八项审查](../../docs/storage_redesign/f05_execution_20260923.md)。
+
 2026-09-23（F04）：新增 [F04-region-manager.tar.gz](F04-region-manager.tar.gz)，含 3 项真实区域寻址测试和 runner；3/3、6 个隔离变异通过，另复用 F03 原八项回归。只压缩保存，见 [审查](../../docs/storage_redesign/f04_execution_20260923.md)。
 
 2026-09-23（F03 复审）：更新 [F03-bootstrap.tar.gz](F03-bootstrap.tar.gz)，包含 8 项真实 F03→F02→F01 Direct 文件引导/选源/修复/关闭验证和 runner；8 项通过，11 个隔离变异被指定判据捕获。只压缩保存，不注册常驻测试。详见 [执行与八项审查](../../docs/storage_redesign/f03_execution_20260923.md)。
@@ -16,6 +18,7 @@
 
 | 模块包 | 原源码 | 历史用途 | 当前状态 |
 | --- | --- | --- | --- |
+| [F05-metadata-backend.tar.gz](F05-metadata-backend.tar.gz) | 包内 `test/storage_redesign/metadata_backend_test.cpp`、`run_stage.py` | 2 项页地址/容量/IO 适配，6 个隔离 mutation；复用原 F04 包回归 | S2 完成，仅压缩保留；S4 页分配/WAL/业务接入待完成 |
 | [F04-region-manager.tar.gz](F04-region-manager.tar.gz) | 包内 `test/storage_redesign/region_manager_test.cpp`、`run_stage.py` | 3 项区域绑定/包含/IO 接入，6 个隔离 mutation；依赖 F03 原包做回归 | 固定区域完成，仅压缩保留；页/日志后端与节点业务待接入 |
 | [F03-bootstrap.tar.gz](F03-bootstrap.tar.gz) | 包内 `test/storage_redesign/bootstrap_store_test.cpp`、`run_stage.py` | 8 项基础引导与异步修复组件场景，11 个隔离 mutation | 仅压缩归档；F34 节点/业务接入及 S5 可变恢复根未完成 |
 | [F02-object-io.tar.gz](F02-object-io.tar.gz) | 包内 `test/storage_redesign/io_executor_test.cpp`、`run_stage.py`；原工作目录为专用 `/tmp` | 8 项批次/预算/外部许可/失败/生命周期验证，10 个隔离 mutation | 仅压缩归档；FrameArena、S2/S6 对象寻址及业务接入待完成 |
@@ -117,3 +120,11 @@ F03 本次复审补齐写后固定源检查，修正关闭测试的寿命/调度
 风险为 F04/region-binding、region-containment、io-adaptation，F05/F06/F12/F34 引用；正式 F03/F04/F02/F01 Direct 路径与测试侧故障注入分别标明。没有测试生产 hook，不把三项组件结果视为节点 E2E；后续由共同 C/P 的真实接入接管适用风险，不建重复性能套件。
 
 F04 复审修正了测试提前退出时的回调寿命，并使绑定及非对齐场景免受范围冲突判据干扰；仅保留修正版，不保留旧包、失败的变异构造或备份。原 F03 有效包保留作回归依赖，不能因本轮使用其测试而误删。详见 [结果与清理](../../test-results/storage-f04-20260923/README.md)。
+
+## F05 恢复与风险交接
+
+包内仅两个阶段场景、runner、MANIFEST.json、RESTORE.md；按 RESTORE 在仓库外恢复。基准 `69ed1dd` 本身没有 F05，需匹配 manifest 的生产哈希，或在隔离基准 checkout 覆盖本地结果包 `source/` 快照。原 F04 包由 runner 校验哈希后复用，不重复打包旧测试。
+
+风险 `F05/page-address、page-capacity、page-io-adaptation` 归 F05 维护，F08/F09/F26 引用。真实 Direct 文件及整个物理镜像 oracle、8 KiB 测试侧能力注入分别标明；未经过真实 B/BufferPool 或业务 E2E。两项/六个变异及原 F04 三项通过；详见 [审查](../../docs/storage_redesign/f05_execution_20260923.md) 与 [结果和清理](../../test-results/storage-f05-20260923/README.md)。没有 production 测试 hook、默认路径改动或常驻小测试。后续真实接入沿风险标识复用，不复制测试矩阵。
+
+F05 再次复审仅修正 runner：旧容量向上取整变异在整页对齐环境可能与正确实现等价，已改为可观察的多报一页错误。两个 C++ 场景不变，2/3/6 重新通过；两份 F05 压缩包原位替换，旧版本不保留。
