@@ -128,3 +128,12 @@ F04 复审修正了测试提前退出时的回调寿命，并使绑定及非对�
 风险 `F05/page-address、page-capacity、page-io-adaptation` 归 F05 维护，F08/F09/F26 引用。真实 Direct 文件及整个物理镜像 oracle、8 KiB 测试侧能力注入分别标明；未经过真实 B/BufferPool 或业务 E2E。两项/六个变异及原 F04 三项通过；详见 [审查](../../docs/storage_redesign/f05_execution_20260923.md) 与 [结果和清理](../../test-results/storage-f05-20260923/README.md)。没有 production 测试 hook、默认路径改动或常驻小测试。后续真实接入沿风险标识复用，不复制测试矩阵。
 
 F05 再次复审仅修正 runner：旧容量向上取整变异在整页对齐环境可能与正确实现等价，已改为可观察的多报一页错误。两个 C++ 场景不变，2/3/6 重新通过；两份 F05 压缩包原位替换，旧版本不保留。
+
+
+## F06 恢复与风险交接
+
+[F06-journal-backend.tar.gz](F06-journal-backend.tar.gz) 仅含两个阶段场景、runner、MANIFEST.json、RESTORE.md；按 RESTORE 解压到仓库外，不恢复成常驻小测试。基准 5be34fb 加本轮固定段后端，实际字节按 production_sha256 核对；历史恢复可用本地结果包 source/ 覆盖隔离基准目录。原 F04 包按哈希校验后复用三项，F06 包不复制其测试。
+
+风险 F06/segment-address、segment-boundary、io-adaptation 归 F06，F07/F10/F11 引用。正式 F03/F04/F06/F02/F01 Direct 文件、不同段大小和物理起点、两种缓冲、独立全文件 oracle；不是完整 Journal 事务、B 或 Raft/SQL E2E。两项场景、原 F04 三项和七个隔离变异通过，见 [八项审查](../../docs/storage_redesign/f06_execution_20260924.md) 与 [结果/清理](../../test-results/storage-f06-20260924/README.md)。
+
+没有 production 测试 hook、默认路径改动或常驻注册。后续真实 F07/B 接入沿风险标识接管，不复制同义套件；S3/S5 协议、裸设备、物理掉电和性能未测。F06 本轮首次建包，仅最终版本；F00–F05/T0 有效包未变，原错误 F01 包没有恢复。

@@ -1,6 +1,6 @@
 # F26 子方案：数组式 BufferPool
 
-更新时间：2026-09-22（Asia/Shanghai）
+更新时间：2026-09-23（Asia/Shanghai）
 
 [主方案](../README.md) · [F26 页与缓存接入](page-storage-adapter.md) · [F02 外部缓冲](object-io.md#f02-external-buffers)
 
@@ -103,6 +103,12 @@ FrameHeader 保存当前所属页，淘汰得到 frame 后直接取得旧页身�
 与 F12 可复用分层查找、位操作的机制；F12 记录设备分配事实，本组件记录易失 RAM 状态，不能共享同一 bitmap、持久化权威或设备释放动作。F36 页内剩余空间又是第三类视图。是否抽取公共位图实现按实际消费者决定，不预建万能 allocator。
 
 hole punching 最小归还单位是 OS 内存页，不能归还单个 8 字节槽。假设 512 个有效条目集中在一页，需要约 4 KiB；若分散到 512 页且每页一个有效条目，就需要约 2 MiB（未含目录/控制信息/OS 页表）。多级目录和候选 bitmap 不能消除这种部分占用；不承诺数组总比哈希省内存，也不把论文讨论中的混合哈希回退当作已实现目标。
+
+#### 与 Journal 回收的区别（2026-09-23）
+
+本节 HPArray 的回收对象是冷翻译数组的 OS 物理内存页：保留虚拟地址，按论文 §4.3–4.4 的回收组计数和同步思路归还 RAM。BufferPool 淘汰/翻译归零不意味着磁盘数据库页或 Journal 已无用。MADV_DONTNEED 的匿名映射语义见 [Linux 文档](https://man7.org/linux/man-pages/man2/madvise.2.html)。
+
+F06 的“待回收 → 可复用 → 新段身份覆盖”保留的是设备字节，不靠本节 hole punching 实现；文件系统 punch-hole 又是解除文件块分配。F26/F12/F06 可共享分层候选搜索的思想，不能共用权威 bitmap、引用计数或持久恢复日志。延迟归还 RAM 会继续占物理内存，不能因为已标无效就把实际占用从预算扣掉。
 
 ### 3.6 FrameArena 与 huge page
 

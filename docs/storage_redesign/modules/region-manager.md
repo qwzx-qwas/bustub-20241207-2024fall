@@ -1,6 +1,6 @@
 # F04 RegionManager
 
-更新时间：2026-09-23（Asia/Shanghai）
+更新时间：2026-09-24（Asia/Shanghai）
 
 [主方案与阶段顺序](../README.md) · [测试设计议题](../testing_plan.md) · [子模块模板](../module_template.md)
 
@@ -188,3 +188,7 @@ F03 的固定 v1 BootstrapLayout 已提供设备容量及 metadata/journal/data 
 ### F05 接续补充（2026-09-23）
 
 新增正式能力查询 `Describe(handle)`：同一 manager 归属校验、区域长度、绑定设备真实内存/偏移长度对齐，不暴露物理起点。F05 构造时用它拒绝不能承载整页的区域；F06 可继续复用。私有 `ResolveRegion` 供 IO 与 Describe 共用，保持同设备绑定。无测试 getter、默认路径、任意地址入口或新线程。原三项测试按原压缩包恢复，在 F05 变更上回归通过；查询专属边界归 F05 当轮场景，见 [F05 审查](../f05_execution_20260923.md)，不修改有效 F04 历史归档。
+
+### F06/S2 接续（2026-09-24）
+
+F06/S2 已使用现有 Describe、Journal handle 和两种准备入口完成固定段寻址；本模块 production/API 未修改。原三项归档测试原样回归通过，F06 另验证段内及完整槽边界，不复制旧矩阵。 详见 [F06 执行与审查](../f06_execution_20260924.md)。
