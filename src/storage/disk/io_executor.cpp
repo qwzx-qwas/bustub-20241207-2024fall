@@ -114,7 +114,7 @@ struct IOBatchData {
   ~IOBatchData() {
     ReturnExternal();
     buffers_.clear();
-    core_->budget_->Release(requests_.size(), bytes_, 0);
+    core_->budget_->Release(requests_.empty() ? 1 : requests_.size(), bytes_, 0);
   }
 
   auto Address(size_t member) const -> const void * {
@@ -467,6 +467,27 @@ auto IOExecutor::TryPrepare(std::vector<IORequest> requests, bool flush_after_wr
   return {IOAdmission::Accepted, IOBatch(std::move(data))};
 }
 
+auto IOExecutor::TryPrepareFlush() -> IOPreparation {
+  const auto &core = impl_->core_;
+  {
+    std::lock_guard<std::mutex> lock(core->mutex_);
+    if (!core->accepting_) {
+      return {IOAdmission::Stopped, std::nullopt};
+    }
+    if (!core->budget_->Reserve(1, 0, 0)) {
+      return {IOAdmission::Full, std::nullopt};
+    }
+  }
+  std::shared_ptr<IOBatchData> data;
+  try {
+    data = std::make_shared<IOBatchData>(core, std::vector<IORequest>{}, true, 0, 0);
+  } catch (...) {
+    core->budget_->Release(1, 0, 0);
+    throw;
+  }
+  return {IOAdmission::Accepted, IOBatch(std::move(data))};
+}
+
 auto IOExecutor::TryPrepareExternal(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases,
                                     bool flush_after_writes) -> IOPreparation {
   const auto &core = impl_->core_;
@@ -547,7 +568,7 @@ auto IOExecutor::TrySubmit(IOBatch &batch) -> IOAdmission {
     }
     core->active_.push_back(batch.data_);
     data.position_ = std::prev(core->active_.end());
-    data.phase_ = IOBatchPhase::Queued;
+    data.phase_ = data.requests_.empty() ? IOBatchPhase::Flushing : IOBatchPhase::Queued;
   }
   core->work_ready_.notify_all();
   return IOAdmission::Accepted;

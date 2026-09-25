@@ -482,7 +482,7 @@ auto BootstrapStore::BindRegions() const -> RegionBinding {
   if (impl_->closed_ || !impl_->opened_) {
     throw std::logic_error("region binding requires a live open bootstrap instance");
   }
-  return {&impl_->executor_, impl_->layout_->regions_};
+  return {&impl_->executor_, impl_->layout_->regions_, impl_->layout_->identity_};
 }
 
 }  // namespace bustub

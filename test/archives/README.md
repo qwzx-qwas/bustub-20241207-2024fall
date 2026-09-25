@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-09-24（F07/S3；2026-09-25 复审）：新增 [F07-journal-service.tar.gz](F07-journal-service.tar.gz)，仅含最终 8 项单份 Journal 组件测试、runner 和恢复说明；8/8 和原 F02/F06 共 10 项回归通过；13 个故意改坏版本均被指定断言发现。详见 [八项审查](../../docs/storage_redesign/f07_execution_20260924.md)。
+
 2026-09-23（F05）：新增 [F05-metadata-backend.tar.gz](F05-metadata-backend.tar.gz)，仅含两项正式页 IO 组件场景和 runner；2/2、6 个变异通过，复用原 F04 三项回归。见 [八项审查](../../docs/storage_redesign/f05_execution_20260923.md)。
 
 2026-09-23（F04）：新增 [F04-region-manager.tar.gz](F04-region-manager.tar.gz)，含 3 项真实区域寻址测试和 runner；3/3、6 个隔离变异通过，另复用 F03 原八项回归。只压缩保存，见 [审查](../../docs/storage_redesign/f04_execution_20260923.md)。
@@ -137,3 +139,11 @@ F05 再次复审仅修正 runner：旧容量向上取整变异在整页对齐环
 风险 F06/segment-address、segment-boundary、io-adaptation 归 F06，F07/F10/F11 引用。正式 F03/F04/F06/F02/F01 Direct 文件、不同段大小和物理起点、两种缓冲、独立全文件 oracle；不是完整 Journal 事务、B 或 Raft/SQL E2E。两项场景、原 F04 三项和七个隔离变异通过，见 [八项审查](../../docs/storage_redesign/f06_execution_20260924.md) 与 [结果/清理](../../test-results/storage-f06-20260924/README.md)。
 
 没有 production 测试 hook、默认路径改动或常驻注册。后续真实 F07/B 接入沿风险标识接管，不复制同义套件；S3/S5 协议、裸设备、物理掉电和性能未测。F06 本轮首次建包，仅最终版本；F00–F05/T0 有效包未变，原错误 F01 包没有恢复。
+
+## F07 恢复与风险交接
+
+当前包含最终 8 项 C++ 场景、runner、MANIFEST.json、RESTORE.md。基准 `00a8397` 加 S3 生产改动，恢复需匹配 production_sha256，或在隔离基准 checkout 覆盖本地结果包 source/ 快照。原 F02/F06 源码包按哈希读取作回归，本包不复制它们。
+
+风险 `F07/format-chain`、`group-durable`、`admission-lifetime`、`failure-isolation`、`reopen`；S4/S5/S10 与共同 C/P 真实接入时沿这些风险接管，不另建同义套件。正式 F07→F06→F04→F02→F01 Direct 文件路径；暂停/EIO 为测试链接注入，没有 production hook。不是 B/SQL/Raft E2E、裸设备或真实掉电。
+
+[设计审查](../../docs/storage_redesign/f07_execution_20260924.md) 与 [结果/清理](../../test-results/storage-f07-20260924/README.md) 记录正常实现 8 项、原回归 10 项通过，13 个故意改坏版本按预期失败及工具检查。只保留最终压缩源码；临时修正前用例、构建和镜像均不常驻。2026-09-25 复审修正了 CRC 判据并补强 Flush 等待、组内容和及时隔离验证，原位替换 F07 包，无旧 F07 错误包保留；旧有效模块包及共同 C/P 未修改。

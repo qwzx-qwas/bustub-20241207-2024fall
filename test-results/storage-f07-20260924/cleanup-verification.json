@@ -1,0 +1,34 @@
+{
+  "module": "F07",
+  "review_date": "2026-09-25",
+  "archives_verified": true,
+  "source_archive_bytes": 13721,
+  "result_archive_bytes": 234073,
+  "source_sha256": "862d2580ae915abb0b6fe0dc691707cc9a89d00fe27102b4b778d19628cfffa4",
+  "result_sha256": "07fe8e38f627e950b5e92007a6cbab082b5bea4a576735385c60bcc85c918c4c",
+  "temporary_directory": "/tmp/bustub-f07-review-DFMdTbh5",
+  "temporary_directory_removed": true,
+  "previous_temporary_directory_removed": true,
+  "old_F07_archive_retained": false,
+  "old_F01_error_archive_exists": false,
+  "permanent_small_test_added": false,
+  "unchanged_original_F02_F06_archives": {
+    "F02-object-io.tar.gz": "279c9dff0b193fede4f1072c8ed4d443043173ab6c3b4d2c8edf55c432c6e1ce",
+    "F06-journal-backend.tar.gz": "6603b4d51f38fbdb8ed72c3f568b2b2cc9385a0c609b20b6021aa2ae8c45827d"
+  },
+  "archive_inner_hashes_verified": true,
+  "old_module_archives_unchanged": true,
+  "result_archive_gitignored": true,
+  "final_verification": {
+    "source_hashes_match_actual_tested_files": true,
+    "result_inner_hashes_verified": 138,
+    "normal_results": "8+8+2 passed",
+    "mutation_results": "13 expected assertion failures",
+    "source_archive_bytes": 13721,
+    "result_archive_bytes": 234073,
+    "old_faulty_F01_absent": true,
+    "no_permanent_F07_test": true,
+    "original_regression_archives_unchanged": true,
+    "result_gitignored": true
+  }
+}

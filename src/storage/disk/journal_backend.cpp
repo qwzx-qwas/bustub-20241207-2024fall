@@ -8,6 +8,7 @@
 
 #include "storage/disk/journal_backend.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace bustub {
@@ -22,6 +23,22 @@ JournalBackend::JournalBackend(RegionManager &regions, uint64_t segment_bytes)
 }
 
 auto JournalBackend::SegmentCapacity() const -> uint64_t { return segment_capacity_; }
+
+auto JournalBackend::PlanAppend(uint64_t offset, uint64_t size) const -> std::vector<JournalIORequest> {
+  const auto capacity = segment_capacity_ * segment_bytes_;
+  if (size == 0 || offset > capacity || size > capacity - offset) {
+    throw std::invalid_argument("journal append exceeds complete segment capacity");
+  }
+  std::vector<JournalIORequest> requests;
+  while (size != 0) {
+    const auto within = offset % segment_bytes_;
+    const auto bytes = std::min(size, segment_bytes_ - within);
+    requests.push_back({offset / segment_bytes_, IOOperation::Write, within, bytes});
+    offset += bytes;
+    size -= bytes;
+  }
+  return requests;
+}
 
 auto JournalBackend::Resolve(const std::vector<JournalIORequest> &requests) const -> std::vector<RegionIORequest> {
   std::vector<RegionIORequest> resolved;

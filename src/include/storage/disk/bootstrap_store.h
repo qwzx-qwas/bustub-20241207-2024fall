@@ -111,9 +111,11 @@ class BootstrapStore {
 
  private:
   friend class RegionManager;
+  friend class JournalService;
   struct RegionBinding {
     IOExecutor *executor_;
     std::array<StorageByteRange, 3> regions_;
+    BootstrapIdentity identity_;
   };
   auto BindRegions() const -> RegionBinding;
   struct Impl;

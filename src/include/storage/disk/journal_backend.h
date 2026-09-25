@@ -45,6 +45,10 @@ class JournalBackend {
   auto operator=(const JournalBackend &) -> JournalBackend & = delete;
 
   auto SegmentCapacity() const -> uint64_t;
+  /** Split a caller-owned contiguous append range into segment-local writes.
+   * Does not reserve space or submit IO; the Journal owns allocation/order.
+   */
+  auto PlanAppend(uint64_t offset, uint64_t size) const -> std::vector<JournalIORequest>;
   auto TryPrepare(const std::vector<JournalIORequest> &requests, bool flush_after_writes) const -> IOPreparation;
   auto TryPrepareExternal(const std::vector<JournalIORequest> &requests, std::vector<IOBufferLease> &leases,
                           bool flush_after_writes) const -> IOPreparation;

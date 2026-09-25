@@ -159,6 +159,12 @@ class IOExecutor {
    * flush_after_writes requires at least one write. It is not a transaction.
    */
   auto TryPrepare(std::vector<IORequest> requests, bool flush_after_writes) -> IOPreparation;
+  /** Reserve one operation slot for an explicit Flush, with no data buffers.
+   * Caller must await the writes it wants covered before submitting this batch.
+   * This does not wait for other executor batches. An empty operations_ result
+   * with writes_durable_ true means this Flush succeeded, not a global fence.
+   */
+  auto TryPrepareFlush() -> IOPreparation;
   /**
    * Same range/ordering rules, with one matching lease per request. Accepted
    * consumes leases (empties the vector); every rejection/exception leaves them
