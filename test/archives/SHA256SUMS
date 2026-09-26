@@ -9,3 +9,4 @@ e5447784ea1cc0a985bae3bcb5e7a361ff75f4f6bc828c2376ff8e9d8adbe6d6  F04-region-man
 862d2580ae915abb0b6fe0dc691707cc9a89d00fe27102b4b778d19628cfffa4  F07-journal-service.tar.gz
 f4441d2ed561ec10006489ed7944e40519b0e987e5ad24a65eddfb6b943d7b84  F08-metadata-engine.tar.gz
 f64fb7a55b4f13db64673adfce9846091b3638ed240f425821991dd7f5620913  F09-metadata-page-writer.tar.gz
+39d04da8de5f09a196b0e5125b0840f6be4a92baa19194cb55eac9ef3f2cf20d  F10-metadata-checkpoint.tar.gz

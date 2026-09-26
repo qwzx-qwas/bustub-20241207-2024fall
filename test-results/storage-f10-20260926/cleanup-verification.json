@@ -1,0 +1,30 @@
+{
+  "source_archive": "test/archives/F10-metadata-checkpoint.tar.gz",
+  "source_sha256": "39d04da8de5f09a196b0e5125b0840f6be4a92baa19194cb55eac9ef3f2cf20d",
+  "source_bytes": 11419,
+  "result_archive": "test-results/storage-f10-20260926/F10-results.tar.gz",
+  "result_sha256": "8c33698c0b1eb8c513db4ddaffa97b3fc758e9980e70ce8c8efabe07dc08b26e",
+  "result_bytes": 45641,
+  "replaced_old_source_sha256": "653fd1c441ed06746089b2e3f3e14c3c44b2d78398439e0773a59a13e778aa2f",
+  "replaced_old_result_sha256": "21fbd74462d133075084fe55a18e2181e91596902a6b557ff9a3a921108334cb",
+  "member_bytes_verified": true,
+  "old_archives_not_backed_up": true,
+  "production_unchanged": true,
+  "regression_dependencies_preserved": [
+    "F03-bootstrap",
+    "F07-journal-service",
+    "F08-metadata-engine",
+    "F09-metadata-page-writer"
+  ],
+  "temporary_directory": "/tmp/bustub-f10-audit2-20260926",
+  "temporary_directory_removed": true,
+  "removed_file_count": 2222,
+  "removed_logical_bytes": 935405903,
+  "previous_scratch_absent": true,
+  "erroneous_original_f01_result_absent": true,
+  "source_archive_only_no_expanded_stage_tests": true,
+  "fresh_passed_cases": 32,
+  "targeted_mutants_caught": 9,
+  "common_cp_files_unchanged": true,
+  "commit_performed": false
+}

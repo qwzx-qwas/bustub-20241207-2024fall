@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -21,6 +22,11 @@
 namespace bustub {
 
 class IOExecutor;
+
+struct MetadataCheckpointRef {
+  std::array<uint8_t, 16> journal_;
+  uint64_t position_;
+};
 
 struct BootstrapIdentity {
   std::array<uint8_t, 16> storage_;
@@ -80,12 +86,17 @@ struct BootstrapRepairOptions {
 /**
  * F03 fixed-layout bootstrap. Create writes two 64 KiB slots at 0 and 1 MiB;
  * Open only reads. IDs are explicit, nonzero and compared against both valid
- * copies. Version 1 has immutable layout and no checkpoint/root publication yet.
+ * copies. Layout stays immutable. Version 1 has no checkpoint; publishing a B
+ * checkpoint upgrades the selected target slot to version 2. New/old generations
+ * may coexist. The metadata owner must validate the referenced recovery chain
+ * before serving data or starting repair. Ordinary Journal data remains single-copy.
  *
  * The lifecycle owner serializes Create/Open/StartRepair/Close and excludes all
  * other writers to these slots (including other BootstrapStore instances).
  * Status is concurrently readable. One successful Open fixes this instance's
- * identity/layout. Close joins its one optional repair coordinator, draining
+ * identity/layout. Publication and repair serialize their actual slot IO; repair
+ * always uses the current source. A failed submitted publication requires reopening.
+ * Close joins its optional repair coordinator and drains publication, draining
  * accepted IO before returning. It cannot cancel a stalled device operation.
  * The executor and device must outlive this object; close them afterwards.
  */
@@ -119,6 +130,9 @@ class BootstrapStore {
     BootstrapIdentity identity_;
   };
   auto BindRegions() const -> RegionBinding;
+  // B owns publication; neither business A nor ordinary IO gets a mutable root API.
+  auto MetadataCheckpoint() const -> std::optional<MetadataCheckpointRef>;
+  void PublishMetadataCheckpoint(const MetadataCheckpointRef &checkpoint);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

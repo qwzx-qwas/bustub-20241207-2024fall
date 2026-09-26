@@ -91,11 +91,12 @@ void ValidateLayout(const BootstrapLayout &layout, const BlockDeviceInfo &info) 
   }
 }
 
-auto Encode(const BootstrapLayout &layout) -> Image {
+auto Encode(const BootstrapLayout &layout, const std::optional<MetadataCheckpointRef> &checkpoint, uint64_t generation)
+    -> Image {
   ByteWriter writer;
   writer.PutBytes(BOOTSTRAP_MAGIC, 8);
-  writer.PutU32(1);
-  writer.PutU32(112);
+  writer.PutU32(checkpoint ? 2 : 1);
+  writer.PutU32(checkpoint ? 144 : 112);
   writer.PutU32(0);
   writer.PutU32(0);
   writer.PutBytes(layout.identity_.storage_.data(), 16);
@@ -104,6 +105,11 @@ auto Encode(const BootstrapLayout &layout) -> Image {
   for (const auto &range : layout.regions_) {
     writer.PutU64(range.Offset());
     writer.PutU64(range.Size());
+  }
+  if (checkpoint) {
+    writer.PutU64(generation);
+    writer.PutU64(checkpoint->position_);
+    writer.PutBytes(checkpoint->journal_.data(), checkpoint->journal_.size());
   }
   auto image = writer.Take();
   image.resize(BOOTSTRAP_CHECKSUM_OFFSET, std::byte{0});
@@ -117,6 +123,8 @@ enum class CopyKind { Empty, Corrupt, Valid };
 struct Copy {
   CopyKind kind_;
   std::optional<BootstrapLayout> layout_;
+  uint64_t generation_{0};
+  std::optional<MetadataCheckpointRef> checkpoint_{};
 };
 
 auto Decode(const Image &image, const BlockDeviceInfo &info, const BootstrapIdentity &expected) -> Copy {
@@ -129,9 +137,11 @@ auto Decode(const Image &image, const BlockDeviceInfo &info, const BootstrapIden
   }
   ByteReader reader(image);
   reader.Skip(8);
-  if (std::memcmp(image.data(), BOOTSTRAP_MAGIC, 8) != 0 || reader.ReadU32() != 1 || reader.ReadU32() != 112 ||
-      reader.ReadU32() != 0 || reader.ReadU32() != 0 ||
-      !IsZero(image.data() + 112, image.data() + BOOTSTRAP_CHECKSUM_OFFSET)) {
+  const auto format = reader.ReadU32();
+  const auto length = reader.ReadU32();
+  if (std::memcmp(image.data(), BOOTSTRAP_MAGIC, 8) != 0 ||
+      !((format == 1 && length == 112) || (format == 2 && length == 144)) || reader.ReadU32() != 0 ||
+      reader.ReadU32() != 0 || !IsZero(image.data() + length, image.data() + BOOTSTRAP_CHECKSUM_OFFSET)) {
     Fail(BootstrapErrorCode::UnsupportedFormat, "unsupported bootstrap format or features");
   }
   BootstrapIdentity identity{};
@@ -155,13 +165,29 @@ auto Decode(const Image &image, const BlockDeviceInfo &info, const BootstrapIden
   };
   BootstrapLayout layout{identity, capacity, {read_range(), read_range(), read_range()}};
   ValidateLayout(layout, info);
-  return {CopyKind::Valid, layout};
+  Copy copy{CopyKind::Valid, layout};
+  if (format == 2) {
+    copy.generation_ = reader.ReadU64();
+    MetadataCheckpointRef checkpoint{};
+    checkpoint.position_ = reader.ReadU64();
+    for (auto &byte : checkpoint.journal_) {
+      byte = reader.ReadU8();
+    }
+    if (copy.generation_ == 0 || checkpoint.position_ == 0 || checkpoint.position_ >= layout.regions_[1].Size() ||
+        std::all_of(checkpoint.journal_.begin(), checkpoint.journal_.end(), [](uint8_t b) { return b == 0; })) {
+      Fail(BootstrapErrorCode::InvalidLayout, "invalid metadata checkpoint reference");
+    }
+    copy.checkpoint_ = checkpoint;
+  }
+  return copy;
 }
 
 struct Selection {
   BootstrapLayout layout_;
   size_t source_;
   bool degraded_;
+  uint64_t generation_;
+  std::optional<MetadataCheckpointRef> checkpoint_;
 };
 
 auto Select(const Images &images, const BlockDeviceInfo &info, const BootstrapIdentity &expected) -> Selection {
@@ -169,16 +195,20 @@ auto Select(const Images &images, const BlockDeviceInfo &info, const BootstrapId
   const auto a = Decode(images[0], info, expected);
   const auto b = Decode(images[1], info, expected);
   if (a.kind_ == CopyKind::Valid && b.kind_ == CopyKind::Valid) {
-    if (images[0] != images[1]) {
+    // The first 112 bytes contain the static layout (format/length may differ).
+    if (std::memcmp(images[0].data() + 24, images[1].data() + 24, 88) != 0 ||
+        (a.generation_ == b.generation_ && images[0] != images[1])) {
       Fail(BootstrapErrorCode::ConflictingCopies, "valid bootstrap copies disagree");
     }
-    return {*a.layout_, 0, false};
+    const size_t source = b.generation_ > a.generation_ ? 1 : 0;
+    const auto &copy = source == 0 ? a : b;
+    return {*copy.layout_, source, images[0] != images[1], copy.generation_, copy.checkpoint_};
   }
   if (a.kind_ == CopyKind::Valid) {
-    return {*a.layout_, 0, true};
+    return {*a.layout_, 0, true, a.generation_, a.checkpoint_};
   }
   if (b.kind_ == CopyKind::Valid) {
-    return {*b.layout_, 1, true};
+    return {*b.layout_, 1, true, b.generation_, b.checkpoint_};
   }
   if (a.kind_ == CopyKind::Empty && b.kind_ == CopyKind::Empty) {
     Fail(BootstrapErrorCode::Unformatted, "bootstrap slots are empty; explicit Create required");
@@ -330,7 +360,11 @@ struct BootstrapStore::Impl {
     bool needs_durability = false;
     for (uint32_t attempt = 0; attempt < options.max_attempts_; ++attempt) {
       try {
+        std::unique_lock<std::mutex> update(update_mutex_);
         CheckStop();
+        if (publication_faulted_) {
+          Fail(BootstrapErrorCode::SourceChanged, "reopen after uncertain checkpoint publication");
+        }
         {
           std::lock_guard<std::mutex> lock(mutex_);
           status_.repair_state_ = BootstrapRepairState::Running;
@@ -339,6 +373,9 @@ struct BootstrapStore::Impl {
         auto images = Read(&options);
         CheckRepairSource(images);
         const auto selected = Select(images, executor_.DeviceInfo(), layout_->identity_);
+        if (images[selected.source_] != source_image_) {
+          Fail(BootstrapErrorCode::SourceChanged, "bootstrap authority changed outside its owner");
+        }
         if (selected.degraded_ || needs_durability) {
           try {
             Write(source_image_, {1 - source_slot_}, &options);
@@ -393,11 +430,46 @@ struct BootstrapStore::Impl {
     if (coordinator_.joinable()) {
       coordinator_.join();
     }
+    std::lock_guard<std::mutex> update(update_mutex_);
     closed_ = true;
+  }
+
+  void Publish(const MetadataCheckpointRef &checkpoint) {
+    std::lock_guard<std::mutex> update(update_mutex_);
+    CheckStop();
+    if (!opened_ || publication_faulted_) {
+      Fail(BootstrapErrorCode::SourceChanged, "checkpoint publication requires a healthy open bootstrap");
+    }
+    if (generation_ == std::numeric_limits<uint64_t>::max()) {
+      Fail(BootstrapErrorCode::InvalidLayout, "bootstrap generation exhausted");
+    }
+    auto image = Encode(*layout_, checkpoint, generation_ + 1);
+    Decode(image, executor_.DeviceInfo(), layout_->identity_);
+    const auto target = 1 - source_slot_;
+    auto batch = Prepare({{IOOperation::Write, Slot(target)}}, true, nullptr);
+    std::memcpy(batch.Buffer(0), image.data(), image.size());
+    // Once submission is attempted, don't let repair or another publication
+    // overwrite a slot whose durable result is uncertain. Reopen decides it.
+    publication_faulted_ = true;
+    Execute(batch, true, nullptr);
+    source_image_ = std::move(image);
+    source_slot_ = target;
+    checkpoint_ = checkpoint;
+    ++generation_;
+    publication_faulted_ = false;
+    std::lock_guard<std::mutex> status(mutex_);
+    status_.redundancy_lost_ = true;
+    if (status_.repair_state_ != BootstrapRepairState::Pending &&
+        status_.repair_state_ != BootstrapRepairState::Running) {
+      status_.repair_state_ = BootstrapRepairState::Idle;
+      status_.attempts_ = 0;
+      status_.last_error_ = nullptr;
+    }
   }
 
   IOExecutor &executor_;
   mutable std::mutex mutex_;
+  mutable std::mutex update_mutex_;
   std::condition_variable wake_;
   BootstrapStatus status_;
   bool stop_{false};
@@ -406,6 +478,9 @@ struct BootstrapStore::Impl {
   size_t source_slot_{0};
   std::optional<BootstrapLayout> layout_;
   Image source_image_;
+  uint64_t generation_{0};
+  std::optional<MetadataCheckpointRef> checkpoint_;
+  bool publication_faulted_{false};
   std::thread coordinator_;
 };
 
@@ -421,7 +496,7 @@ void BootstrapStore::Create(const BootstrapLayout &layout) {
       Fail(BootstrapErrorCode::NotEmpty, "Create refuses to overwrite nonzero bootstrap slots");
     }
   }
-  impl_->Write(Encode(layout), {0, 1});
+  impl_->Write(Encode(layout, std::nullopt, 0), {0, 1});
 }
 
 auto BootstrapStore::Open(const BootstrapIdentity &expected) -> BootstrapOpenResult {
@@ -431,6 +506,8 @@ auto BootstrapStore::Open(const BootstrapIdentity &expected) -> BootstrapOpenRes
   const auto selected = Select(images, impl_->executor_.DeviceInfo(), expected);
   impl_->layout_ = selected.layout_;
   impl_->source_slot_ = selected.source_;
+  impl_->generation_ = selected.generation_;
+  impl_->checkpoint_ = selected.checkpoint_;
   impl_->source_image_ = std::move(images[selected.source_]);
   {
     std::lock_guard<std::mutex> lock(impl_->mutex_);
@@ -447,9 +524,15 @@ void BootstrapStore::StartRepair(const BootstrapRepairOptions &options) {
   if (options.max_attempts_ == 0 || options.retry_delay_.count() <= 0 || options.admission_timeout_.count() <= 0) {
     throw std::invalid_argument("repair requires positive attempt and wait limits");
   }
-  std::lock_guard<std::mutex> lock(impl_->mutex_);
-  if (!impl_->status_.redundancy_lost_ || impl_->coordinator_.joinable()) {
+  std::unique_lock<std::mutex> lock(impl_->mutex_);
+  if (!impl_->status_.redundancy_lost_ || impl_->status_.repair_state_ == BootstrapRepairState::Pending ||
+      impl_->status_.repair_state_ == BootstrapRepairState::Running) {
     return;
+  }
+  if (impl_->coordinator_.joinable()) {
+    lock.unlock();
+    impl_->coordinator_.join();
+    lock.lock();
   }
   impl_->status_.repair_state_ = BootstrapRepairState::Pending;
   try {
@@ -477,6 +560,15 @@ auto BootstrapStore::Status() const -> BootstrapStatus {
 }
 
 void BootstrapStore::Close() { impl_->Close(); }
+
+auto BootstrapStore::MetadataCheckpoint() const -> std::optional<MetadataCheckpointRef> {
+  std::lock_guard<std::mutex> update(impl_->update_mutex_);
+  if (impl_->publication_faulted_) {
+    Fail(BootstrapErrorCode::SourceChanged, "reopen bootstrap after uncertain checkpoint publication");
+  }
+  return impl_->checkpoint_;
+}
+void BootstrapStore::PublishMetadataCheckpoint(const MetadataCheckpointRef &checkpoint) { impl_->Publish(checkpoint); }
 
 auto BootstrapStore::BindRegions() const -> RegionBinding {
   if (impl_->closed_ || !impl_->opened_) {

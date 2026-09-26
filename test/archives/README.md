@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-09-26（F10/F11 两轮复审）：更新 [F10-metadata-checkpoint.tar.gz](F10-metadata-checkpoint.tar.gz)，统一六项直接入口/周期 FULL/故障/并发恢复集成场景；6 项、原 F03/F07/F08/F09 共 26 项重新执行通过，9 个变异被指定断言发现；补强修复/发布断言和更新输入，删除旧 XML 复用选项，第二轮补足同一页槽跨 checkpoint 复用的输入判据，旧同模块包再次原位替换。先逻辑审查再测试，见 [八项审查 §11](../../docs/storage_redesign/f10_execution_20260926.md#11-第二次复审2026-09-26)。仅压缩保留；有效依赖包不删除，不注册常驻目标。
+
 2026-09-26（F09）：新增 [F09-metadata-page-writer.tar.gz](F09-metadata-page-writer.tar.gz)，仅最终四项真实页写回测试与 runner；4 项/原 F08 六项通过，8 个指定变异检出。先审生产逻辑再测试，见 [八项审查](../../docs/storage_redesign/f09_execution_20260926.md)。不注册常驻测试，F08 有效包保留作回归来源。
 
 2026-09-25（F08/S4）：新增 [F08-metadata-engine.tar.gz](F08-metadata-engine.tar.gz)，仅最终六项真实 B 组件测试和 runner；6 项/原 A 12 项通过，12 个定向变异检出，详见 [八项审查](../../docs/storage_redesign/f08_execution_20260925.md)。没有常驻测试目标。
@@ -24,11 +26,12 @@
 
 | 模块包 | 原源码 | 历史用途 | 当前状态 |
 | --- | --- | --- | --- |
-| [F09-metadata-page-writer.tar.gz](F09-metadata-page-writer.tar.gz) | 包内 `test/storage_redesign/metadata_page_writer_test.cpp`、`run_stage.py` | 4 项最终页/并发/失败，8 个变异；原 F08 六项回归 | F09 当轮完成，仅压缩；checkpoint/最终页恢复/回收待 F10/F11 |
-| [F08-metadata-engine.tar.gz](F08-metadata-engine.tar.gz) | 包内 `test/storage_redesign/metadata_engine_test.cpp`、`run_stage.py` | 6 项 B 事务/恢复/空间复用，12 个变异；原 A 回归 12 项 | S4 已完成，仅压缩；最终页写回由 F09 接续，checkpoint/业务接入未完成 |
+| [F10-metadata-checkpoint.tar.gz](F10-metadata-checkpoint.tar.gz) | 包内 `test/storage_redesign/metadata_checkpoint_test.cpp`、`run_stage.py` | 6 项真实 B checkpoint/恢复，9 个变异；执行原 26 项回归 | 本轮 B 路径完成；日志裁剪/复用、Deferred、A 接入未完成 |
+| [F09-metadata-page-writer.tar.gz](F09-metadata-page-writer.tar.gz) | 包内 `test/storage_redesign/metadata_page_writer_test.cpp`、`run_stage.py` | 4 项最终页/并发/失败，8 个变异；原 F08 六项回归 | F09 当轮完成，仅压缩；checkpoint/最终页恢复由 F10 接续，回收待后续 |
+| [F08-metadata-engine.tar.gz](F08-metadata-engine.tar.gz) | 包内 `test/storage_redesign/metadata_engine_test.cpp`、`run_stage.py` | 6 项 B 事务/恢复/空间复用，12 个变异；原 A 回归 12 项 | S4 已完成，仅压缩；最终页写回由 F09 接续，checkpoint 由 F10 接续；业务接入未完成 |
 | [F05-metadata-backend.tar.gz](F05-metadata-backend.tar.gz) | 包内 `test/storage_redesign/metadata_backend_test.cpp`、`run_stage.py` | 2 项页地址/容量/IO 适配，6 个隔离 mutation；复用原 F04 包回归 | S2 完成，仅压缩保留；S4 页分配/WAL 已由 F08 接续，业务接入未完成 |
 | [F04-region-manager.tar.gz](F04-region-manager.tar.gz) | 包内 `test/storage_redesign/region_manager_test.cpp`、`run_stage.py` | 3 项区域绑定/包含/IO 接入，6 个隔离 mutation；依赖 F03 原包做回归 | 固定区域完成，仅压缩保留；页/日志后端与节点业务待接入 |
-| [F03-bootstrap.tar.gz](F03-bootstrap.tar.gz) | 包内 `test/storage_redesign/bootstrap_store_test.cpp`、`run_stage.py` | 8 项基础引导与异步修复组件场景，11 个隔离 mutation | 仅压缩归档；F34 节点/业务接入及 S5 可变恢复根未完成 |
+| [F03-bootstrap.tar.gz](F03-bootstrap.tar.gz) | 包内 `test/storage_redesign/bootstrap_store_test.cpp`、`run_stage.py` | 8 项基础引导与异步修复组件场景，11 个隔离 mutation | 仅压缩归档；S5 可变恢复根由 F10 接续，F34 节点/业务接入未完成 |
 | [F02-object-io.tar.gz](F02-object-io.tar.gz) | 包内 `test/storage_redesign/io_executor_test.cpp`、`run_stage.py`；原工作目录为专用 `/tmp` | 8 项批次/预算/外部许可/失败/生命周期验证，10 个隔离 mutation | 仅压缩归档；FrameArena、S2/S6 对象寻址及业务接入待完成 |
 | [F01-block-device.tar.gz](F01-block-device.tar.gz) | 包内 `test/storage_redesign/block_device_test.cpp`、`run_stage.py`；工作源码原在专用 `/tmp` 目录 | 7 项真实文件/边界注入验证，6 个隔离 mutation | 已压缩，不注册常驻目标；F02 已使用 F01，S8/S9 业务接入仍待完成 |
 | [F00-storage-contracts.tar.gz](F00-storage-contracts.tar.gz) | `test/storage_redesign/storage_range_contract_test.cpp` | 5 项范围算术及真实文件解码边界测试 | 已压缩，工作源码和用途标签退出常驻入口 |

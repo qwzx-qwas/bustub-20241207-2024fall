@@ -26,6 +26,7 @@ constexpr uint32_t FORMAT_VERSION = 1;
 constexpr char FORMAT_MAGIC[] = "BUSTMETA";
 constexpr uint32_t FULL = 1;
 constexpr uint32_t PATCH = 2;
+constexpr uint32_t CHECKPOINT = 2;
 
 enum class PageKind : uint32_t { Root = 1, Tree = 2, Records = 3, Overflow = 4, Free = 5 };
 using TreeKey = GenericKey<32>;
@@ -560,6 +561,14 @@ void Seal(PageImage *page, page_id_t id, uint64_t lsn, const PageBody &body) {
   std::memcpy(page->data_.data() + BODY, trailer.data(), trailer.size());
 }
 
+void CheckMetadataAdmission(IOAdmission admission) {
+  if (admission != IOAdmission::Accepted) {
+    throw MetadataError(
+        admission == IOAdmission::Full ? MetadataErrorCode::ResourceUnavailable : MetadataErrorCode::NotReady,
+        "metadata page IO was not admitted");
+  }
+}
+
 // F09 keeps page persistence separate from transaction publication. Access is
 // serialized by Impl::writeback_mutex_; F02 parallelizes pages within a batch.
 class MetadataPageWriter {
@@ -586,7 +595,7 @@ class MetadataPageWriter {
       return {MetadataWritebackOutcome::Clean, 0, nullptr};
     }
     auto preparation = backend_.TryPrepare(requests, true);
-    CheckAdmission(preparation.admission_);
+    CheckMetadataAdmission(preparation.admission_);
     auto &batch = *preparation.batch_;
     for (size_t i = 0; i < requests.size(); i++) {
       const auto &page = *view->pages_[requests[i].page_id_];
@@ -598,7 +607,7 @@ class MetadataPageWriter {
     // Canonical bytes now belong to F02. No need to retain unrelated old pages
     // while the device runs; their version stamps were captured before Submit.
     view.reset();
-    CheckAdmission(executor_.TrySubmit(batch));
+    CheckMetadataAdmission(executor_.TrySubmit(batch));
     batch.Wait();
     const auto &result = batch.Result();
     if (!result.writes_durable_) {
@@ -622,18 +631,89 @@ class MetadataPageWriter {
     uint64_t generation_{0};
     uint64_t lsn_{0};
   };
-  static void CheckAdmission(IOAdmission admission) {
-    if (admission != IOAdmission::Accepted) {
-      throw MetadataError(
-          admission == IOAdmission::Full ? MetadataErrorCode::ResourceUnavailable : MetadataErrorCode::NotReady,
-          "metadata page writeback was not admitted");
-    }
-  }
   MetadataBackend &backend_;
   IOExecutor &executor_;
   std::vector<Stamp> durable_;
   size_t cursor_{0};
 };
+
+struct MetadataBatchHeader {
+  uint32_t kind_;
+  uint64_t previous_;
+  uint32_t pages_;
+  uint32_t count_;
+};
+
+auto EncodeHeader(const MetadataBatchHeader &h, const MetadataOptions &options) -> std::vector<std::byte> {
+  ByteWriter header;
+  header.PutBytes(FORMAT_MAGIC, 8);
+  header.PutU32(FORMAT_VERSION);
+  header.PutU32(h.kind_);
+  header.PutU32(BUSTUB_PAGE_SIZE);
+  header.PutU32(24);
+  header.PutU32(options.page_limit_);
+  header.PutU32(options.max_value_bytes_);
+  header.PutU64(h.previous_);
+  header.PutU32(h.pages_);
+  header.PutU32(h.count_);
+  return header.Take();
+}
+
+auto ReadHeader(const JournalRecords &records, const MetadataOptions &options) -> MetadataBatchHeader {
+  Require(!records.empty(), "missing metadata batch header");
+  ByteReader header(records[0]);
+  auto magic = header.ReadBytes(8);
+  Require(std::memcmp(magic.data(), FORMAT_MAGIC, 8) == 0, "unknown metadata batch");
+  const auto format = header.ReadU32();
+  const auto kind = header.ReadU32();
+  if (format != FORMAT_VERSION || header.ReadU32() != BUSTUB_PAGE_SIZE || header.ReadU32() != 24 ||
+      header.ReadU32() != options.page_limit_ || header.ReadU32() != options.max_value_bytes_) {
+    throw MetadataError(MetadataErrorCode::InvalidFormat, "metadata format/geometry does not match");
+  }
+  MetadataBatchHeader result{kind, header.ReadU64(), header.ReadU32(), header.ReadU32()};
+  Require(header.Empty() && kind <= CHECKPOINT && result.pages_ > 0 && result.pages_ <= options.page_limit_ &&
+              records.size() == result.count_ + 1ULL && (kind != CHECKPOINT || result.count_ == 0),
+          "invalid metadata batch header");
+  return result;
+}
+
+struct CheckpointRecoveryPlan {
+  uint64_t covered_{0};
+  uint32_t pages_{0};
+  uint64_t last_data_{0};
+  uint32_t high_water_{0};
+  // These slots are rebuilt from the suffix, never trusted as checkpoint pages.
+  std::vector<bool> modified_;
+};
+
+void InspectCheckpointBatch(uint64_t lsn, const JournalRecords &records, const MetadataOptions &options,
+                            CheckpointRecoveryPlan *plan) {
+  const auto h = ReadHeader(records, options);
+  if (plan->covered_ == 0) {
+    Require(h.kind_ == CHECKPOINT && h.previous_ > 0 && h.previous_ < lsn, "missing referenced metadata checkpoint");
+    plan->covered_ = plan->last_data_ = h.previous_;
+    plan->pages_ = plan->high_water_ = h.pages_;
+    plan->modified_.resize(h.pages_);
+    return;
+  }
+  Require(h.previous_ == plan->last_data_ && lsn > h.previous_ && h.pages_ >= plan->high_water_,
+          "checkpoint suffix history mismatch");
+  if (h.kind_ == CHECKPOINT) {
+    Require(h.pages_ == plan->high_water_, "checkpoint changed page high-water");
+    return;
+  }
+  Require(h.kind_ == 1, "metadata creation appears after checkpoint");
+  plan->modified_.resize(h.pages_);
+  for (size_t n = 1; n < records.size(); ++n) {
+    ByteReader record(records[n]);
+    record.ReadU32();
+    const auto id = record.ReadU32();
+    Require(id < h.pages_, "checkpoint suffix page is out of range");
+    plan->modified_[id] = true;
+  }
+  plan->last_data_ = lsn;
+  plan->high_water_ = h.pages_;
+}
 
 struct PreparedPages {
   JournalRecords records_;
@@ -641,7 +721,7 @@ struct PreparedPages {
 };
 
 auto Prepare(const MetadataVersion *base, const MetadataVersion &working, const MetadataPager &pager,
-             const MetadataOptions &options, uint64_t previous_lsn) -> PreparedPages {
+             const MetadataOptions &options, uint64_t previous_lsn, uint64_t checkpoint_lsn) -> PreparedPages {
   PreparedPages prepared;
   prepared.records_.emplace_back();
   const auto &dirty = pager.Dirty();
@@ -677,8 +757,8 @@ auto Prepare(const MetadataVersion *base, const MetadataVersion &working, const 
       spans++;
       start = end;
     }
-    bool full = before == nullptr || before->kind_ != page.kind_ || before->generation_ != page.generation_ ||
-                patch.Data().size() >= BODY;
+    bool full = before == nullptr || before->lsn_ <= checkpoint_lsn || before->kind_ != page.kind_ ||
+                before->generation_ != page.generation_ || patch.Data().size() >= BODY;
     ByteWriter record;
     record.PutU32(full ? FULL : PATCH);
     record.PutU32(static_cast<uint32_t>(id));
@@ -700,18 +780,10 @@ auto Prepare(const MetadataVersion *base, const MetadataVersion &working, const 
     prepared.records_.push_back(record.Take());
     prepared.bodies_.emplace_back(static_cast<page_id_t>(id), body);
   }
-  ByteWriter header;
-  header.PutBytes(FORMAT_MAGIC, 8);
-  header.PutU32(FORMAT_VERSION);
-  header.PutU32(base == nullptr ? 0 : 1);
-  header.PutU32(BUSTUB_PAGE_SIZE);
-  header.PutU32(24);
-  header.PutU32(options.page_limit_);
-  header.PutU32(options.max_value_bytes_);
-  header.PutU64(previous_lsn);
-  header.PutU32(static_cast<uint32_t>(working.pages_.size()));
-  header.PutU32(static_cast<uint32_t>(prepared.bodies_.size()));
-  prepared.records_[0] = header.Take();
+  prepared.records_[0] =
+      EncodeHeader({base == nullptr ? 0U : 1U, previous_lsn, static_cast<uint32_t>(working.pages_.size()),
+                    static_cast<uint32_t>(prepared.bodies_.size())},
+                   options);
   return prepared;
 }
 
@@ -808,9 +880,12 @@ void Validate(const MetadataVersion &version, const MetadataOptions &options) {
 struct MetadataEngine::Impl {
   Impl(BootstrapStore &bootstrap, const JournalIdentity &identity, const JournalOptions &journal_options,
        const MetadataOptions &options)
-      : regions_(bootstrap),
+      : bootstrap_(bootstrap),
+        journal_identity_(identity),
+        executor_(*bootstrap.BindRegions().executor_),
+        regions_(bootstrap),
         backend_(regions_),
-        page_writer_(backend_, *bootstrap.BindRegions().executor_),
+        page_writer_(backend_, executor_),
         journal_(bootstrap, identity, journal_options),
         options_(options),
         budget_(std::make_shared<PageBudget>(options.max_live_pages_)) {
@@ -824,22 +899,14 @@ struct MetadataEngine::Impl {
   }
 
   void Replay(uint64_t lsn, const JournalRecords &records) {
-    Require(!records.empty(), "missing metadata batch header");
-    ByteReader header(records[0]);
-    auto magic = header.ReadBytes(8);
-    Require(std::memcmp(magic.data(), FORMAT_MAGIC, 8) == 0, "unknown metadata batch");
-    auto format = header.ReadU32();
-    auto kind = header.ReadU32();
-    if (format != FORMAT_VERSION || header.ReadU32() != BUSTUB_PAGE_SIZE || header.ReadU32() != 24 ||
-        header.ReadU32() != options_.page_limit_ || header.ReadU32() != options_.max_value_bytes_) {
-      throw MetadataError(MetadataErrorCode::InvalidFormat, "metadata format/geometry does not match");
+    const auto h = ReadHeader(records, options_);
+    const auto pages = h.pages_;
+    Require(h.previous_ == lsn_ && lsn > lsn_, "metadata batch history mismatch");
+    if (h.kind_ == CHECKPOINT) {
+      Require(published_ && h.pages_ == published_->pages_.size(), "checkpoint has no matching metadata state");
+      return;
     }
-    auto previous = header.ReadU64();
-    auto pages = header.ReadU32();
-    auto count = header.ReadU32();
-    Require(header.Empty() && pages > 0 && pages <= options_.page_limit_ && records.size() == count + 1ULL &&
-                previous == lsn_ && lsn > lsn_ && kind == (published_ ? 1U : 0U),
-            "metadata batch history mismatch");
+    Require(h.kind_ == (published_ ? 1U : 0U), "metadata creation/transaction order mismatch");
     auto next = published_ ? std::make_shared<MetadataVersion>(*published_) : std::make_shared<MetadataVersion>();
     Require(pages >= next->pages_.size(), "metadata page high-water went backwards");
     next->pages_.resize(pages);
@@ -857,8 +924,10 @@ struct MetadataEngine::Impl {
       auto spans = record.ReadU32();
       Require(id < pages && changed.insert(id).second && image->generation_ != 0, "invalid metadata page record");
       auto before = next->pages_[id];
-      Require(before ? before->generation_ == base_generation && before->lsn_ == base_lsn
-                     : base_generation == 0 && base_lsn == 0,
+      const bool from_checkpoint = restoring_checkpoint_ && id < checkpoint_pages_ && !before;
+      Require(from_checkpoint ? type == FULL && base_generation > 0 && base_lsn > 0 && base_lsn <= checkpoint_lsn_
+                              : (before ? before->generation_ == base_generation && before->lsn_ == base_lsn
+                                        : base_generation == 0 && base_lsn == 0),
               "metadata redo base is missing");
       PageBody body{};
       if (type == FULL) {
@@ -885,16 +954,64 @@ struct MetadataEngine::Impl {
       Seal(image.get(), static_cast<page_id_t>(id), lsn, body);
       next->pages_[id] = std::move(image);
     }
-    for (const auto &page : next->pages_) {
-      Require(page != nullptr, "metadata page allocation lacks a full image");
+    if (!restoring_checkpoint_) {
+      for (const auto &page : next->pages_) {
+        Require(page != nullptr, "metadata page allocation lacks a full image");
+      }
     }
     published_ = std::move(next);
     lsn_ = lsn;
   }
 
+  void LoadCheckpoint(const CheckpointRecoveryPlan &plan) {
+    Require(plan.covered_ != 0, "checkpoint reference points to an empty Journal tail");
+    auto next = std::make_shared<MetadataVersion>();
+    next->pages_.resize(plan.pages_);
+    for (uint32_t id = 0; id < plan.pages_; ++id) {
+      if (plan.modified_[id]) {
+        continue;
+      }
+      auto preparation = backend_.TryPrepare({{static_cast<page_id_t>(id), IOOperation::Read}}, false);
+      CheckMetadataAdmission(preparation.admission_);
+      auto &batch = *preparation.batch_;
+      CheckMetadataAdmission(executor_.TrySubmit(batch));
+      batch.Wait();
+      const auto &result = batch.Result().operations_.front();
+      if (result.error_) {
+        std::rethrow_exception(result.error_);
+      }
+      Require(result.outcome_ == IOOutcome::Succeeded, "checkpoint page read did not complete");
+      const auto *bytes = reinterpret_cast<const std::byte *>(batch.Buffer(0));
+      PageBody body{};
+      std::copy(bytes, bytes + BODY, body.begin());
+      ByteReader trailer(bytes + BODY, TRAILER);
+      const auto magic = trailer.ReadBytes(8);
+      Require(std::memcmp(magic.data(), FORMAT_MAGIC, 8) == 0 && trailer.ReadU32() == FORMAT_VERSION,
+              "checkpoint page format mismatch");
+      auto page = NewImage(budget_);
+      page->kind_ = static_cast<PageKind>(trailer.ReadU32());
+      Require(trailer.ReadU32() == id && trailer.ReadU32() == BUSTUB_PAGE_SIZE, "checkpoint page identity mismatch");
+      page->generation_ = trailer.ReadU64();
+      const auto page_lsn = trailer.ReadU64();
+      Require(page->generation_ > 0 && page_lsn > 0 && page_lsn <= plan.covered_ &&
+                  trailer.ReadU32() == Crc32cExtend(Crc32c(body.data(), BODY), bytes + BODY, 40),
+              "checkpoint page checksum or version mismatch");
+      const auto reserved = trailer.ReadBytes(trailer.Remaining());
+      Require(std::all_of(reserved.begin(), reserved.end(), [](std::byte b) { return b == std::byte{0}; }),
+              "unsupported checkpoint page trailer");
+      DecodeBody(body, options_.max_value_bytes_, page.get());
+      Seal(page.get(), static_cast<page_id_t>(id), page_lsn, body);
+      next->pages_[id] = std::move(page);
+    }
+    checkpoint_lsn_ = lsn_ = plan.covered_;
+    checkpoint_pages_ = plan.pages_;
+    restoring_checkpoint_ = true;
+    published_ = std::move(next);
+  }
+
   auto Publish(const MetadataVersion *base, std::shared_ptr<MetadataVersion> next, MetadataPager *pager)
       -> JournalResult {
-    auto prepared = Prepare(base, *next, *pager, options_, lsn_);
+    auto prepared = Prepare(base, *next, *pager, options_, lsn_, checkpoint_lsn_);
     if (base != nullptr) {
       std::set<page_id_t> changed;
       for (const auto &entry : prepared.bodies_) {
@@ -932,6 +1049,9 @@ struct MetadataEngine::Impl {
     return result;
   }
 
+  BootstrapStore &bootstrap_;
+  JournalIdentity journal_identity_;
+  IOExecutor &executor_;
   RegionManager regions_;
   MetadataBackend backend_;
   MetadataPageWriter page_writer_;
@@ -943,6 +1063,10 @@ struct MetadataEngine::Impl {
   mutable std::mutex view_mutex_;
   std::shared_ptr<const MetadataVersion> published_;
   uint64_t lsn_{0};
+  uint64_t checkpoint_lsn_{0};
+  uint32_t checkpoint_pages_{0};
+  bool restoring_checkpoint_{false};
+  bool checkpointing_{false};
   bool ready_{false};
   bool started_{false};
 };
@@ -1008,9 +1132,27 @@ void MetadataEngine::Open() {
   }
   s.started_ = true;
   try {
-    s.journal_.Open([&](uint64_t lsn, const JournalRecords &records) { s.Replay(lsn, records); });
+    const auto checkpoint = s.bootstrap_.MetadataCheckpoint();
+    if (checkpoint) {
+      Require(checkpoint->journal_ == s.journal_identity_, "checkpoint belongs to a different Journal");
+      CheckpointRecoveryPlan plan;
+      s.journal_.OpenFrom(
+          checkpoint->position_,
+          [&](uint64_t lsn, const JournalRecords &records) { InspectCheckpointBatch(lsn, records, s.options_, &plan); },
+          [&](uint64_t lsn, const JournalRecords &records) {
+            if (lsn == checkpoint->position_) {
+              s.LoadCheckpoint(plan);
+            } else {
+              s.Replay(lsn, records);
+            }
+          });
+      Require(plan.covered_ != 0, "checkpoint reference has no complete batch");
+    } else {
+      s.journal_.Open([&](uint64_t lsn, const JournalRecords &records) { s.Replay(lsn, records); });
+    }
     Require(s.published_ != nullptr, "Journal has no committed metadata format");
     Validate(*s.published_, s.options_);
+    s.restoring_checkpoint_ = false;
     std::lock_guard<std::mutex> view(s.view_mutex_);
     s.ready_ = true;
   } catch (...) {
@@ -1034,6 +1176,9 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
     std::lock_guard<std::mutex> view(s.view_mutex_);
     if (!s.ready_) {
       throw MetadataError(MetadataErrorCode::NotReady, "metadata engine is not ready");
+    }
+    if (s.checkpointing_) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata checkpoint is excluding modifications");
     }
     if (base.version_ != s.published_) {
       throw MetadataError(MetadataErrorCode::Conflict, "stale or foreign metadata view");
@@ -1090,6 +1235,73 @@ auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
   }
   return s.page_writer_.Write(std::move(view), max_pages);
 }
+auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
+  if (max_pages == 0) {
+    throw std::invalid_argument("metadata checkpoint page limit must be positive");
+  }
+  auto &s = *impl_;
+  std::unique_lock<std::mutex> writer(s.writer_mutex_);
+  {
+    std::lock_guard<std::mutex> view(s.view_mutex_);
+    if (!s.ready_) {
+      throw MetadataError(MetadataErrorCode::NotReady, "metadata engine is not ready");
+    }
+    if (s.checkpointing_) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata checkpoint is already active");
+    }
+  }
+  // Drain an admitted F09 batch before fixing the checkpoint. It never needs
+  // writer_mutex_. Close uses this same lock order.
+  std::unique_lock<std::mutex> writeback(s.writeback_mutex_);
+  std::shared_ptr<const MetadataVersion> version;
+  {
+    std::lock_guard<std::mutex> view(s.view_mutex_);
+    version = s.published_;
+    s.checkpointing_ = true;
+  }
+  struct ReleaseGate {
+    Impl &s_;
+    ~ReleaseGate() {
+      std::lock_guard<std::mutex> view(s_.view_mutex_);
+      s_.checkpointing_ = false;
+    }
+  } release{s};
+  const auto covered = s.lsn_;
+  writer.unlock();
+  JournalRecords records{
+      EncodeHeader({CHECKPOINT, covered, static_cast<uint32_t>(version->pages_.size()), 0}, s.options_)};
+  for (;;) {
+    const auto written = s.page_writer_.Write(version, max_pages);
+    if (written.outcome_ == MetadataWritebackOutcome::Failed) {
+      return {MetadataCheckpointOutcome::NotPublished, written.error_};
+    }
+    if (written.outcome_ == MetadataWritebackOutcome::Clean) {
+      break;
+    }
+  }
+  auto submission = s.journal_.TryAppend(records);
+  if (submission.admission_ != JournalAdmission::Accepted) {
+    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "checkpoint Journal admission failed");
+  }
+  submission.ticket_->Wait();
+  const auto result = submission.ticket_->Result();
+  if (result.outcome_ != JournalOutcome::Durable) {
+    std::lock_guard<std::mutex> view(s.view_mutex_);
+    s.ready_ = false;
+    return {MetadataCheckpointOutcome::NotPublished, result.error_};
+  }
+  try {
+    s.bootstrap_.PublishMetadataCheckpoint({s.journal_identity_, result.begin_});
+  } catch (...) {
+    std::lock_guard<std::mutex> view(s.view_mutex_);
+    s.ready_ = false;
+    return {MetadataCheckpointOutcome::Indeterminate, std::current_exception()};
+  }
+  // No subsequent Commit can run before this cycle is installed.
+  s.checkpoint_lsn_ = covered;
+  return {MetadataCheckpointOutcome::Durable, nullptr};
+}
+
 void MetadataEngine::Close() {
   if (!impl_) {
     return;

@@ -75,8 +75,8 @@ struct JournalTicketData;
  */
 class JournalTicket {
  public:
-  JournalTicket(JournalTicket &&) noexcept;
-  auto operator=(JournalTicket &&) noexcept -> JournalTicket &;
+  JournalTicket(JournalTicket &&other) noexcept;
+  auto operator=(JournalTicket &&other) noexcept -> JournalTicket &;
   ~JournalTicket();
   JournalTicket(const JournalTicket &) = delete;
   auto operator=(const JournalTicket &) -> JournalTicket & = delete;
@@ -95,10 +95,9 @@ struct JournalSubmission {
   std::optional<JournalTicket> ticket_;
 };
 
-/** S3 append-only, single-copy Journal. No segment reuse/checkpoint/Deferred yet.
- * Sole owner of the bound Journal region. Explicit identity/geometry; Create
- * requires an empty region. Nonzero invalid tails prevent Open, never truncate.
- * The bootstrap/executor/device outlive this instance; drain Journal first.
+/** S3 append-only, single-copy Journal. No segment reuse or Deferred yet; recovery can start at a trusted checkpoint
+ * batch. Sole owner of the bound Journal region. Explicit identity/geometry; Create requires an empty region. Nonzero
+ * invalid tails prevent Open, never truncate. The bootstrap/executor/device outlive this instance; drain Journal first.
  * The lifecycle owner serializes Create/Open/Close and keeps replay callbacks
  * non-reentrant. After Create/Open, TryAppend may run concurrently with Close.
  * Callback failure leaves Open failed; discard partially replayed consumer state.
@@ -115,6 +114,14 @@ class JournalService {
    * Replay receives only complete batches, bounded by persisted input limits.
    */
   void Open(const std::function<void(uint64_t, const JournalRecords &)> &replay);
+  /** F10/F11: the bootstrap owner supplies a trusted complete-batch address.
+   * Inspect runs during validation, before the entire suffix is known valid:
+   * collect a bounded recovery plan only, with no publication or durable effects.
+   * Replay starts only after validation and Flush. Prefix bytes aren't read;
+   * the control identity and complete suffix (including empty tail) are checked.
+   */
+  void OpenFrom(uint64_t begin, const std::function<void(uint64_t, const JournalRecords &)> &inspect,
+                const std::function<void(uint64_t, const JournalRecords &)> &replay);
   /** Copies nonempty records into reserved F02 buffers before returning.
    * Full/NoSpace/Stopped/Faulted do no IO; invalid input throws.
    */

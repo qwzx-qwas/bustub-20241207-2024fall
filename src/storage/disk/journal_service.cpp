@@ -318,9 +318,10 @@ struct JournalService::Impl {
 
   // Two passes: all structural checks precede replay side effects. The owner
   // excludes external writes to this region throughout Open and normal use.
-  auto Scan(const std::function<void(uint64_t, const JournalRecords &)> &replay) -> std::pair<uint64_t, uint64_t> {
+  auto Scan(uint64_t start, const std::function<void(uint64_t, const JournalRecords &)> &replay)
+      -> std::pair<uint64_t, uint64_t> {
     uint64_t previous = 0;
-    uint64_t begin = options_.segment_bytes_;
+    uint64_t begin = start;
     uint64_t cursor = begin;
     uint64_t total = 0;
     uint32_t record_length = 0;
@@ -355,7 +356,13 @@ struct JournalService::Impl {
         begin = position;
         in_batch = true;
       }
-      Require(header.ReadU64() == begin && header.ReadU64() == previous, "Journal batch chain mismatch");
+      const auto batch_begin = header.ReadU64();
+      const auto prior = header.ReadU64();
+      if (position == start && start != options_.segment_bytes_) {
+        Require(prior < start, "Journal checkpoint predecessor is invalid");
+        previous = prior;
+      }
+      Require(batch_begin == begin && prior == previous, "Journal batch chain mismatch");
       Require(AllZero(unit.data() + UNIT_HEADER + used, unit.size() - UNIT_HEADER - used - sizeof(uint32_t)),
               "Journal nonzero unit padding");
       ByteReader payload(unit.data() + UNIT_HEADER, used);
@@ -412,7 +419,14 @@ struct JournalService::Impl {
     return {cursor, previous};
   }
 
-  void Open(const std::function<void(uint64_t, const JournalRecords &)> &replay) {
+  void Open(uint64_t begin, const std::function<void(uint64_t, const JournalRecords &)> &inspect,
+            const std::function<void(uint64_t, const JournalRecords &)> &replay) {
+    if (begin == 0) {
+      begin = options_.segment_bytes_;
+    }
+    if (begin < options_.segment_bytes_ || begin >= capacity_ || begin % options_.unit_bytes_ != 0) {
+      throw JournalError(JournalErrorCode::InvalidFormat, "invalid Journal recovery start");
+    }
     BeginLifecycle();
     const auto control = ReadUnit(0);
     CheckUnitChecksum(control);
@@ -428,10 +442,10 @@ struct JournalService::Impl {
       const auto unit = ReadUnit(position);
       Require(AllZero(unit.data(), unit.size()), "Journal reserved format area is nonzero");
     }
-    const auto recovered = Scan({});
+    const auto recovered = Scan(begin, inspect);
     Flush();
     if (replay) {
-      const auto replayed = Scan(replay);
+      const auto replayed = Scan(begin, replay);
       Require(replayed == recovered, "Journal changed during replay");
     }
     Start(recovered.first, recovered.second);
@@ -663,7 +677,16 @@ JournalService::JournalService(BootstrapStore &bootstrap, const JournalIdentity 
 }
 JournalService::~JournalService() { Close(); }
 void JournalService::Create() { impl_->Create(); }
-void JournalService::Open(const std::function<void(uint64_t, const JournalRecords &)> &replay) { impl_->Open(replay); }
+void JournalService::Open(const std::function<void(uint64_t, const JournalRecords &)> &replay) {
+  impl_->Open(0, {}, replay);
+}
+void JournalService::OpenFrom(uint64_t begin, const std::function<void(uint64_t, const JournalRecords &)> &inspect,
+                              const std::function<void(uint64_t, const JournalRecords &)> &replay) {
+  if (begin == 0) {
+    throw JournalError(JournalErrorCode::InvalidFormat, "checkpoint position must be nonzero");
+  }
+  impl_->Open(begin, inspect, replay);
+}
 auto JournalService::TryAppend(const JournalRecords &records) -> JournalSubmission {
   auto [admission, data] = impl_->Append(records);
   if (!data) {

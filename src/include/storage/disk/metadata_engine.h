@@ -35,7 +35,7 @@ struct MetadataMutation {
 struct MetadataOptions {
   uint32_t page_limit_;
   // Counts immutable published/reader-held and private page images together.
-  // S4 retains the current pages in RAM; eviction/checkpoint arrive in S5.
+  // S4 retains the current pages in RAM; checkpoint is supported; eviction remains future work.
   uint32_t max_live_pages_;
   uint32_t max_value_bytes_;
   uint64_t max_batch_bytes_;
@@ -58,6 +58,12 @@ struct MetadataWritebackResult {
   MetadataWritebackOutcome outcome_;
   // Selected pages, not a count of successful writes after a failure.
   size_t page_count_;
+  std::exception_ptr error_;
+};
+
+enum class MetadataCheckpointOutcome { Durable, NotPublished, Indeterminate };
+struct MetadataCheckpointResult {
+  MetadataCheckpointOutcome outcome_;
   std::exception_ptr error_;
 };
 
@@ -86,9 +92,9 @@ class MetadataSnapshot {
  * no publication lock while waiting for Journal IO. Stale/foreign base views
  * reject before IO. Mutations in one call form one atomic transaction.
  *
- * Create initializes a new Journal; Open rebuilds B from its complete batches.
- * Writeback persists final Metadata slots; Open still replays all WAL (no
- * checkpoint or trimming yet). Page/value limits are
+ * Create initializes a new Journal. Open uses the bootstrap checkpoint, final
+ * pages and subsequent FULL/PATCH records, or full history if no checkpoint exists.
+ * Writeback persists final Metadata slots. No Journal trimming/reuse yet. Page/value limits are
  * persisted, checked on Open, and bounded by F05 capacity. max_live_pages and
  * max_batch_bytes are runtime admission limits. Journal admission/encoding
  * rejection throws before this batch writes. Accepted IO returns its actual
@@ -117,6 +123,16 @@ class MetadataEngine {
    * max_pages must be positive. Close drains an admitted call before returning.
    */
   auto Writeback(size_t max_pages) -> MetadataWritebackResult;
+  /** F10/F11: excludes new modifications, drains existing work and writes pages
+   * in batches of at most max_pages, then persists a checkpoint and its bootstrap
+   * reference. Existing snapshots remain readable. A concurrent Commit rejects
+   * with ResourceUnavailable. No automatic retry or log reclamation.
+   * Pre-IO admission errors throw. Page IO failure is NotPublished; an accepted
+   * Journal failure also faults B. Bootstrap publication failure is Indeterminate
+   * and faults B until reopen. Durable includes the reference, not only the WAL.
+   * Close drains an admitted checkpoint. max_pages must be positive.
+   */
+  auto Checkpoint(size_t max_pages) -> MetadataCheckpointResult;
   void Close();
 
  private:
