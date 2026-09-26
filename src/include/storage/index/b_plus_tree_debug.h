@@ -34,7 +34,7 @@ namespace bustub {
  * This method is used for test only
  * Read data from file and insert one by one
  */
-INDEX_TEMPLATE_ARGUMENTS
+PAGE_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::InsertFromFile(const std::filesystem::path &file_name) {
   int64_t key;
   std::ifstream input(file_name);
@@ -51,7 +51,7 @@ void BPLUSTREE_TYPE::InsertFromFile(const std::filesystem::path &file_name) {
  * This method is used for test only
  * Read data from file and remove one by one
  */
-INDEX_TEMPLATE_ARGUMENTS
+PAGE_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::RemoveFromFile(const std::filesystem::path &file_name) {
   int64_t key;
   std::ifstream input(file_name);
@@ -63,8 +63,8 @@ void BPLUSTREE_TYPE::RemoveFromFile(const std::filesystem::path &file_name) {
   }
 }
 
-INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::Print(BufferPoolManager *bpm) {
+PAGE_INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::Print(PageAccess *bpm) {
   auto root_page_id = GetRootPageId();
   if (root_page_id != INVALID_PAGE_ID) {
     auto guard = bpm->ReadPage(root_page_id);
@@ -72,7 +72,7 @@ void BPLUSTREE_TYPE::Print(BufferPoolManager *bpm) {
   }
 }
 
-INDEX_TEMPLATE_ARGUMENTS
+PAGE_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::PrintTree(page_id_t page_id, const BPlusTreePage *page) {
   if (page->IsLeafPage()) {
     auto *leaf = reinterpret_cast<const LeafPage *>(page);
@@ -114,8 +114,8 @@ void BPLUSTREE_TYPE::PrintTree(page_id_t page_id, const BPlusTreePage *page) {
   }
 }
 
-INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::Draw(BufferPoolManager *bpm, const std::filesystem::path &outf) {
+PAGE_INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::Draw(PageAccess *bpm, const std::filesystem::path &outf) {
   if (IsEmpty()) {
     LOG_WARN("Drawing an empty tree");
     return;
@@ -130,7 +130,7 @@ void BPLUSTREE_TYPE::Draw(BufferPoolManager *bpm, const std::filesystem::path &o
   out.close();
 }
 
-INDEX_TEMPLATE_ARGUMENTS
+PAGE_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::ToGraph(page_id_t page_id, const BPlusTreePage *page, std::ofstream &out) {
   std::string leaf_prefix("LEAF_");
   std::string internal_prefix("INT_");
@@ -208,7 +208,7 @@ void BPLUSTREE_TYPE::ToGraph(page_id_t page_id, const BPlusTreePage *page, std::
   }
 }
 
-INDEX_TEMPLATE_ARGUMENTS
+PAGE_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::DrawBPlusTree() -> std::string {
   if (IsEmpty()) {
     return "()";
@@ -225,7 +225,7 @@ auto BPLUSTREE_TYPE::DrawBPlusTree() -> std::string {
  * This method is used for test only
  * Read data from file and insert/remove one by one
  */
-INDEX_TEMPLATE_ARGUMENTS
+PAGE_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::BatchOpsFromFile(const std::filesystem::path &file_name) {
   int64_t key;
   char instruction;
@@ -256,7 +256,7 @@ void BPLUSTREE_TYPE::BatchOpsFromFile(const std::filesystem::path &file_name) {
   input.close();
 }
 
-INDEX_TEMPLATE_ARGUMENTS
+PAGE_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::ToPrintableBPlusTree(page_id_t root_id) -> PrintableBPlusTree {
   auto root_page_guard = bpm_->ReadPage(root_id);
   auto root_page = root_page_guard.template As<BPlusTreePage>();

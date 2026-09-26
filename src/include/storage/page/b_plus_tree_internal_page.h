@@ -201,4 +201,14 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const ->
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::CheckIndex(int index) const -> bool { return index >= 1 && index < GetSize(); }
 
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
+  // set page type
+  SetPageType(IndexPageType::INTERNAL_PAGE);
+  // set current size
+  SetSize(0);
+  // set max page size
+  SetMaxSize(max_size);
+}
+
 }  // namespace bustub

@@ -180,4 +180,16 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int
   return -1;
 }
 
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
+  // set page type
+  SetPageType(IndexPageType::LEAF_PAGE);
+  // set current size
+  SetSize(0);
+  // set next page id
+  next_page_id_ = INVALID_PAGE_ID;
+  // set max page size
+  SetMaxSize(max_size);
+}
+
 }  // namespace bustub

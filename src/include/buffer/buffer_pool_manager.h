@@ -151,6 +151,9 @@ class FrameHeader {
  */
 class BufferPoolManager {
  public:
+  using ReadGuard = ReadPageGuard;
+  using WriteGuard = WritePageGuard;
+
   BufferPoolManager(size_t num_frames, DiskManager *disk_manager, size_t k_dist = LRUK_REPLACER_K,
                     LogManager *log_manager = nullptr);
   ~BufferPoolManager();

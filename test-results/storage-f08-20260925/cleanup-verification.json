@@ -1,0 +1,30 @@
+{
+  "module": "F08",
+  "review_date": "2026-09-26",
+  "production_changed_in_review": false,
+  "temporary_work_removed": true,
+  "removed_directory": "/tmp/bustub-f08-review-20260925",
+  "removed_disk_usage": "848M",
+  "packaged_tests_byte_compared": true,
+  "production_and_existing_regression_hashes_verified": true,
+  "six_F08_tests_passed": true,
+  "twelve_existing_A_tests_passed": true,
+  "twelve_expected_mutants_detected": true,
+  "old_F08_archives_replaced_without_backup": true,
+  "wrong_F01_archive_absent": true,
+  "other_valid_archives_and_common_CP_unchanged": true,
+  "stage_tests_permanently_registered": false,
+  "source_archive": "test/archives/F08-metadata-engine.tar.gz",
+  "results_archive": "test-results/storage-f08-20260925/F08-results.tar.gz",
+  "final_static_review": {
+    "date": "2026-09-26",
+    "production_change": "removed only unused private ReadGuard default constructor and Drop",
+    "test_source_and_runner_unchanged": true,
+    "runtime_tests_rerun": false,
+    "prior_runtime_source_separately_preserved": true,
+    "clang_gcc_syntax_and_format_passed": true,
+    "current_and_runtime_hashes_verified": true,
+    "scratch_removed": true,
+    "old_archives_replaced_without_backup": true
+  }
+}

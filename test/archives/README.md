@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-09-25（F08/S4）：新增 [F08-metadata-engine.tar.gz](F08-metadata-engine.tar.gz)，仅最终六项真实 B 组件测试和 runner；6 项/原 A 12 项通过，12 个定向变异检出，详见 [八项审查](../../docs/storage_redesign/f08_execution_20260925.md)。没有常驻测试目标。
+
 2026-09-24（F07/S3；2026-09-25 复审）：新增 [F07-journal-service.tar.gz](F07-journal-service.tar.gz)，仅含最终 8 项单份 Journal 组件测试、runner 和恢复说明；8/8 和原 F02/F06 共 10 项回归通过；13 个故意改坏版本均被指定断言发现。详见 [八项审查](../../docs/storage_redesign/f07_execution_20260924.md)。
 
 2026-09-23（F05）：新增 [F05-metadata-backend.tar.gz](F05-metadata-backend.tar.gz)，仅含两项正式页 IO 组件场景和 runner；2/2、6 个变异通过，复用原 F04 三项回归。见 [八项审查](../../docs/storage_redesign/f05_execution_20260923.md)。
@@ -20,6 +22,7 @@
 
 | 模块包 | 原源码 | 历史用途 | 当前状态 |
 | --- | --- | --- | --- |
+| [F08-metadata-engine.tar.gz](F08-metadata-engine.tar.gz) | 包内 `test/storage_redesign/metadata_engine_test.cpp`、`run_stage.py` | 6 项 B 事务/恢复/空间复用，12 个变异；原 A 回归 12 项 | S4 已完成，仅压缩；最终页/checkpoint/业务接入未完成 |
 | [F05-metadata-backend.tar.gz](F05-metadata-backend.tar.gz) | 包内 `test/storage_redesign/metadata_backend_test.cpp`、`run_stage.py` | 2 项页地址/容量/IO 适配，6 个隔离 mutation；复用原 F04 包回归 | S2 完成，仅压缩保留；S4 页分配/WAL/业务接入待完成 |
 | [F04-region-manager.tar.gz](F04-region-manager.tar.gz) | 包内 `test/storage_redesign/region_manager_test.cpp`、`run_stage.py` | 3 项区域绑定/包含/IO 接入，6 个隔离 mutation；依赖 F03 原包做回归 | 固定区域完成，仅压缩保留；页/日志后端与节点业务待接入 |
 | [F03-bootstrap.tar.gz](F03-bootstrap.tar.gz) | 包内 `test/storage_redesign/bootstrap_store_test.cpp`、`run_stage.py` | 8 项基础引导与异步修复组件场景，11 个隔离 mutation | 仅压缩归档；F34 节点/业务接入及 S5 可变恢复根未完成 |
@@ -147,3 +150,15 @@ F05 再次复审仅修正 runner：旧容量向上取整变异在整页对齐环
 风险 `F07/format-chain`、`group-durable`、`admission-lifetime`、`failure-isolation`、`reopen`；S4/S5/S10 与共同 C/P 真实接入时沿这些风险接管，不另建同义套件。正式 F07→F06→F04→F02→F01 Direct 文件路径；暂停/EIO 为测试链接注入，没有 production hook。不是 B/SQL/Raft E2E、裸设备或真实掉电。
 
 [设计审查](../../docs/storage_redesign/f07_execution_20260924.md) 与 [结果/清理](../../test-results/storage-f07-20260924/README.md) 记录正常实现 8 项、原回归 10 项通过，13 个故意改坏版本按预期失败及工具检查。只保留最终压缩源码；临时修正前用例、构建和镜像均不常驻。2026-09-25 复审修正了 CRC 判据并补强 Flush 等待、组内容和及时隔离验证，原位替换 F07 包，无旧 F07 错误包保留；旧有效模块包及共同 C/P 未修改。
+
+## F08 恢复与风险交接
+
+最终包包含六项组件测试、runner、MANIFEST.json 和 RESTORE.md；基准 `015f95b`＋本轮生产改动，恢复必须核对 production_sha256，历史重建可用本地结果包的 source/。原 A 五个目标的十二项测试直接从对应源码树运行，源码未修改，不重复打包。
+
+风险为 `F08/atomic-view、mixed-values、private-rollback、page-reuse、redo-base、reopen`。正式 B→F07→F06→F04→F02→F01 Direct 文件路径；fdatasync 暂停/EIO 仅测试链接注入。六项、十二项原回归通过；十二个隔离改坏版本在指定断言失败。独立输入模型、调用路径、污染/重复/稳定性与范围限制见 [八项审查](../../docs/storage_redesign/f08_execution_20260925.md)；[结果与清理](../../test-results/storage-f08-20260925/README.md) 保存最终日志、XML、源码和哈希。
+
+本轮首次建包，只保留修复尾部空槽、增强旧读者/版本预算后的版本；没有展开测试/构建/镜像或旧 F08 包。其他模块有效包未变。S5 最终页/checkpoint/回收、S8/S9 业务 E2E 尚未完成，不能把阶段测试作为共同性能基线。
+
+2026-09-26 再次复审补强原 Mixed 的 lower/limit 判断，加入两个对应变异，仍为六个组件场景。旧 F08 两包已原位替换，无旧版备份；生产未改，六项/十二项原回归/十二个变异复验结果见 [审查 §10](../../docs/storage_redesign/f08_execution_20260925.md#10-再次复审范围扫描的漏检2026-09-26)。
+
+2026-09-26 静态收尾仅删除两个未调用的 B 私有守卫成员，测试和 runner 未改。当前包 manifest 分别记录清理版 production_sha256 与最近实测 runtime_evidence_production_sha256；恢复说明区分两者。本次 Clang/GCC/格式检查通过，未重跑完整套件。旧包原位替换，无备份，见 [§11](../../docs/storage_redesign/f08_execution_20260925.md#11-静态收尾复核2026-09-26)。

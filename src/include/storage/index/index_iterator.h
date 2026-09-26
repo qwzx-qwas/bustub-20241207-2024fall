@@ -20,16 +20,20 @@
 namespace bustub {
 
 #define INDEXITERATOR_TYPE IndexIterator<KeyType, ValueType, KeyComparator>
+#define PAGE_INDEXITERATOR_TYPE IndexIterator<KeyType, ValueType, KeyComparator, PageAccess>
+#define PAGE_INDEX_TEMPLATE_ARGUMENTS \
+  template <typename KeyType, typename ValueType, typename KeyComparator, typename PageAccess>
 
-INDEX_TEMPLATE_ARGUMENTS
+template <typename KeyType, typename ValueType, typename KeyComparator, typename PageAccess = BufferPoolManager>
 class IndexIterator {
+  using ReadPageGuard = typename PageAccess::ReadGuard;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
 
  public:
   // you may define your own constructor based on your member variables
   IndexIterator();
   IndexIterator(ReadPageGuard &&leaf_guard, const LeafPage *current_leaf_page, page_id_t page_id, int index,
-                BufferPoolManager *bpm);
+                PageAccess *bpm);
   ~IndexIterator();  // NOLINT
 
   IndexIterator(IndexIterator &&) noexcept = default;
@@ -61,7 +65,9 @@ class IndexIterator {
   const LeafPage *current_leaf_page_;
   page_id_t page_id_;
   int index_;
-  BufferPoolManager *bpm_;
+  PageAccess *bpm_;
 };
 
 }  // namespace bustub
+
+#include "storage/index/index_iterator_impl.h"

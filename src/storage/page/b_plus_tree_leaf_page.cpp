@@ -25,17 +25,6 @@ namespace bustub {
  * Init method after creating a new leaf page
  * Including set page type, set current size to zero, set next page id and set max size
  */
-INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
-  // set page type
-  SetPageType(IndexPageType::LEAF_PAGE);
-  // set current size
-  SetSize(0);
-  // set next page id
-  next_page_id_ = INVALID_PAGE_ID;
-  // set max page size
-  SetMaxSize(max_size);
-}
 
 /**
  * Helper methods to set/get next page id

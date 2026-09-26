@@ -8,7 +8,7 @@
 
 统一承担 B WAL 与 FS 恢复记录的编码、追加、刷盘、读取和扫描。
 
-- 实现状态：S3 当轮已完成；S4/S5/S10 未完成。
+- 实现状态：S3 当轮与 S4 B 接入已完成；S5/S10 未完成。
 - 方案状态：本轮改进及设计约束已收录；S3 接口、格式与验收见 §6.9，后续阶段待讨论。
 - 实现 prompt 状态：用户已授权 S3 实施；单份追加协议已确认，按 §6.9 实施。
 - 所属阶段：S3、S4、S5、S10。
@@ -20,7 +20,7 @@
 | 阶段 | 完成状态 | 证据 |
 | --- | --- | --- |
 | S3 | 已完成（2026-09-24） | [S3 执行与八项审查](../f07_execution_20260924.md)：8 项组件、10 项原回归、13 个变异 |
-| S4 | 未完成 | 尚无本架构实现与验收证据 |
+| S4 | 已完成（B 局部职责） | 与 F08 共用 6 项组件/12 项原回归/10 个变异；[同一份证据](../f08_execution_20260925.md)，不重复计数 |
 | S5 | 未完成 | 接续 checkpoint 裁剪、有效尾部判定和段复用 |
 | S10 | 未完成 | 尚无本架构实现与验收证据 |
 
@@ -61,7 +61,7 @@
 ## 5. 后续阶段待讨论问题
 
 1. S3 格式、提交、未知结果及保守恢复以 §6.9 为准，已落实。
-2. S4 的真实 B WAL 使用、S5 与 F10 的持久 checkpoint/裁剪/换代复用仍须明确。
+2. S4 真实 B WAL 已接入；S5 与 F10 的持久 checkpoint/裁剪/换代复用仍须明确。
 3. S5 回收紧急预留、S10 PayloadRef 随机读取与保留；Journal 活内容搬迁仅作后续评估。
 
 - 哪些对外行为由本模块保证，哪些由调用者保证？
@@ -168,6 +168,10 @@ JournalService 的 Create/Open/Close 由生命周期拥有者安排；成功启�
 - [SQLite WAL](https://www.sqlite.org/fileformat.html#wal_file_format)：流内提交标识和身份/校验，说明提交识别不必每次更新两份外部边界。采用这一思路，不照搬 SQLite 帧布局或读锁。
 - [RocksDB recyclable WAL](https://github.com/facebook/rocksdb/wiki/Write-Ahead-Log-File-Format)：记录携带日志身份排除旧尾部。内化为每单元 Journal/段身份；S3 不声称已有循环复用。
 - [FAST18 Protocol-Aware Recovery](https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf)：讨论崩溃尾部与损坏的歧义。内化为无法证明安全时拒绝开放，不借用论文的小标记原子写假设，也不新增自动跨节点物理恢复。
+
+### S4 实际落点与后续交接（2026-09-25）
+
+S4 B 已真实接入 F07 的完整批次与 replay 回调，F07 接口/格式不变；MetadataEngine 暂为该区域的唯一 JournalService 所有者。S5/F11/S10 接续须演进此所有权/记录分发，继续使用同一服务与日志，不能分别再创建一份。B 当前单写入，不因 F07 支持组提交就宣称 B 已并行提交。 代码与验证见 [F08 §6.8](metadata-engine.md#68-s4-实现细化与后续交接) 和 [八项审查](../f08_execution_20260925.md)。本模块其他阶段状态不变。
 
 ## 7. S3 测试方案与验收（后续阶段另行讨论）
 

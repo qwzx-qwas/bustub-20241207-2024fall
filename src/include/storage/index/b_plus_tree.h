@@ -53,7 +53,11 @@ struct PrintableBPlusTree;
  *
  * 提示：该类用于帮助跟踪你正在修改或访问的页面。
  */
-class Context {
+template <typename PageAccess>
+class BPlusTreeContext {
+  using ReadPageGuard = typename PageAccess::ReadGuard;
+  using WritePageGuard = typename PageAccess::WriteGuard;
+
  public:
   // When you insert into / remove from the B+ tree, store the write guard of header page here.
   // Remember to drop the header page guard and set it to nullopt when you want to unlock all.
@@ -76,19 +80,30 @@ class Context {
   auto IsRootPage(page_id_t page_id) -> bool { return page_id == root_page_id_; }
 };
 
-#define BPLUSTREE_TYPE BPlusTree<KeyType, ValueType, KeyComparator>
+using Context = BPlusTreeContext<BufferPoolManager>;
+
+enum class BPlusTreeOpenMode { Create, Open };
+
+#define BPLUSTREE_TYPE BPlusTree<KeyType, ValueType, KeyComparator, PageAccess>
 
 // Main class providing the API for the Interactive B+ Tree.
 // 提供交互式 B+ 树 API 的主类。
-INDEX_TEMPLATE_ARGUMENTS
+template <typename KeyType, typename ValueType, typename KeyComparator, typename PageAccess = BufferPoolManager>
 class BPlusTree {
+  using ReadPageGuard = typename PageAccess::ReadGuard;
+  using WritePageGuard = typename PageAccess::WriteGuard;
+  using Context = BPlusTreeContext<PageAccess>;
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
 
  public:
-  explicit BPlusTree(std::string name, page_id_t header_page_id, BufferPoolManager *buffer_pool_manager,
+  explicit BPlusTree(std::string name, page_id_t header_page_id, PageAccess *buffer_pool_manager,
                      const KeyComparator &comparator, int leaf_max_size = LEAF_PAGE_SLOT_CNT,
                      int internal_max_size = INTERNAL_PAGE_SLOT_CNT);
+
+  // Open preserves an existing root; legacy callers retain Create semantics.
+  BPlusTree(std::string name, page_id_t header_page_id, PageAccess *buffer_pool_manager,
+            const KeyComparator &comparator, int leaf_max_size, int internal_max_size, BPlusTreeOpenMode mode);
 
   // 辅助方法，将Insert和GetValue的相似逻辑合并
   auto FindLeafPage(page_id_t page_id, const KeyType &key, std::vector<ValueType> *result) -> page_id_t;
@@ -157,19 +172,19 @@ class BPlusTree {
 
   // Index iterator
   // 索引迭代器
-  auto Begin() -> INDEXITERATOR_TYPE;
+  auto Begin() -> PAGE_INDEXITERATOR_TYPE;
 
-  auto End() -> INDEXITERATOR_TYPE;
+  auto End() -> PAGE_INDEXITERATOR_TYPE;
 
-  auto Begin(const KeyType &key) -> INDEXITERATOR_TYPE;
+  auto Begin(const KeyType &key) -> PAGE_INDEXITERATOR_TYPE;
 
   // Print the B+ tree
   // 打印 B+ 树结构
-  void Print(BufferPoolManager *bpm);
+  void Print(PageAccess *bpm);
 
   // Draw the B+ tree
   // 绘制 B+ 树（导出图形）
-  void Draw(BufferPoolManager *bpm, const std::filesystem::path &outf);
+  void Draw(PageAccess *bpm, const std::filesystem::path &outf);
 
   /**
    * @brief draw a B+ tree, below is a printed
@@ -245,7 +260,7 @@ class BPlusTree {
   // member variable
   // 成员变量
   std::string index_name_;
-  BufferPoolManager *bpm_;
+  PageAccess *bpm_;
   KeyComparator comparator_;
   std::vector<std::string> log;  // NOLINT
   int leaf_max_size_;
@@ -302,3 +317,5 @@ struct PrintableBPlusTree {
 };
 
 }  // namespace bustub
+
+#include "storage/index/b_plus_tree_impl.h"
