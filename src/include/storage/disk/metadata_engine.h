@@ -52,6 +52,15 @@ class MetadataError : public std::runtime_error {
   MetadataErrorCode code_;
 };
 
+enum class MetadataWritebackOutcome { Clean, Durable, Failed };
+
+struct MetadataWritebackResult {
+  MetadataWritebackOutcome outcome_;
+  // Selected pages, not a count of successful writes after a failure.
+  size_t page_count_;
+  std::exception_ptr error_;
+};
+
 struct MetadataVersion;
 
 /** Immutable committed view. It may outlive the engine and is safe for concurrent
@@ -78,7 +87,8 @@ class MetadataSnapshot {
  * reject before IO. Mutations in one call form one atomic transaction.
  *
  * Create initializes a new Journal; Open rebuilds B from its complete batches.
- * S4 never writes final Metadata slots or trims WAL. Page/value limits are
+ * Writeback persists final Metadata slots; Open still replays all WAL (no
+ * checkpoint or trimming yet). Page/value limits are
  * persisted, checked on Open, and bounded by F05 capacity. max_live_pages and
  * max_batch_bytes are runtime admission limits. Journal admission/encoding
  * rejection throws before this batch writes. Accepted IO returns its actual
@@ -97,6 +107,16 @@ class MetadataEngine {
   void Open();
   auto Read() const -> MetadataSnapshot;
   auto Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations) -> JournalResult;
+  /** F09: write at most max_pages committed pages, including their Flush.
+   * Called by the maintenance owner, not implicitly on each Commit. Different
+   * pages run on F02 workers; only one writeback call is admitted at a time.
+   * Read/Commit can proceed during IO. Full/Stopped reject before page IO with
+   * ResourceUnavailable/NotReady. Accepted failures return the original error,
+   * retain dirty progress and never undo a prior durable Commit. No auto retry.
+   * Clean means the observed view needs no writes; it is NOT a global barrier.
+   * max_pages must be positive. Close drains an admitted call before returning.
+   */
+  auto Writeback(size_t max_pages) -> MetadataWritebackResult;
   void Close();
 
  private:

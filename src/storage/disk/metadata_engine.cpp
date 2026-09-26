@@ -560,6 +560,81 @@ void Seal(PageImage *page, page_id_t id, uint64_t lsn, const PageBody &body) {
   std::memcpy(page->data_.data() + BODY, trailer.data(), trailer.size());
 }
 
+// F09 keeps page persistence separate from transaction publication. Access is
+// serialized by Impl::writeback_mutex_; F02 parallelizes pages within a batch.
+class MetadataPageWriter {
+ public:
+  MetadataPageWriter(MetadataBackend &backend, IOExecutor &executor) : backend_(backend), executor_(executor) {}
+
+  auto Write(std::shared_ptr<const MetadataVersion> view, size_t max_pages) -> MetadataWritebackResult {
+    durable_.resize(view->pages_.size());
+    std::vector<MetadataPageRequest> requests;
+    std::vector<Stamp> versions;
+    auto limit = std::min(max_pages, view->pages_.size());
+    requests.reserve(limit);
+    versions.reserve(limit);
+    for (size_t visited = 0; visited < view->pages_.size() && requests.size() < limit; visited++) {
+      auto id = cursor_;
+      cursor_ = (cursor_ + 1) % view->pages_.size();
+      const auto &page = *view->pages_[id];
+      if (durable_[id].generation_ != page.generation_ || durable_[id].lsn_ != page.lsn_) {
+        requests.push_back({static_cast<page_id_t>(id), IOOperation::Write});
+        versions.push_back({page.generation_, page.lsn_});
+      }
+    }
+    if (requests.empty()) {
+      return {MetadataWritebackOutcome::Clean, 0, nullptr};
+    }
+    auto preparation = backend_.TryPrepare(requests, true);
+    CheckAdmission(preparation.admission_);
+    auto &batch = *preparation.batch_;
+    for (size_t i = 0; i < requests.size(); i++) {
+      const auto &page = *view->pages_[requests[i].page_id_];
+      auto body = EncodeBody(page);
+      auto *buffer = batch.Buffer(i);
+      std::memcpy(buffer, body.data(), BODY);
+      std::memcpy(buffer + BODY, page.data_.data() + BODY, TRAILER);
+    }
+    // Canonical bytes now belong to F02. No need to retain unrelated old pages
+    // while the device runs; their version stamps were captured before Submit.
+    view.reset();
+    CheckAdmission(executor_.TrySubmit(batch));
+    batch.Wait();
+    const auto &result = batch.Result();
+    if (!result.writes_durable_) {
+      auto error = result.flush_error_;
+      for (const auto &operation : result.operations_) {
+        if (operation.error_) {
+          error = operation.error_;
+          break;
+        }
+      }
+      return {MetadataWritebackOutcome::Failed, requests.size(), error};
+    }
+    for (size_t i = 0; i < requests.size(); i++) {
+      durable_[requests[i].page_id_] = versions[i];
+    }
+    return {MetadataWritebackOutcome::Durable, requests.size(), nullptr};
+  }
+
+ private:
+  struct Stamp {
+    uint64_t generation_{0};
+    uint64_t lsn_{0};
+  };
+  static void CheckAdmission(IOAdmission admission) {
+    if (admission != IOAdmission::Accepted) {
+      throw MetadataError(
+          admission == IOAdmission::Full ? MetadataErrorCode::ResourceUnavailable : MetadataErrorCode::NotReady,
+          "metadata page writeback was not admitted");
+    }
+  }
+  MetadataBackend &backend_;
+  IOExecutor &executor_;
+  std::vector<Stamp> durable_;
+  size_t cursor_{0};
+};
+
 struct PreparedPages {
   JournalRecords records_;
   std::vector<std::pair<page_id_t, PageBody>> bodies_;
@@ -735,6 +810,7 @@ struct MetadataEngine::Impl {
        const MetadataOptions &options)
       : regions_(bootstrap),
         backend_(regions_),
+        page_writer_(backend_, *bootstrap.BindRegions().executor_),
         journal_(bootstrap, identity, journal_options),
         options_(options),
         budget_(std::make_shared<PageBudget>(options.max_live_pages_)) {
@@ -858,10 +934,12 @@ struct MetadataEngine::Impl {
 
   RegionManager regions_;
   MetadataBackend backend_;
+  MetadataPageWriter page_writer_;
   JournalService journal_;
   MetadataOptions options_;
   std::shared_ptr<PageBudget> budget_;
   std::mutex writer_mutex_;
+  std::mutex writeback_mutex_;
   mutable std::mutex view_mutex_;
   std::shared_ptr<const MetadataVersion> published_;
   uint64_t lsn_{0};
@@ -993,11 +1071,31 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
   }
   return s.Publish(base.version_.get(), next, &pager);
 }
+auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
+  if (max_pages == 0) {
+    throw std::invalid_argument("metadata writeback limit must be positive");
+  }
+  auto &s = *impl_;
+  std::unique_lock<std::mutex> writeback(s.writeback_mutex_, std::try_to_lock);
+  if (!writeback.owns_lock()) {
+    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata writeback is already active");
+  }
+  std::shared_ptr<const MetadataVersion> view;
+  {
+    std::lock_guard<std::mutex> lock(s.view_mutex_);
+    if (!s.ready_) {
+      throw MetadataError(MetadataErrorCode::NotReady, "metadata engine is not ready");
+    }
+    view = s.published_;
+  }
+  return s.page_writer_.Write(std::move(view), max_pages);
+}
 void MetadataEngine::Close() {
   if (!impl_) {
     return;
   }
   std::lock_guard<std::mutex> writer(impl_->writer_mutex_);
+  std::lock_guard<std::mutex> writeback(impl_->writeback_mutex_);
   {
     std::lock_guard<std::mutex> view(impl_->view_mutex_);
     impl_->ready_ = false;

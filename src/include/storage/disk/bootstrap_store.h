@@ -112,6 +112,7 @@ class BootstrapStore {
  private:
   friend class RegionManager;
   friend class JournalService;
+  friend class MetadataEngine;
   struct RegionBinding {
     IOExecutor *executor_;
     std::array<StorageByteRange, 3> regions_;

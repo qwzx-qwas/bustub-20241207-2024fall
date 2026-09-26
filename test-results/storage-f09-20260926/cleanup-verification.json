@@ -1,0 +1,31 @@
+{
+  "module": "F09",
+  "date": "2026-09-26",
+  "production_review_before_tests": true,
+  "production_changed_this_review": false,
+  "F09_tests_passed": 4,
+  "unchanged_F08_regressions_passed": 6,
+  "expected_mutants_detected": 8,
+  "normal_tests_ASan_UBSan_passed": true,
+  "current_source_and_test_archive_hashes_verified": true,
+  "archive_members_byte_compared": true,
+  "old_F09_archives_replaced_without_backup": true,
+  "expanded_tests_and_build_removed": true,
+  "removed_directory": "/tmp/bustub-f09-review-20260926",
+  "removed_disk_usage": "647M",
+  "permanent_test_registration": false,
+  "previous_problem_F01_archive_absent": true,
+  "valid_F08_archive_retained_as_regression_dependency": true,
+  "common_CP_and_A_sources_unchanged": true,
+  "runtime_tests_reexecuted_this_review": true,
+  "production_static_checks": "historical evidence reused after unchanged source hashes verified",
+  "test_format": "rechecked with repository configuration",
+  "source_archive": "test/archives/F09-metadata-page-writer.tar.gz",
+  "source_sha256": "f64fb7a55b4f13db64673adfce9846091b3638ed240f425821991dd7f5620913",
+  "results_archive": "test-results/storage-f09-20260926/F09-results.tar.gz",
+  "results_sha256": "3ee641dbdfd08bcdc08963fd8f83eec7b43b7a9e20a51019f0cb3f2b57468bb6",
+  "initial_execution_cleanup": {
+    "removed_directory": "/tmp/bustub-f09-20260926",
+    "removed_disk_usage": "653M"
+  }
+}
