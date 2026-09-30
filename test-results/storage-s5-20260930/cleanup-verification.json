@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-30",
+  "scratch_removed": "/tmp/bustub-s5-review-20260930",
+  "scratch_exists_after": false,
+  "removed_file_bytes": 934760596,
+  "source_archive": "test/archives/S5-journal-recycling.tar.gz",
+  "result_archive": "test-results/storage-s5-20260930/S5-results.tar.gz",
+  "one_final_s5_source_package": true,
+  "same_module_obsolete_packages": [],
+  "valid_dependency_archives_unchanged": [
+    "F03-bootstrap",
+    "F08-metadata-engine",
+    "F09-metadata-page-writer",
+    "F10-metadata-checkpoint"
+  ],
+  "permanent_test_registration_added": false,
+  "existing_ignore_rule": "/test-results/*/* with README/SHA256SUMS/cleanup-verification exceptions",
+  "previous_scratch_removed": "/tmp/bustub-s5-20260930",
+  "superseded_s5_archives_replaced": true,
+  "review_source_sha256": "c400a836110d672575829eef5130dbeda97f8ac36653e4629102bcbc64512f47",
+  "review_result_sha256": "111ce309061c1dd04e17a914568af13c7b157879f66202b79d8f1b59efa07fa9"
+}

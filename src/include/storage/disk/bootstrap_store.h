@@ -26,6 +26,8 @@ class IOExecutor;
 struct MetadataCheckpointRef {
   std::array<uint8_t, 16> journal_;
   uint64_t position_;
+  // v2 bootstrap: physical Journal position; v3: logical segment sequence/offset.
+  bool logical_{false};
 };
 
 struct BootstrapIdentity {
@@ -87,7 +89,8 @@ struct BootstrapRepairOptions {
  * F03 fixed-layout bootstrap. Create writes two 64 KiB slots at 0 and 1 MiB;
  * Open only reads. IDs are explicit, nonzero and compared against both valid
  * copies. Layout stays immutable. Version 1 has no checkpoint; publishing a B
- * checkpoint upgrades the selected target slot to version 2. New/old generations
+ * checkpoint writes version 2 for legacy journals, version 3 for logical positions.
+ * New/old generations
  * may coexist. The metadata owner must validate the referenced recovery chain
  * before serving data or starting repair. Ordinary Journal data remains single-copy.
  *

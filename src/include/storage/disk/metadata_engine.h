@@ -94,8 +94,9 @@ class MetadataSnapshot {
  *
  * Create initializes a new Journal. Open uses the bootstrap checkpoint, final
  * pages and subsequent FULL/PATCH records, or full history if no checkpoint exists.
- * Writeback persists final Metadata slots. No Journal trimming/reuse yet. Page/value limits are
- * persisted, checked on Open, and bounded by F05 capacity. max_live_pages and
+ * Writeback persists final Metadata slots. New v2 Journals recycle whole prefix
+ * segments after checkpoint publication; existing v1 Journals stay append-only.
+ * Page/value limits are persisted, checked on Open, and bounded by F05 capacity. max_live_pages and
  * max_batch_bytes are runtime admission limits. Journal admission/encoding
  * rejection throws before this batch writes. Accepted IO returns its actual
  * Durable/NotCommitted/Indeterminate result; any failed accepted commit faults
@@ -126,10 +127,13 @@ class MetadataEngine {
   /** F10/F11: excludes new modifications, drains existing work and writes pages
    * in batches of at most max_pages, then persists a checkpoint and its bootstrap
    * reference. Existing snapshots remain readable. A concurrent Commit rejects
-   * with ResourceUnavailable. No automatic retry or log reclamation.
+   * with ResourceUnavailable. v2 also persists the retirement boundary after the
+   * bootstrap reference; v1 retains all logs. No automatic retry.
    * Pre-IO admission errors throw. Page IO failure is NotPublished; an accepted
    * Journal failure also faults B. Bootstrap publication failure is Indeterminate
-   * and faults B until reopen. Durable includes the reference, not only the WAL.
+   * and faults B until reopen. Retirement control failure also isolates B with an
+   * Indeterminate result. Durable includes the reference and required control,
+   * not only the WAL. Open completes interrupted retirement before becoming ready.
    * Close drains an admitted checkpoint. max_pages must be positive.
    */
   auto Checkpoint(size_t max_pages) -> MetadataCheckpointResult;

@@ -1147,11 +1147,18 @@ void MetadataEngine::Open() {
             }
           });
       Require(plan.covered_ != 0, "checkpoint reference has no complete batch");
+      Require(s.journal_.CheckpointRef(checkpoint->position_).logical_ == checkpoint->logical_,
+              "checkpoint and Journal position formats disagree");
     } else {
       s.journal_.Open([&](uint64_t lsn, const JournalRecords &records) { s.Replay(lsn, records); });
     }
     Require(s.published_ != nullptr, "Journal has no committed metadata format");
     Validate(*s.published_, s.options_);
+    if (checkpoint) {
+      // Finish publication interrupted after bootstrap persistence but before
+      // retirement. The referenced checkpoint and its suffix are now validated.
+      s.journal_.RetireBefore(checkpoint->position_);
+    }
     s.restoring_checkpoint_ = false;
     std::lock_guard<std::mutex> view(s.view_mutex_);
     s.ready_ = true;
@@ -1279,7 +1286,7 @@ auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
       break;
     }
   }
-  auto submission = s.journal_.TryAppend(records);
+  auto submission = s.journal_.AppendCheckpoint(records);
   if (submission.admission_ != JournalAdmission::Accepted) {
     throw MetadataError(MetadataErrorCode::ResourceUnavailable, "checkpoint Journal admission failed");
   }
@@ -1291,7 +1298,8 @@ auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
     return {MetadataCheckpointOutcome::NotPublished, result.error_};
   }
   try {
-    s.bootstrap_.PublishMetadataCheckpoint({s.journal_identity_, result.begin_});
+    s.bootstrap_.PublishMetadataCheckpoint(s.journal_.CheckpointRef(result.begin_));
+    s.journal_.RetireBefore(result.begin_);
   } catch (...) {
     std::lock_guard<std::mutex> view(s.view_mutex_);
     s.ready_ = false;

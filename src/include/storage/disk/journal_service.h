@@ -62,7 +62,8 @@ enum class JournalOutcome { Durable, NotCommitted, Indeterminate };
 
 struct JournalResult {
   JournalOutcome outcome_;
-  // Journal-relative, aligned, exclusive end; begin is also the batch's LSN.
+  // Logical LSN range (end exclusive). Legacy format uses physical offsets.
+  // New format positions need not be adjacent across segment boundaries.
   uint64_t begin_;
   uint64_t end_;
   std::exception_ptr error_;
@@ -95,12 +96,14 @@ struct JournalSubmission {
   std::optional<JournalTicket> ticket_;
 };
 
-/** S3 append-only, single-copy Journal. No segment reuse or Deferred yet; recovery can start at a trusted checkpoint
- * batch. Sole owner of the bound Journal region. Explicit identity/geometry; Create requires an empty region. Nonzero
- * invalid tails prevent Open, never truncate. The bootstrap/executor/device outlive this instance; drain Journal first.
- * The lifecycle owner serializes Create/Open/Close and keeps replay callbacks
- * non-reentrant. After Create/Open, TryAppend may run concurrently with Close.
- * Callback failure leaves Open failed; discard partially replayed consumer state.
+/** Single-copy Journal. Create uses the recyclable v2 format; Open preserves v1
+ * append-only compatibility. B checkpoints retire whole prefix segments in v2.
+ * No arbitrary payload readers or Deferred yet; B owns maintenance exclusively.
+ * Sole owner of the bound Journal region. Explicit identity/geometry; Create
+ * requires an empty region. Nonzero invalid tails prevent Open, never truncate.
+ * Bootstrap/executor/device outlive this instance; drain Journal first. The lifecycle owner serializes
+ * Create/Open/Close and keeps replay callbacks non-reentrant. After Create/Open, TryAppend may run concurrently with
+ * Close. Callback failure leaves Open failed; discard partially replayed consumer state.
  */
 class JournalService {
  public:
@@ -114,11 +117,12 @@ class JournalService {
    * Replay receives only complete batches, bounded by persisted input limits.
    */
   void Open(const std::function<void(uint64_t, const JournalRecords &)> &replay);
-  /** F10/F11: the bootstrap owner supplies a trusted complete-batch address.
+  /** F10/F11: the bootstrap owner supplies a trusted complete-batch logical position.
    * Inspect runs during validation, before the entire suffix is known valid:
    * collect a bounded recovery plan only, with no publication or durable effects.
-   * Replay starts only after validation and Flush. Prefix bytes aren't read;
-   * the control identity and complete suffix (including empty tail) are checked.
+   * Replay starts only after validation and Flush. Prefix payload is not replayed;
+   * v2 also verifies segment headers. Control and the complete required suffix
+   * (including its unused tail) are checked. A retired entry is rejected.
    */
   void OpenFrom(uint64_t begin, const std::function<void(uint64_t, const JournalRecords &)> &inspect,
                 const std::function<void(uint64_t, const JournalRecords &)> &replay);
@@ -129,6 +133,10 @@ class JournalService {
   void Close();
 
  private:
+  friend class MetadataEngine;
+  auto AppendCheckpoint(const JournalRecords &records) -> JournalSubmission;
+  auto CheckpointRef(uint64_t lsn) const -> MetadataCheckpointRef;
+  void RetireBefore(uint64_t checkpoint_lsn);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

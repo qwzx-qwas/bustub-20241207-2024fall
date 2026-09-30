@@ -95,7 +95,7 @@ auto Encode(const BootstrapLayout &layout, const std::optional<MetadataCheckpoin
     -> Image {
   ByteWriter writer;
   writer.PutBytes(BOOTSTRAP_MAGIC, 8);
-  writer.PutU32(checkpoint ? 2 : 1);
+  writer.PutU32(checkpoint ? (checkpoint->logical_ ? 3 : 2) : 1);
   writer.PutU32(checkpoint ? 144 : 112);
   writer.PutU32(0);
   writer.PutU32(0);
@@ -140,7 +140,7 @@ auto Decode(const Image &image, const BlockDeviceInfo &info, const BootstrapIden
   const auto format = reader.ReadU32();
   const auto length = reader.ReadU32();
   if (std::memcmp(image.data(), BOOTSTRAP_MAGIC, 8) != 0 ||
-      !((format == 1 && length == 112) || (format == 2 && length == 144)) || reader.ReadU32() != 0 ||
+      !((format == 1 && length == 112) || ((format == 2 || format == 3) && length == 144)) || reader.ReadU32() != 0 ||
       reader.ReadU32() != 0 || !IsZero(image.data() + length, image.data() + BOOTSTRAP_CHECKSUM_OFFSET)) {
     Fail(BootstrapErrorCode::UnsupportedFormat, "unsupported bootstrap format or features");
   }
@@ -166,14 +166,16 @@ auto Decode(const Image &image, const BlockDeviceInfo &info, const BootstrapIden
   BootstrapLayout layout{identity, capacity, {read_range(), read_range(), read_range()}};
   ValidateLayout(layout, info);
   Copy copy{CopyKind::Valid, layout};
-  if (format == 2) {
+  if (format == 2 || format == 3) {
     copy.generation_ = reader.ReadU64();
     MetadataCheckpointRef checkpoint{};
     checkpoint.position_ = reader.ReadU64();
+    checkpoint.logical_ = format == 3;
     for (auto &byte : checkpoint.journal_) {
       byte = reader.ReadU8();
     }
-    if (copy.generation_ == 0 || checkpoint.position_ == 0 || checkpoint.position_ >= layout.regions_[1].Size() ||
+    if (copy.generation_ == 0 || checkpoint.position_ == 0 ||
+        (!checkpoint.logical_ && checkpoint.position_ >= layout.regions_[1].Size()) ||
         std::all_of(checkpoint.journal_.begin(), checkpoint.journal_.end(), [](uint8_t b) { return b == 0; })) {
       Fail(BootstrapErrorCode::InvalidLayout, "invalid metadata checkpoint reference");
     }

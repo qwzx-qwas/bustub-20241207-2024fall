@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-09-30（S5 基础 Journal 回收）：新增 [S5-journal-recycling.tar.gz](S5-journal-recycling.tar.gz)。8 项新集成、23 项复用回归通过，8 个指定变异检出；新建 v2，旧 v1 真实生产镜像继续读写恢复且不迁移。见 [实现与八项审查](../../docs/storage_redesign/s5_execution_20260930.md) 和 [结果](../../test-results/storage-s5-20260930/README.md)。仅一个最终 S5 包，不注册常驻目标。F03/F08/F09/F10 是有效历史依赖，保留原哈希；F10 旧根回退组合不原样套到已退役的新格式，风险由 S5 新用例接管。
+
 2026-09-26（F10/F11 两轮复审）：更新 [F10-metadata-checkpoint.tar.gz](F10-metadata-checkpoint.tar.gz)，统一六项直接入口/周期 FULL/故障/并发恢复集成场景；6 项、原 F03/F07/F08/F09 共 26 项重新执行通过，9 个变异被指定断言发现；补强修复/发布断言和更新输入，删除旧 XML 复用选项，第二轮补足同一页槽跨 checkpoint 复用的输入判据，旧同模块包再次原位替换。先逻辑审查再测试，见 [八项审查 §11](../../docs/storage_redesign/f10_execution_20260926.md#11-第二次复审2026-09-26)。仅压缩保留；有效依赖包不删除，不注册常驻目标。
 
 2026-09-26（F09）：新增 [F09-metadata-page-writer.tar.gz](F09-metadata-page-writer.tar.gz)，仅最终四项真实页写回测试与 runner；4 项/原 F08 六项通过，8 个指定变异检出。先审生产逻辑再测试，见 [八项审查](../../docs/storage_redesign/f09_execution_20260926.md)。不注册常驻测试，F08 有效包保留作回归来源。
@@ -26,6 +28,7 @@
 
 | 模块包 | 原源码 | 历史用途 | 当前状态 |
 | --- | --- | --- | --- |
+| [S5-journal-recycling.tar.gz](S5-journal-recycling.tar.gz) | 包内 `recycling_test.cpp`、fixture、旧生产镜像生成器和 runner | 8 项 S5 + 23 项复用回归；8 个变异 | 基础回收完成；节点编排/Deferred/业务接入未完成 |
 | [F10-metadata-checkpoint.tar.gz](F10-metadata-checkpoint.tar.gz) | 包内 `test/storage_redesign/metadata_checkpoint_test.cpp`、`run_stage.py` | 6 项真实 B checkpoint/恢复，9 个变异；执行原 26 项回归 | 本轮 B 路径完成；日志裁剪/复用、Deferred、A 接入未完成 |
 | [F09-metadata-page-writer.tar.gz](F09-metadata-page-writer.tar.gz) | 包内 `test/storage_redesign/metadata_page_writer_test.cpp`、`run_stage.py` | 4 项最终页/并发/失败，8 个变异；原 F08 六项回归 | F09 当轮完成，仅压缩；checkpoint/最终页恢复由 F10 接续，回收待后续 |
 | [F08-metadata-engine.tar.gz](F08-metadata-engine.tar.gz) | 包内 `test/storage_redesign/metadata_engine_test.cpp`、`run_stage.py` | 6 项 B 事务/恢复/空间复用，12 个变异；原 A 回归 12 项 | S4 已完成，仅压缩；最终页写回由 F09 接续，checkpoint 由 F10 接续；业务接入未完成 |
