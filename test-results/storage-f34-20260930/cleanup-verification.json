@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-30",
+  "review": "second review",
+  "scratch_removed": "/tmp/bustub-f34-review-20260930",
+  "scratch_exists_after": false,
+  "removed_file_bytes": 910572760,
+  "previous_scratch_removed": "/tmp/bustub-f34-20260930",
+  "source_archive": "test/archives/F34-node-lifecycle.tar.gz",
+  "source_sha256": "a4ba304e6a515fe68cf5b1fef92069f2eb796493fa29b0a939af21b4e80e035c",
+  "result_archive": "test-results/storage-f34-20260930/F34-results.tar.gz",
+  "result_sha256": "faa01a9443bc93b8cacfcf175ea2ddd89fb175c33a25505787d4e7e6a2036329",
+  "superseded_sha256": {
+    "source": "e1f9437f5c36eeb58516cb841529c7f411975fa811c97316602fed4136f79e83",
+    "result": "e31dadbfb2194e23df96b07fb72abb39a7f0d31a4e42bd79af0b1ba079597cd7"
+  },
+  "superseded_packages_replaced_without_backup": true,
+  "archive_members_verified": true,
+  "tested_sources_match_archive": true,
+  "production_and_dependency_hashes_verified": true,
+  "one_final_f34_source_package": true,
+  "one_final_f34_result_package": true,
+  "same_module_obsolete_packages": [],
+  "valid_dependency_archives_unchanged": [
+    "S5-journal-recycling"
+  ],
+  "permanent_test_registration_added": false,
+  "existing_ignore_rule": "/test-results/*/* with README/SHA256SUMS/cleanup-verification exceptions",
+  "markdown_local_targets_checked": 381,
+  "markdown_missing_targets": [],
+  "git_diff_check": "passed",
+  "precommit_review": {
+    "production_and_tests_unchanged_since_last_run": true,
+    "passed_xml_verified": {
+      "lifecycle": 5,
+      "s5": 8
+    },
+    "mutation_oracles_verified": 10,
+    "archives_scanned": 28,
+    "superseded_hashes_absent": true,
+    "scratch_absent": true,
+    "main_plan_stale_status_corrected": true
+  }
+}
