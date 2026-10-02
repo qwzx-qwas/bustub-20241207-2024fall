@@ -1,0 +1,77 @@
+{
+  "date": "2026-09-30",
+  "review": "second review, production unchanged",
+  "scratch_removed": "/tmp/bustub-f12-review-20260930",
+  "scratch_exists_after": false,
+  "previous_scratch_removed": "/tmp/bustub-f12-20260930",
+  "removed_file_bytes": 940654167,
+  "source_archive": "test/archives/F12-data-allocator.tar.gz",
+  "source_sha256": "db3c8f9f779b43db1b3124e7d2646c16a996f7d92f89c07fa005e56e005acd0a",
+  "result_archive": "test-results/storage-f12-20260930/F12-results.tar.gz",
+  "result_sha256": "445a8df589caffe1629c257d32215ca48bdab8d3bb027194220dd048126fbc15",
+  "superseded_sha256": {
+    "source": "a191b658735af5f3c694bf056236a76053c8703df480e6e1f50b01c6b7f7c5fc",
+    "result": "6fc25c356ce522c4d0a5a29bf68b370b7b1466dfebd4737aeec2226da11f5146"
+  },
+  "superseded_packages_replaced_without_backup": true,
+  "archive_members_verified": 69,
+  "tested_sources_match_archive": true,
+  "production_and_dependency_hashes_verified": true,
+  "production_unchanged_from_first_run": true,
+  "same_module_obsolete_packages": [],
+  "one_final_f12_source_package": true,
+  "one_final_f12_result_package": true,
+  "valid_dependency_archives_unchanged": [
+    "S5-journal-recycling",
+    "F34-node-lifecycle"
+  ],
+  "permanent_test_registration_added": false,
+  "existing_ignore_rule": "/test-results/*/* with README/SHA256SUMS/cleanup-verification exceptions",
+  "markdown_local_targets_checked": 455,
+  "markdown_missing_targets": [],
+  "git_diff_check": true,
+  "passed": {
+    "f12": 6,
+    "f34": 5,
+    "s5": 8
+  },
+  "mutation_oracles_verified": 10,
+  "not_covered": [
+    "F13/F14 ownership and committed-content pins",
+    "NodeStorage object integration",
+    "business E2E",
+    "raw device",
+    "physical power loss",
+    "performance",
+    "TSan"
+  ],
+  "review_20261001": {
+    "production_tests_and_archives_unchanged": true,
+    "runtime_tests_rerun": false,
+    "prior_xml_cases_verified": 19,
+    "mutation_oracles_verified": 10,
+    "result_members_verified": 69,
+    "archives_scanned": 30,
+    "superseded_f12_hashes_absent": true,
+    "scratch_absent": true,
+    "markdown_local_targets_checked": 457,
+    "missing_targets": [],
+    "result_archive_ignored": true,
+    "git_diff_check": true
+  },
+  "review_20261002": {
+    "production_tests_and_archives_unchanged": true,
+    "runtime_tests_rerun": false,
+    "prior_xml_cases_verified": 19,
+    "mutation_oracles_verified": 10,
+    "result_members_verified": 69,
+    "production_hashes_verified": 29,
+    "dependency_hashes_verified": 2,
+    "archives_scanned": 30,
+    "superseded_f12_hashes_absent": true,
+    "scratch_absent": true,
+    "one_final_f12_source_package": true,
+    "one_final_f12_result_package": true,
+    "result_archive_ignored": true
+  }
+}

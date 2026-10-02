@@ -1310,6 +1310,10 @@ auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
   return {MetadataCheckpointOutcome::Durable, nullptr};
 }
 
+auto MetadataEngine::DataRegionInfo() const -> RegionInfo {
+  return impl_->regions_.Describe(impl_->regions_.Region(RegionKind::Data));
+}
+
 void MetadataEngine::Close() {
   if (!impl_) {
     return;

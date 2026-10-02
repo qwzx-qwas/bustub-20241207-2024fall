@@ -263,3 +263,7 @@ F33 当前是 F34 内部的 `NodeStateController`，由同一个短状态锁串�
 ## 12. 当轮完成证据（2026-09-30）
 
 [执行与八项审查](../f34_execution_20260930.md)记录代码前推演、实际路径、接口用途、五项测试的输入/oracle、十个定向变异及清理。源码仅保留 [F34-node-lifecycle.tar.gz](../../../test/archives/F34-node-lifecycle.tar.gz)，结果见 [归档入口](../../../test-results/storage-f34-20260930/README.md)。本轮未改 DistributedNode、SQL/Raft 协议或旧磁盘格式；S8/S9 迁移与完整业务状态尚待接入。
+
+## F12 后续 owner 接入约束（2026-09-30）
+
+[F12](allocator.md) 自身已实现，但本轮没有修改 NodeStorage。普通对象接入时由本 owner 在 B 恢复后创建/恢复唯一 DataAllocator；关闭先停止对象调用、排空实际 Data IO 及引用，再关闭 allocator 和 B。旧 lease 退出仅修改旧 RAM 上下文，不授权旧 IO 跨设备重开存活。不得另外创建一个 B、共享 allocator 类别 12 或绕过现有生命周期。F12 六项测试压缩保留，接入时复用其输入及风险，不能把当前 F34 原五项回归称为已测 allocator owner 生命周期。

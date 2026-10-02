@@ -15,6 +15,8 @@
 
 namespace bustub {
 
+struct RegionInfo;
+
 struct MetadataKey {
   uint64_t category_;
   uint64_t owner_;
@@ -140,6 +142,8 @@ class MetadataEngine {
   void Close();
 
  private:
+  friend class DataAllocator;
+  auto DataRegionInfo() const -> RegionInfo;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

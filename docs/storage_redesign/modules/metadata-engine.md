@@ -354,3 +354,7 @@ B 的页 LSN、FULL/PATCH、checkpoint 覆盖比较使用同一逻辑位置，�
 本次源自 [S5 §8 的开源机制](../s5_journal_recycling.md#8-开源参考及具体内化位置)，没有新增第三方依赖或复制其源码。验收范围、阶段测试去重与归档统一见 [执行与八项审查](../s5_execution_20260930.md)；节点统一编排、普通对象、Deferred 仍需后续讨论。
 
 **本模块 S5 当轮接续：已完成。** 2026-09-30；8 项 S5、23 项复用回归、8 个定向变异共用上述执行证据，不另计次数；后续阶段未完成。
+
+## F12 消费者接入（2026-09-30）
+
+本轮仅新增私有 `DataRegionInfo()`，供 DataAllocator 从这个 B 的固定区域绑定获取实际 Data 长度和对齐，避免错设备组合；不增加 public getter、SQL 路径或第二套 WAL。F12 独占 MetadataKey 类别 12（描述/C/Q），复用本引擎现有单批事务、旧 snapshot 冲突检查、checkpoint 与恢复。B 不解释 allocator 的业务含义；F13/F14 不能私自改该类别。详见 [F12 协议](allocator.md#11-2026-09-30-当轮执行协议用户已授权)。

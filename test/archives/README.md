@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-09-30（F12 分配器）：[F12-data-allocator.tar.gz](F12-data-allocator.tar.gz)，六项新集成＋原 F34 五项/S5 八项回归、十个指定变异；见 [八项审查](../../docs/storage_redesign/f12_execution_20260930.md) 与 [结果](../../test-results/storage-f12-20260930/README.md)。仅最终压缩源码；F13/F14、自动 GC 和节点对象接入未完成。
+
 2026-09-30（F34/F33 本地生命周期）：[F34-node-lifecycle.tar.gz](F34-node-lifecycle.tar.gz)，5 项新集成＋8 项原 S5 回归、10 个指定变异；见[八项审查](../../docs/storage_redesign/f34_execution_20260930.md)及[结果](../../test-results/storage-f34-20260930/README.md)。仅最终压缩包，S5 为原哈希依赖；未接入 DistributedNode 业务后端。
 
 2026-09-30（S5 基础 Journal 回收）：新增 [S5-journal-recycling.tar.gz](S5-journal-recycling.tar.gz)。8 项新集成、23 项复用回归通过，8 个指定变异检出；新建 v2，旧 v1 真实生产镜像继续读写恢复且不迁移。见 [实现与八项审查](../../docs/storage_redesign/s5_execution_20260930.md) 和 [结果](../../test-results/storage-s5-20260930/README.md)。仅一个最终 S5 包，不注册常驻目标。F03/F08/F09/F10 是有效历史依赖，保留原哈希；F10 旧根回退组合不原样套到已退役的新格式，风险由 S5 新用例接管。
@@ -177,3 +179,13 @@ F05 再次复审仅修正 runner：旧容量向上取整变异在整页对齐环
 ## F09 恢复与风险交接
 
 按包内 MANIFEST/RESTORE，在隔离源码树检出基准并恢复结果包 source/ 中三份当前生产修改，再在仓库外解压测试执行 runner。精确测试/生产/原 F08 依赖哈希与证据见 [结果](../../test-results/storage-f09-20260926/README.md)。完整链路测试接入后复用业务输入与独立 Oracle，不把本轮 Direct 文件场景自动升级为 E2E。F09 再次复审已增强原场景中的同一在途槽换代判据，4 项/原 F08 六项/8 个变异全部重新验证；源码和结果包原位替换，不保留旧 F09 包或备份。有效 F08 包仍作为真实回归来源保留，见 [复审 §10](../../docs/storage_redesign/f09_execution_20260926.md#10-再次复审2026-09-26)。
+
+## F12 恢复与风险交接
+
+包内仅最终六项集成测试、runner、MANIFEST.json 和 RESTORE.md。基准 `3e852f5` 加本轮五份生产修改，恢复以 production_sha256 为准；本地结果包 source/ 可覆盖隔离基准 checkout。原 S5/F34 包为同哈希依赖，直接复用而不复制或修改历史来源。
+
+风险 `F12/reservation-lifetime、bounded-search、atomic-allocation、quarantine-race、failure-recovery、open-format` 由本模块维护。F13/F14/F22/F34 后续接入时复用输入/独立范围 oracle 并补真实引用/owner 条件，不另造每层位图测试。共同 C/P 内容没有改动，尚未经过新后端。
+
+首轮发现隔离提交窗口的代码漏洞，先修生产逻辑再写测试。测试审查补强了失败申请的完整容量回收和无位图时的格式匹配判据；只保留最终版本，没有把先前漏检计为通过。首轮创建 F12 压缩包，本次复审已原位更新，不保留旧 F12 包或展开的常驻测试。源码/结果哈希及清理记录见结果目录。
+
+F12 再次复审修正合法分配粒度的夹具限制，补强隔离被旧 snapshot 拒绝后的空间归还判据。生产未改，六项/十三项回归/十个指定变异重新通过，旧 F12 两包均替换，见 [§9](../../docs/storage_redesign/f12_execution_20260930.md#9-2026-09-30-再次审查隔离拒绝与测试粒度)。
