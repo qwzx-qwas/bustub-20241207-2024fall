@@ -1,0 +1,50 @@
+{
+  "source_archive": "test/archives/F02-object-io.tar.gz",
+  "source_sha256": "0ace3be5d0c90bc79ff8443649e0d701d5c325cd0fccf72c9cf3f2975f6bd5fa",
+  "previous_source_sha256": "279c9dff0b193fede4f1072c8ed4d443043173ab6c3b4d2c8edf55c432c6e1ce",
+  "previous_result_sha256": "9939976d7843707a57c86f54761e6376a7082d5cb88c6d2b9d2a906dad029abb",
+  "previous_result_deleted": true,
+  "result_sha256": "eb2615a6759db530300a0aa41f535939f35c5fa44cb7d04423fd837d4b7452fe",
+  "verified_result_members": 529,
+  "production_files": 442,
+  "test_files": 3,
+  "dependency_packages": [
+    "test/archives/S5-journal-recycling.tar.gz",
+    "test/archives/F34-node-lifecycle.tar.gz",
+    "test/archives/F12-data-allocator.tar.gz",
+    "test/archives/F13-object-mapping.tar.gz",
+    "test/archives/F14-object-references.tar.gz"
+  ],
+  "temporary_workspace": "/tmp/bustub-s6-object-io",
+  "temporary_workspace_removed": true,
+  "superseded_backups_retained": false,
+  "temporary_file_bytes_removed": 994571207,
+  "verified_production_files": 442,
+  "verified_final_result_members": 529,
+  "f02_archives": [
+    "test/archives/F02-object-io.tar.gz",
+    "test-results/storage-s6-object-io-20261002/F02-results.tar.gz"
+  ],
+  "review_20261002": {
+    "date": "2026-10-02",
+    "production_hashes_verified": 442,
+    "dependency_hashes_verified": 5,
+    "normal_tests": 46,
+    "targeted_production_mutations": 7,
+    "test_unwind_diagnostic": {
+      "scope": "one-off test-harness unwind verification; not new production tests or mutations",
+      "injected_exceptions_reported": 2,
+      "following_normal_case_passed": 1,
+      "no_timeout_or_sanitizer_abort": true
+    },
+    "static_checks": "previous results retained after verifying same production hashes; not rerun",
+    "replaced_archives": {
+      "source_sha256": "ea6a3089d8c8d1d99560eb320f5f66356420a5fb15c1f58da180f1354b8cb134",
+      "result_sha256": "ea5e592722562221a11b12baaf1a0949ada3e278c1cb3a69045dc432c4986046"
+    },
+    "temporary_workspace": "/tmp/bustub-s6-review-20261002",
+    "temporary_workspace_removed": true,
+    "superseded_backups_retained": false,
+    "temporary_file_bytes_removed": 1005439856
+  }
+}

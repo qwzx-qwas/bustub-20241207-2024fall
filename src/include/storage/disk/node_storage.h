@@ -12,6 +12,8 @@
 
 #include "storage/disk/io_executor.h"
 #include "storage/disk/metadata_engine.h"
+#include "storage/disk/object_io.h"
+#include "storage/disk/object_reference.h"
 
 namespace bustub {
 
@@ -32,8 +34,19 @@ struct NodeStorageView {
   bool metadata_read_{false};
   bool metadata_write_{false};
   bool metadata_maintenance_{false};
+  bool object_read_{false};
+  bool object_data_write_{false};  // New data IO, not a complete S7 transaction API.
+  std::exception_ptr object_error_;
   std::exception_ptr error_;
   std::exception_ptr repair_error_;
+};
+
+struct ObjectStorageOptions {
+  DataAllocatorOptions allocator_;
+  ObjectMappingOptions mapping_;
+  ObjectReferenceOptions references_;
+  uint64_t max_read_bytes_;
+  uint64_t max_write_bytes_;
 };
 
 struct NodeStorageOptions {
@@ -45,10 +58,13 @@ struct NodeStorageOptions {
   JournalOptions journal_;
   MetadataOptions metadata_;
   BootstrapRepairOptions repair_;
+  // Empty preserves the production metadata-only deployment. Open never formats.
+  std::optional<ObjectStorageOptions> objects_{std::nullopt};
 };
 
 /** Owns one device -> executor -> bootstrap -> B/Journal stack exclusively.
- * S5 exposes local metadata readiness, NOT SQL/Raft readiness. No automatic
+ * S6 optionally owns allocator/mappings/references and ordinary object IO.
+ * These expose local storage readiness, NOT SQL/Raft readiness. No automatic
  * format, migration, checkpoint on Close, or retry of an uncertain write.
  * Explicit options retain the existing component budgets and IO semantics.
  *
@@ -74,6 +90,21 @@ class NodeStorage {
   auto Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations) -> JournalResult;
   auto Writeback(size_t max_pages) -> MetadataWritebackResult;
   auto Checkpoint(size_t max_pages) -> MetadataCheckpointResult;
+  /** Explicitly initialize missing ordinary-object structures on an existing B.
+   * Resumes partial initialization; never upgrades an existing legacy format.
+   */
+  void InitializeObjects();
+  auto Objects() -> ObjectMappingSnapshot;
+  auto CreateObjectSpace(const ObjectMappingSnapshot &base) -> ObjectSpaceCreation;
+  auto CreateObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length, ObjectSizeMode mode)
+      -> JournalResult;
+  auto ResizeObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length) -> JournalResult;
+  auto RemoveObject(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult;
+  auto ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t allocation) -> ObjectReclaimResult;
+  auto ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length) -> ObjectRead;
+  auto WriteObjectData(const void *source, size_t size) -> ObjectWrite;
+  auto PublishObjectData(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, ObjectWrite &write)
+      -> JournalResult;
   void Close();
 
  private:

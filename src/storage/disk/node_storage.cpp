@@ -7,6 +7,8 @@
 #include <mutex>               // NOLINT(build/c++11)
 #include <utility>
 
+#include "object_io_internal.h"  // NOLINT(build/include_subdir): private sibling component.
+
 namespace bustub {
 namespace {
 
@@ -32,7 +34,7 @@ class NodeStateController {
     ++view_.generation_;
     view_.phase_ = NodeStoragePhase::Draining;
   }
-  void Stop(std::exception_ptr error) {
+  void Stop(const std::exception_ptr &error) {
     view_.phase_ = NodeStoragePhase::Stopped;
     if (error) {
       Set(NodeStorageCondition::IOFault, true);
@@ -41,7 +43,7 @@ class NodeStateController {
       }
     }
   }
-  void Fail(uint64_t generation, NodeStorageCondition condition, std::exception_ptr error) {
+  void Fail(uint64_t generation, NodeStorageCondition condition, const std::exception_ptr &error) {
     const bool draining = view_.phase_ == NodeStoragePhase::Draining && generation + 1 == view_.generation_;
     if (generation != view_.generation_ && !draining) {
       return;
@@ -64,10 +66,16 @@ class NodeStateController {
     Set(NodeStorageCondition::BootstrapRepairFailed, status.repair_state_ == BootstrapRepairState::Failed);
     view_.repair_error_ = status.last_error_;
   }
+  void Objects(bool ready, const std::exception_ptr &error) {
+    view_.object_read_ = view_.object_data_write_ = ready;
+    view_.object_error_ = error;
+  }
   auto View() const -> NodeStorageView {
     auto result = view_;
     result.metadata_read_ = result.metadata_write_ = result.metadata_maintenance_ =
         result.phase_ == NodeStoragePhase::Serving;
+    result.object_read_ = result.object_read_ && result.metadata_read_;
+    result.object_data_write_ = result.object_data_write_ && result.metadata_write_;
     for (auto condition : {NodeStorageCondition::RecoveryFailed, NodeStorageCondition::IOFault,
                            NodeStorageCondition::BootstrapRepairFailed, NodeStorageCondition::ResourcePressure,
                            NodeStorageCondition::BootstrapRedundancyLost}) {
@@ -87,6 +95,64 @@ class NodeStateController {
   NodeStorageView view_;
 };
 
+struct ObjectContext {
+  std::unique_ptr<RegionManager> regions_;
+  std::unique_ptr<DataAllocator> allocator_;
+  std::unique_ptr<ObjectMappingStore> mapping_;
+  std::unique_ptr<ObjectReferenceManager> references_;
+  std::unique_ptr<ObjectIO> io_;
+  void Close() {
+    if (io_) {
+      io_->Close();
+    }
+    if (references_) {
+      references_->Close();
+    }
+    if (allocator_) {
+      allocator_->Close();
+    }
+  }
+};
+void RequireDurable(const JournalResult &result) {
+  if (result.outcome_ != JournalOutcome::Durable) {
+    if (result.error_) {
+      std::rethrow_exception(result.error_);
+    }
+    throw std::runtime_error("object initialization was not durably committed");
+  }
+}
+// Called only by startup or explicit InitializeObjects under its initialization
+// mutex. A failed Open instance is discarded before explicit Create.
+auto OpenObjects(BootstrapStore &bootstrap, IOExecutor &executor, MetadataEngine &metadata,
+                 const ObjectStorageOptions &options, bool initialize) -> std::unique_ptr<ObjectContext> {
+  auto context = std::make_unique<ObjectContext>();
+  context->regions_ = std::make_unique<RegionManager>(bootstrap);
+  context->allocator_ = std::make_unique<DataAllocator>(metadata, options.allocator_);
+  try {
+    context->allocator_->Open();
+  } catch (const AllocationError &error) {
+    if (!initialize || error.Code() != AllocationErrorCode::NotInitialized) {
+      throw;
+    }
+    context->allocator_ = std::make_unique<DataAllocator>(metadata, options.allocator_);
+    RequireDurable(context->allocator_->Create());
+  }
+  context->mapping_ = std::make_unique<ObjectMappingStore>(*context->allocator_, options.mapping_);
+  try {
+    context->mapping_->Open();
+  } catch (const ObjectMappingError &error) {
+    if (!initialize || error.Code() != ObjectMappingErrorCode::NotInitialized) {
+      throw;
+    }
+    context->mapping_ = std::make_unique<ObjectMappingStore>(*context->allocator_, options.mapping_);
+    RequireDurable(context->mapping_->Create());
+  }
+  context->references_ = std::make_unique<ObjectReferenceManager>(*context->mapping_, options.references_);
+  context->io_ = std::make_unique<ObjectIO>(*context->regions_, executor, *context->allocator_, *context->mapping_,
+                                            *context->references_, options.max_read_bytes_, options.max_write_bytes_);
+  return context;
+}
+
 struct StorageContext {
   // Declared in dependency order; member destruction reverses it.
   std::unique_ptr<BlockDevice> device_;
@@ -94,6 +160,9 @@ struct StorageContext {
   std::unique_ptr<BootstrapStore> bootstrap_;
   std::unique_ptr<MetadataEngine> metadata_;
   std::exception_ptr repair_start_error_;
+  std::mutex object_initialization_;
+  std::unique_ptr<ObjectContext> objects_;
+  std::exception_ptr object_error_;
 
   ~StorageContext() {
     try {
@@ -121,6 +190,9 @@ struct StorageContext {
         }
       }
     };
+    if (objects_) {
+      close([&] { objects_->Close(); });
+    }
     if (metadata_) {
       close([&] { metadata_->Close(); });
     }
@@ -156,21 +228,85 @@ struct NodeStorage::Impl {
     uint64_t generation_;
     ~Call() { owner_.Finish(); }
   };
-  auto Acquire() -> Call {
+  auto Acquire(bool objects = false) -> Call {
     std::lock_guard<std::mutex> lock(mutex_);
+    ObserveObjectError();
     const auto state = state_.View();
+    if (objects && !state.object_read_) {
+      throw MetadataError(MetadataErrorCode::NotReady, "ordinary object storage is not ready");
+    }
     if (state.phase_ != NodeStoragePhase::Serving) {
       throw MetadataError(MetadataErrorCode::NotReady, "node storage is not serving metadata");
     }
     ++active_;
     return {*this, context_, state.generation_};
   }
+  // mutex_ held; object IO only takes its short state lock here.
+  void ObserveObjectError() {
+    if (context_ && context_->objects_) {
+      if (auto error = context_->objects_->io_->Error()) {
+        auto view = state_.View();
+        const auto generation = view.phase_ == NodeStoragePhase::Draining ? view.generation_ - 1 : view.generation_;
+        state_.Fail(generation, NodeStorageCondition::IOFault, error);
+      }
+    }
+  }
+  void Outcome(uint64_t generation, const JournalResult &result) {
+    if (result.outcome_ != JournalOutcome::Durable) {
+      Failure(generation, result.error_);
+    } else {
+      Pressure(generation, false);
+    }
+  }
+  template <class F>
+  auto ObjectCall(F action) {
+    auto call = Acquire(true);
+    try {
+      return action(*call.context_->objects_, call.generation_);
+    } catch (const MetadataError &error) {
+      if (error.Code() == MetadataErrorCode::ResourceUnavailable) {
+        Pressure(call.generation_, true);
+      }
+      throw;
+    }
+  }
+  void InitializeObjects() {
+    auto call = Acquire();
+    if (!options_.objects_) {
+      throw std::logic_error("ordinary object storage requires explicit options");
+    }
+    std::lock_guard<std::mutex> initialize(call.context_->object_initialization_);
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (call.context_->objects_) {
+        return;
+      }
+    }
+    try {
+      auto objects = OpenObjects(*call.context_->bootstrap_, *call.context_->executor_, *call.context_->metadata_,
+                                 *options_.objects_, true);
+      std::lock_guard<std::mutex> lock(mutex_);
+      // Close may have begun: retain the completed stack for its ordered drain,
+      // but never reopen admission or change the phase here.
+      call.context_->objects_ = std::move(objects);
+      call.context_->object_error_ = nullptr;
+      state_.Objects(true, nullptr);
+    } catch (...) {
+      const auto error = std::current_exception();
+      std::lock_guard<std::mutex> lock(mutex_);
+      call.context_->object_error_ = error;
+      state_.Objects(false, error);
+      // Initialization failure is explicit and may include an uncertain commit.
+      state_.Fail(call.generation_, NodeStorageCondition::RecoveryFailed, error);
+      throw;
+    }
+  }
   void Finish() {
     std::lock_guard<std::mutex> lock(mutex_);
     --active_;
     idle_.notify_all();
   }
-  void Failure(uint64_t generation, std::exception_ptr error) {
+  void Failure(uint64_t generation, const std::exception_ptr &error) {
     std::lock_guard<std::mutex> lock(mutex_);
     state_.Fail(generation, NodeStorageCondition::IOFault, error);
   }
@@ -219,6 +355,27 @@ struct NodeStorage::Impl {
       } else {
         context->metadata_->Open();
       }
+      if (options_.objects_) {
+        try {
+          context->objects_ = OpenObjects(*context->bootstrap_, *context->executor_, *context->metadata_,
+                                          *options_.objects_, layout != nullptr);
+        } catch (const AllocationError &error) {
+          if (layout != nullptr || error.Code() != AllocationErrorCode::NotInitialized) {
+            throw;
+          }
+          context->object_error_ = std::current_exception();
+        } catch (const ObjectMappingError &error) {
+          if (layout != nullptr || error.Code() != ObjectMappingErrorCode::NotInitialized) {
+            throw;
+          }
+          context->object_error_ = std::current_exception();
+        } catch (const ObjectReferenceError &error) {
+          if (layout != nullptr || error.Code() != ObjectReferenceErrorCode::UnsupportedFormat) {
+            throw;
+          }
+          context->object_error_ = std::current_exception();
+        }
+      }
       {
         std::lock_guard<std::mutex> lock(mutex_);
         if (state_.View().generation_ != generation) {
@@ -233,6 +390,7 @@ struct NodeStorage::Impl {
         } catch (...) {
           context->repair_start_error_ = std::current_exception();
         }
+        state_.Objects(context->objects_ != nullptr, context->object_error_);
         state_.Phase(generation, NodeStoragePhase::Serving);
         state_.Repair(context->RepairStatus());
         context_ = std::move(context);
@@ -265,6 +423,7 @@ struct NodeStorage::Impl {
   }
   auto State() -> NodeStorageView {
     std::lock_guard<std::mutex> lock(mutex_);
+    ObserveObjectError();
     if (context_) {
       // F03 Status only takes its short status lock, never waits for disk IO.
       state_.Repair(context_->RepairStatus());
@@ -309,6 +468,7 @@ struct NodeStorage::Impl {
       if (context) {
         state_.Repair(context->RepairStatus());
       }
+      ObserveObjectError();
       context_.reset();
       state_.Stop(error);
       close_error_ = error;
@@ -394,6 +554,64 @@ auto NodeStorage::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
     }
     throw;
   }
+}
+void NodeStorage::InitializeObjects() { impl_->InitializeObjects(); }
+auto NodeStorage::Objects() -> ObjectMappingSnapshot {
+  return impl_->ObjectCall([](ObjectContext &c, uint64_t) { return c.mapping_->Read(); });
+}
+auto NodeStorage::CreateObjectSpace(const ObjectMappingSnapshot &base) -> ObjectSpaceCreation {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    auto result = c.mapping_->CreateSpace(base);
+    impl_->Outcome(generation, result.result_);
+    return result;
+  });
+}
+auto NodeStorage::CreateObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length, ObjectSizeMode mode)
+    -> JournalResult {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    auto result = c.mapping_->CreateObject(base, key, length, mode);
+    impl_->Outcome(generation, result);
+    return result;
+  });
+}
+auto NodeStorage::ResizeObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length) -> JournalResult {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    auto result = c.mapping_->Resize(base, key, length);
+    impl_->Outcome(generation, result);
+    return result;
+  });
+}
+auto NodeStorage::RemoveObject(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    auto result = c.mapping_->Remove(base, key);
+    impl_->Outcome(generation, result);
+    return result;
+  });
+}
+auto NodeStorage::ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t allocation)
+    -> ObjectReclaimResult {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    auto result = c.references_->Reclaim(base, key, allocation);
+    if (result.commit_) {
+      impl_->Outcome(generation, *result.commit_);
+    }
+    return result;
+  });
+}
+auto NodeStorage::ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length)
+    -> ObjectRead {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t) { return c.io_->Read(base, key, offset, length); });
+}
+auto NodeStorage::WriteObjectData(const void *source, size_t size) -> ObjectWrite {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t) { return c.io_->Write(source, size); });
+}
+auto NodeStorage::PublishObjectData(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset,
+                                    ObjectWrite &write) -> JournalResult {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    auto result = c.io_->Publish(base, key, offset, write);
+    impl_->Outcome(generation, result);
+    return result;
+  });
 }
 void NodeStorage::Close() { impl_->Close(); }
 

@@ -115,6 +115,13 @@ class IOBatch {
   auto WaitFor(std::chrono::milliseconds timeout) const -> bool;
   /** Only terminal results are accessible; references live as long as this handle. */
   auto Result() const -> const IOBatchResult &;
+  /** Prepared-only, one completion owner. Captures retain execution resources
+   * independently of the observation handle. Called after all member/Flush IO,
+   * outside the scheduling lock, then destroyed before terminal publication.
+   * Abandoned Prepared batches destroy captures without reporting completion.
+   * Must not throw, wait for IO, or close/destroy this executor.
+   */
+  void RetainUntilComplete(std::function<void(const IOBatchResult &)> completion);
 
  private:
   friend class IOExecutor;

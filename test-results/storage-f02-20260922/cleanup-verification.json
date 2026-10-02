@@ -94,5 +94,11 @@
   "old_oracle_gap_archives_replaced": true,
   "owned_rollback_oracle_gap_reproduced_and_fixed": true,
   "intermediate_files_removed": 1938,
-  "intermediate_bytes_removed": 204277508
+  "intermediate_bytes_removed": 204277508,
+  "superseded_20261002": {
+    "result_deleted": true,
+    "source_replaced": true,
+    "current_results": "test-results/storage-s6-object-io-20261002",
+    "historical_hashes_not_current": true
+  }
 }

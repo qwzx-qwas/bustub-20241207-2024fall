@@ -1,5 +1,9 @@
 # 阶段测试源码归档
 
+2026-10-02（F02/S6 对象接入）：更新 [F02-object-io.tar.gz](F02-object-io.tar.gz)，当前含七项真实 NodeStorage 对象路径＋原八项执行器测试；runner 复用 F34/F12/F13/F14/S5，合计46项通过、7个定向变异命中。旧 F02 包原位替换，旧结果包删除；见 [八项审查](../../docs/storage_redesign/s6_object_io_execution_20261002.md) 和 [最终结果](../../test-results/storage-s6-object-io-20261002/README.md)。
+
+同日再次复审：修正辅助函数失败传播和异常关闭清理；46项/7个变异重新通过，源码与结果包原位更新，生产未改，见上述审查 §10。
+
 2026-10-02（F13 对象映射）：[F13-object-mapping.tar.gz](F13-object-mapping.tar.gz)。六项真实组件场景，直接复用 F12/F34/S5 和 A 原测试；见 [八项审查](../../docs/storage_redesign/f13_execution_20261002.md) 与 [结果](../../test-results/storage-f13-20261002/README.md)。F14、完整对象服务和业务接入未完成。
 
 2026-09-30（F12 分配器）：[F12-data-allocator.tar.gz](F12-data-allocator.tar.gz)，六项新集成＋原 F34 五项/S5 八项回归、十个指定变异；见 [八项审查](../../docs/storage_redesign/f12_execution_20260930.md) 与 [结果](../../test-results/storage-f12-20260930/README.md)。仅最终压缩源码；F13/F14、自动 GC 和节点对象接入未完成。
@@ -22,7 +26,7 @@
 
 2026-09-23（F03 复审）：更新 [F03-bootstrap.tar.gz](F03-bootstrap.tar.gz)，包含 8 项真实 F03→F02→F01 Direct 文件引导/选源/修复/关闭验证和 runner；8 项通过，11 个隔离变异被指定判据捕获。只压缩保存，不注册常驻测试。详见 [执行与八项审查](../../docs/storage_redesign/f03_execution_20260923.md)。
 
-2026-09-23（F02 复审更新）：[F02-object-io.tar.gz](F02-object-io.tar.gz) 已替换为当前 8 项真实 F01/F02 文件 IO 检查和 runner；8 项通过，10 个隔离变异由对应断言发现，旧版包不留备份。测试仅压缩保存，不注册常驻目标。详见 [F02 执行与八项审查](../../docs/storage_redesign/f02_execution_20260922.md)。
+2026-09-23（F02 复审更新）：[F02-object-io.tar.gz](F02-object-io.tar.gz) 当时替换为 8 项真实 F01/F02 文件 IO 检查和 runner；当前包已由上方 S6 接续；8 项通过，10 个隔离变异由对应断言发现，旧版包不留备份。测试仅压缩保存，不注册常驻目标。详见 [F02 执行与八项审查](../../docs/storage_redesign/f02_execution_20260922.md)。
 
 2026-09-22（F01）：新增 [F01-block-device.tar.gz](F01-block-device.tar.gz)，包含 7 项设备后端阶段检查和隔离变异 runner。已按八项要求审查，测试通过、6 个改坏版本被发现；源码在临时目录编写和执行，未加入常驻测试树。详见 [F01 执行与审查](../../docs/storage_redesign/f01_execution_20260922.md)。下述 F00/T0 历史事实与旧包保持不变。
 
@@ -41,7 +45,7 @@
 | [F05-metadata-backend.tar.gz](F05-metadata-backend.tar.gz) | 包内 `test/storage_redesign/metadata_backend_test.cpp`、`run_stage.py` | 2 项页地址/容量/IO 适配，6 个隔离 mutation；复用原 F04 包回归 | S2 完成，仅压缩保留；S4 页分配/WAL 已由 F08 接续，业务接入未完成 |
 | [F04-region-manager.tar.gz](F04-region-manager.tar.gz) | 包内 `test/storage_redesign/region_manager_test.cpp`、`run_stage.py` | 3 项区域绑定/包含/IO 接入，6 个隔离 mutation；依赖 F03 原包做回归 | 固定区域完成，仅压缩保留；页/日志后端与节点业务待接入 |
 | [F03-bootstrap.tar.gz](F03-bootstrap.tar.gz) | 包内 `test/storage_redesign/bootstrap_store_test.cpp`、`run_stage.py` | 8 项基础引导与异步修复组件场景，11 个隔离 mutation | 仅压缩归档；S5 可变恢复根由 F10 接续，F34 本地编排已接续，业务节点接入未完成 |
-| [F02-object-io.tar.gz](F02-object-io.tar.gz) | 包内 `test/storage_redesign/io_executor_test.cpp`、`run_stage.py`；原工作目录为专用 `/tmp` | 8 项批次/预算/外部许可/失败/生命周期验证，10 个隔离 mutation | 仅压缩归档；FrameArena、S2/S6 对象寻址及业务接入待完成 |
+| [F02-object-io.tar.gz](F02-object-io.tar.gz) | 包内 `tests/object_io_test.cpp`、`io_executor_test.cpp`、`run_stage.py` | 7项对象组合＋8项原执行器；另复用31项回归，共46项、7个定向变异 | 仅压缩归档；S6已接入，FrameArena/业务接入待完成 |
 | [F01-block-device.tar.gz](F01-block-device.tar.gz) | 包内 `test/storage_redesign/block_device_test.cpp`、`run_stage.py`；工作源码原在专用 `/tmp` 目录 | 7 项真实文件/边界注入验证，6 个隔离 mutation | 已压缩，不注册常驻目标；F02 已使用 F01，S8/S9 业务接入仍待完成 |
 | [F00-storage-contracts.tar.gz](F00-storage-contracts.tar.gz) | `test/storage_redesign/storage_range_contract_test.cpp` | 5 项范围算术及真实文件解码边界测试 | 已压缩，工作源码和用途标签退出常驻入口 |
 | [T0-storage-acceptance.tar.gz](T0-storage-acceptance.tar.gz) | `test/storage_acceptance/sql_storage_contract_test.cpp` | 1 项真实单节点 SQL／重放／快照回归 | 已压缩，不再作为单独 CTest 目标 |
@@ -113,15 +117,7 @@ F01 当前包为 9,316 字节；包内 MANIFEST.json 记录两个源码的哈希
 
 ## F02 恢复与风险交接
 
-当前包包含 8 项组件场景、runner、MANIFEST.json、RESTORE.md；源码和结果均为外部缓冲扩展后的复验版本。旧版源码/结果压缩包原位替换，没有备份。之前“零用例误报成功”的 runner 修正保留：隔离外部 GTEST_* 配置，并核验完整 XML。当前在有干扰配置的环境下仍实际运行全部八项。
-
-基准 `a4a6062` 需要结合本轮改动；按 MANIFEST.json 的生产哈希核对，或在隔离基准 checkout 使用本地结果包 source/ 快照。按 RESTORE.md 在仓库外恢复，不永久恢复到测试树。当前包大小和哈希以 [SHA256SUMS](SHA256SUMS) 及结果清理清单为准，不用旧历史包大小描述当前文件。
-
-风险标识为 F02/batch-barrier、budget、admission、failure-drain、flush-error、lifetime-close、external-buffer。正常分支是真实 F01/F02 Direct 文件 IO；暂停、EIO、短写及 ENOMEM 为测试侧注入。外部内存由测试 owner 提供，不是 FrameArena 或真实 BufferPool。无生产 hook、测试默认路径或私有计数 getter。8 项通过，10 个改坏版本均有指定失败断言与退出码 1；不推定全项目覆盖率。
-
-来源、输入/oracle、最小变异、接口污染/重复/稳定性及矩阵见 [F02 当前审查 §14](../../docs/storage_redesign/f02_execution_20260922.md#14-2026-09-23-方案落实与测试复审)；命令、日志、源码版本及清理见 [本地压缩证据](../../test-results/storage-f02-20260922/README.md)。F31/F32/F26/F35 引用同一风险，不另写镜像套件。S9.1c 仍须验证真实帧许可、BufferPool 默认切换及旧页路径清理；共同 C/P 尚未经过新后端，裸设备、掉电及整体性能仍未验证。
-
-2026-09-22 修正外部准入场景的名额泄漏漏检；2026-09-23 又对自有缓冲回滚作同类修正。两条准备路径均按满额度重试，当前八项/十个变异通过。旧包原位替换，不保留含缺口的旧测试版本；两次复现日志仅为缺陷证据。
+当前入口为模块包 `F02-object-io/RESTORE.md`，运行 `tests/run_stage.py`；生产/测试/依赖哈希以当前 MANIFEST 为准。旧目录形式和旧哈希只属于历史版本，不能用于恢复当前包。新结果见 [S6 证据](../../test-results/storage-s6-object-io-20261002/README.md)，八项设计审查和跨模块接管见 [执行记录](../../docs/storage_redesign/s6_object_io_execution_20261002.md)。原八项执行器测试原样保留，无常驻目标；S6新增组合风险后续交由 S7/S8/S9 的真实业务路径接管。
 
 ## F03 恢复与风险交接
 

@@ -140,6 +140,7 @@ struct IOBatchData {
   size_t external_bytes_;
   bool external_;
   IOBatchResult result_;
+  std::function<void(const IOBatchResult &)> completion_;
   std::condition_variable done_;
   IOBatchPhase phase_{IOBatchPhase::Prepared};
   size_t next_{0};
@@ -201,11 +202,13 @@ auto RequiredBytes(const std::vector<IORequest> &requests, bool flush, const Blo
 void Finish(const std::shared_ptr<IOBatchData> &batch, bool success, std::unique_lock<std::mutex> &lock) {
   // All members/Flush have stopped. Leave the batch on active_ while returning
   // leases so Shutdown cannot finish early. No remaining member is dispatchable.
-  if (batch->external_) {
-    lock.unlock();
-    batch->ReturnExternal();
-    lock.lock();
+  lock.unlock();
+  batch->ReturnExternal();
+  if (batch->completion_) {
+    auto completion = std::move(batch->completion_);
+    completion(batch->result_);
   }
+  lock.lock();
   batch->phase_ = success ? IOBatchPhase::Succeeded : IOBatchPhase::Failed;
   batch->core_->active_.erase(batch->position_);
   batch->done_.notify_all();
@@ -387,6 +390,15 @@ auto IOBatch::WaitFor(std::chrono::milliseconds timeout) const -> bool {
     throw std::logic_error("IO batch has not been submitted");
   }
   return data.done_.wait_for(lock, timeout, [&data] { return Terminal(data.phase_); });
+}
+
+void IOBatch::RetainUntilComplete(std::function<void(const IOBatchResult &)> completion) {
+  auto &data = Data();
+  std::lock_guard<std::mutex> lock(data.core_->mutex_);
+  if (data.phase_ != IOBatchPhase::Prepared || data.completion_ || !completion) {
+    throw std::logic_error("execution resources require one Prepared batch owner");
+  }
+  data.completion_ = std::move(completion);
 }
 
 auto IOBatch::Result() const -> const IOBatchResult & {

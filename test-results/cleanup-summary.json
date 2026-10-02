@@ -27,6 +27,24 @@
       "deleted_allocated_bytes": 6475083776,
       "all_previous_failures_timeouts_and_interruptions_preserved": true,
       "test_source_preserved": true
+    },
+    {
+      "status": "verified_and_cleaned",
+      "date": "2026-10-02",
+      "module": "F02/S6 ordinary object IO",
+      "cleanup_record": "test-results/storage-s6-object-io-20261002/cleanup-verification.json",
+      "temporary_file_bytes_removed": 994571207,
+      "old_f02_results_deleted": true,
+      "source_package_replaced": true
+    },
+    {
+      "status": "verified_and_cleaned",
+      "date": "2026-10-02",
+      "module": "F02/S6 review",
+      "cleanup_record": "test-results/storage-s6-object-io-20261002/cleanup-verification.json",
+      "temporary_file_bytes_removed": 1005439856,
+      "old_f02_results_deleted": true,
+      "source_package_replaced": true
     }
   ],
   "temporary_build_removed": "/tmp/bustub-t0-reviewed-binaries",
