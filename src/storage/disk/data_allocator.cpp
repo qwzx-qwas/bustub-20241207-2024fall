@@ -486,6 +486,7 @@ struct DataAllocator::Impl {
 DataAllocator::DataAllocator(MetadataEngine &metadata, DataAllocatorOptions options)
     : impl_(std::make_unique<Impl>(metadata, metadata.DataRegionInfo(), options)) {}
 DataAllocator::~DataAllocator() { Close(); }
+auto DataAllocator::Metadata() const -> MetadataEngine & { return impl_->metadata_; }
 auto DataAllocator::Create() -> JournalResult { return impl_->Create(); }
 void DataAllocator::Open() { impl_->Open(); }
 auto DataAllocator::Reserve(uint64_t bytes) -> DataReservation { return impl_->Reserve(bytes); }

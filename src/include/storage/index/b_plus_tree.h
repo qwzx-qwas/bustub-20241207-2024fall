@@ -28,6 +28,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -165,6 +166,9 @@ class BPlusTree {
   // Return the value associated with a given key
   // 返回与指定键相关联的值
   auto GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool;
+
+  // Greatest key <= upper, copied under the tree read latch.
+  auto GetFloor(const KeyType &upper) -> std::optional<std::pair<KeyType, ValueType>>;
 
   // Return the page id of the root node
   // 返回根节点的页面 ID

@@ -118,6 +118,44 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
 
   return !result->empty() && leaf_page_id != INVALID_PAGE_ID;
 }
+// Separators may remain below the first live key after deletion. Remember the
+// nearest left subtree so a query in that gap can return its rightmost entry.
+PAGE_INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::GetFloor(const KeyType &upper) -> std::optional<std::pair<KeyType, ValueType>> {
+  std::shared_lock tree_lock(tree_latch_);
+  auto page = GetRootPageId();
+  if (page == INVALID_PAGE_ID) {
+    return std::nullopt;
+  }
+  page_id_t left = INVALID_PAGE_ID;
+  bool rightmost = false;
+  auto guard = bpm_->ReadPage(page);
+  for (;;) {
+    auto node = guard.template As<BPlusTreePage>();
+    if (node->IsLeafPage()) {
+      auto leaf = guard.template As<LeafPage>();
+      auto index = rightmost ? leaf->GetSize() - 1 : BinarySearch(leaf, upper, comparator_, false);
+      if (index >= 0) {
+        return std::make_pair(leaf->KeyAt(index), leaf->ValueAt(index));
+      }
+      if (left == INVALID_PAGE_ID) {
+        return std::nullopt;
+      }
+      page = left;
+      left = INVALID_PAGE_ID;
+      rightmost = true;
+    } else {
+      auto internal = guard.template As<InternalPage>();
+      auto index = rightmost ? internal->GetSize() - 1 : BinarySearch(internal, upper, comparator_, true);
+      if (!rightmost && index > 0) {
+        left = internal->ValueAt(index - 1);
+      }
+      page = internal->ValueAt(index);
+    }
+    guard = bpm_->ReadPage(page);
+  }
+}
+
 /*****************************************************************************
  * INSERTION
  *****************************************************************************/

@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-10-02（F13 对象映射）：[F13-object-mapping.tar.gz](F13-object-mapping.tar.gz)。六项真实组件场景，直接复用 F12/F34/S5 和 A 原测试；见 [八项审查](../../docs/storage_redesign/f13_execution_20261002.md) 与 [结果](../../test-results/storage-f13-20261002/README.md)。F14、完整对象服务和业务接入未完成。
+
 2026-09-30（F12 分配器）：[F12-data-allocator.tar.gz](F12-data-allocator.tar.gz)，六项新集成＋原 F34 五项/S5 八项回归、十个指定变异；见 [八项审查](../../docs/storage_redesign/f12_execution_20260930.md) 与 [结果](../../test-results/storage-f12-20260930/README.md)。仅最终压缩源码；F13/F14、自动 GC 和节点对象接入未完成。
 
 2026-09-30（F34/F33 本地生命周期）：[F34-node-lifecycle.tar.gz](F34-node-lifecycle.tar.gz)，5 项新集成＋8 项原 S5 回归、10 个指定变异；见[八项审查](../../docs/storage_redesign/f34_execution_20260930.md)及[结果](../../test-results/storage-f34-20260930/README.md)。仅最终压缩包，S5 为原哈希依赖；未接入 DistributedNode 业务后端。
@@ -189,3 +191,13 @@ F05 再次复审仅修正 runner：旧容量向上取整变异在整页对齐环
 首轮发现隔离提交窗口的代码漏洞，先修生产逻辑再写测试。测试审查补强了失败申请的完整容量回收和无位图时的格式匹配判据；只保留最终版本，没有把先前漏检计为通过。首轮创建 F12 压缩包，本次复审已原位更新，不保留旧 F12 包或展开的常驻测试。源码/结果哈希及清理记录见结果目录。
 
 F12 再次复审修正合法分配粒度的夹具限制，补强隔离被旧 snapshot 拒绝后的空间归还判据。生产未改，六项/十三项回归/十个指定变异重新通过，旧 F12 两包均替换，见 [§9](../../docs/storage_redesign/f12_execution_20260930.md#9-2026-09-30-再次审查隔离拒绝与测试粒度)。
+
+## F13 恢复与风险交接
+
+只保存最终 `F13-object-mapping/tests/mapping_test.cpp`、runner、MANIFEST.json 与 RESTORE.md。原 F12 六项由 include 原文件复用；F34/S5 原包不复制。源码树按基准 `954769f` 加结果包 source/ 恢复，并核对生产和依赖哈希。A 五项回归取原课程源码，不修改测试条件。
+
+风险 `F13/identity、range-read、truncate-retire、floor-query、bounded-publication、atomic-recovery` 的场景、独立预期和局限见执行审查。未来 F14、F21、F26、F25/S11 接管适用风险，替换测试侧 ReadBody 为正式对象服务；共同 C/P 保持原内容，不复制每层同义测试。
+
+前驱查询首版输入未触发左侧回退，已通过逻辑分析补强原场景，并验证删除回退的变异确实失败；没有保留先前漏检版测试/结果包。本轮首次创建 F13 包，只留最终版；有效 F12/F34/S5 包仍是回归来源。没有新增常驻 CMake/CTest 目标或 production 测试入口。
+
+2026-10-02 F13 非零起点复审：原六项中的读取与恢复输入改以非零映射起点为主，保留两次必要零边界；同一生产哈希下三十项复验、九个定向变异通过。只保留修正后的 F13 源码与结果包，原包原位替换，无备份；原 F12/F34/S5 有效包不动。见 [审查 §9](../../docs/storage_redesign/f13_execution_20261002.md#9-非零起点覆盖调整2026-10-02)。

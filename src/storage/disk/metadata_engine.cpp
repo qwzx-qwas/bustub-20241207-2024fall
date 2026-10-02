@@ -1081,6 +1081,15 @@ auto MetadataSnapshot::Get(const MetadataKey &key) const -> std::optional<std::v
   }
   return ReadValue(pager, result.front());
 }
+auto MetadataSnapshot::GetFloor(const MetadataKey &upper) const -> std::optional<MetadataEntry> {
+  MetadataPager pager(*version_);
+  auto tree = TreeFor(&pager);
+  const auto entry = tree.GetFloor(EncodeKey(upper));
+  if (!entry) {
+    return std::nullopt;
+  }
+  return MetadataEntry{DecodeKey(entry->first), ReadValue(pager, entry->second)};
+}
 auto MetadataSnapshot::Scan(const MetadataKey &lower, size_t limit) const -> std::vector<MetadataEntry> {
   if (limit == 0) {
     throw std::invalid_argument("metadata scan limit must be positive");

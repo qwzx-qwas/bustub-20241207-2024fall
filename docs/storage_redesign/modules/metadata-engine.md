@@ -1,6 +1,6 @@
 # F08 MetadataEngine B
 
-更新时间：2026-09-30（Asia/Shanghai）
+更新时间：2026-10-02（Asia/Shanghai）
 
 [主方案与阶段顺序](../README.md) · [测试设计议题](../testing_plan.md) · [子模块模板](../module_template.md)
 
@@ -358,3 +358,8 @@ B 的页 LSN、FULL/PATCH、checkpoint 覆盖比较使用同一逻辑位置，�
 ## F12 消费者接入（2026-09-30）
 
 本轮仅新增私有 `DataRegionInfo()`，供 DataAllocator 从这个 B 的固定区域绑定获取实际 Data 长度和对齐，避免错设备组合；不增加 public getter、SQL 路径或第二套 WAL。F12 独占 MetadataKey 类别 12（描述/C/Q），复用本引擎现有单批事务、旧 snapshot 冲突检查、checkpoint 与恢复。B 不解释 allocator 的业务含义；F13/F14 不能私自改该类别。详见 [F12 协议](allocator.md#11-2026-09-30-当轮执行协议用户已授权)。
+
+
+## F13 当轮交接（2026-10-02）
+
+F13 当轮复用本 B，增加正式 GetFloor（包含相等键）和共享 B+Tree 查找，返回键和值以定位覆盖读取位置的范围；不改变现有格式/Get/Scan 语义。F13 保留单份 B WAL，类别 13 和高位类型分区见 [F13 §11](object-mapping.md#11-2026-10-02-当轮执行协议用户已授权)。

@@ -80,6 +80,8 @@ class MetadataSnapshot {
  public:
   auto Get(const MetadataKey &key) const -> std::optional<std::vector<std::byte>>;
   auto Scan(const MetadataKey &lower, size_t limit) const -> std::vector<MetadataEntry>;
+  /** Greatest key <= upper in this immutable view; may belong to another prefix. */
+  auto GetFloor(const MetadataKey &upper) const -> std::optional<MetadataEntry>;
 
  private:
   friend class MetadataEngine;

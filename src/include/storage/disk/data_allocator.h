@@ -99,6 +99,8 @@ class DataAllocator {
   void Close();
 
  private:
+  friend class ObjectMappingStore;
+  auto Metadata() const -> MetadataEngine &;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

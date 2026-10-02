@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-02",
+  "review": "nonzero mapping origins; original six scenarios, production unchanged",
+  "source_archive": "test/archives/F13-object-mapping.tar.gz",
+  "source_sha256": "fc40bbc67dc42651e7a6f52c391ac2c45451fb91e10099593dd92241e3ab0874",
+  "result_archive": "test-results/storage-f13-20261002/F13-results.tar.gz",
+  "result_sha256": "e44e71fe07dfb953ce43d056f548b0f8dcecfe3e09abed1a6d3f277b8b5230e8",
+  "superseded_sha256": {
+    "test/archives/F13-object-mapping.tar.gz": "10131fe5ac3731138edd933bd22ba072fa5b9ff538ff9b4824e53b4fd0cf4e51",
+    "test-results/storage-f13-20261002/F13-results.tar.gz": "8a6f57c0f05702cec4749d741ca5069a6ab85f0a9c25259eeff6d34a51ff33a5"
+  },
+  "superseded_packages_replaced_without_backup": true,
+  "archives_scanned": 32,
+  "same_module_obsolete_packages": [],
+  "scratch_removed": "/tmp/bustub-f13-nonzero-20261002",
+  "scratch_exists_after": false,
+  "removed_file_bytes": 1004533342,
+  "archive_members_verified": 72,
+  "production_hashes_verified": 68,
+  "production_unchanged": true,
+  "valid_dependency_archives_unchanged": [
+    "test/archives/F12-data-allocator.tar.gz",
+    "test/archives/F34-node-lifecycle.tar.gz",
+    "test/archives/S5-journal-recycling.tar.gz"
+  ],
+  "read_body_requests": {
+    "nonzero": 15,
+    "zero": 2
+  },
+  "permanent_test_registration_added": false,
+  "production_test_hooks_added": false,
+  "existing_ignore_rule": "/test-results/*/* with README/SHA256SUMS/cleanup-verification exceptions",
+  "markdown_local_targets_checked": 365,
+  "markdown_missing_targets": [],
+  "git_diff_check": true,
+  "passed": {
+    "F13": 6,
+    "F12": 6,
+    "F34": 5,
+    "S5": 8,
+    "A": 5
+  },
+  "mutations_detected_by_target_assertions": 9,
+  "static_checks": "new test format checked; previous unchanged-production GCC/format/cpplint evidence retained as prior-static-checks",
+  "commit_created_during_test_run": false,
+  "precommit_review": {
+    "date": "2026-10-02",
+    "production_tests_archives_unchanged": true,
+    "tests_rerun": false,
+    "verified_production_hashes": 68,
+    "verified_result_members": 72,
+    "verified_passing_tests": 30,
+    "archives_scanned": 32,
+    "obsolete_f13_archives": [],
+    "scratch_directories_absent": true,
+    "new_blocking_findings": [],
+    "record": "docs/storage_redesign/f13_execution_20261002.md#10-提交前复核2026-10-02"
+  }
+}
