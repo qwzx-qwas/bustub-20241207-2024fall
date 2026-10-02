@@ -101,6 +101,7 @@ class DataAllocator {
  private:
   friend class ObjectMappingStore;
   auto Metadata() const -> MetadataEngine &;
+  auto AllocationUnit() const -> uint64_t;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

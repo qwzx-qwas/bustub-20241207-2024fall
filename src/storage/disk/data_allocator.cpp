@@ -487,6 +487,7 @@ DataAllocator::DataAllocator(MetadataEngine &metadata, DataAllocatorOptions opti
     : impl_(std::make_unique<Impl>(metadata, metadata.DataRegionInfo(), options)) {}
 DataAllocator::~DataAllocator() { Close(); }
 auto DataAllocator::Metadata() const -> MetadataEngine & { return impl_->metadata_; }
+auto DataAllocator::AllocationUnit() const -> uint64_t { return impl_->context_->options_.allocation_bytes_; }
 auto DataAllocator::Create() -> JournalResult { return impl_->Create(); }
 void DataAllocator::Open() { impl_->Open(); }
 auto DataAllocator::Reserve(uint64_t bytes) -> DataReservation { return impl_->Reserve(bytes); }

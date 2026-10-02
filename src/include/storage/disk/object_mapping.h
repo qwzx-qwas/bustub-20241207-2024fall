@@ -80,6 +80,7 @@ class ObjectMappingSnapshot {
 
  private:
   friend class ObjectMappingStore;
+  friend class ObjectReferenceManager;
   ObjectMappingSnapshot(MetadataSnapshot base, std::shared_ptr<ObjectMappingContext> context);
   MetadataSnapshot base_;
   std::shared_ptr<ObjectMappingContext> context_;
@@ -96,8 +97,8 @@ struct ObjectSpaceCreation {
  * Replace consumes only a genuine pending allocation. Caller must initialize
  * and durably write its data first, retaining F12 leases through actual IO.
  * This module publishes mapping facts, not a complete WritePlanner/StorageAPI.
- * Removed ranges are persisted but never released here. No data-cache, second
- * WAL, shared snapshots, F14 pins or NodeStorage integration are implied.
+ * Removed ranges are persisted here; F14 owns safe physical release. No data-cache, second
+ * WAL, shared snapshots or NodeStorage integration are implied.
  * Only this store and its future F14 consumer may modify its B key namespaces.
  */
 class ObjectMappingStore {
@@ -118,6 +119,8 @@ class ObjectMappingStore {
   auto Remove(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult;
 
  private:
+  friend class ObjectReferenceManager;
+  auto ReferenceContext() const -> std::shared_ptr<ObjectMappingContext>;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

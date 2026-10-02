@@ -1,0 +1,90 @@
+{
+  "date": "2026-10-02",
+  "source_archive": "test/archives/F14-object-references.tar.gz",
+  "source_sha256": "e39e0c82aa5b2b52b3fff6d27d4e5189f11e2d751e7c7878b0d14a07f7bb8128",
+  "result_archive": "test-results/storage-f14-20261002/F14-results.tar.gz",
+  "result_sha256": "2ac39388d42c4b5e0d3512a9c7ab876de25112f03be1046b71391c08d9b390f7",
+  "source_base_commit": "1df3ba12cf4d9e7e45768f22d749a14af01d7b6f",
+  "production_hashes_verified": 71,
+  "dependency_hashes_verified": 4,
+  "result_members_verified": 87,
+  "passed": {
+    "F14": 6,
+    "F13": 6,
+    "F12": 6,
+    "F34": 5,
+    "S5": 8,
+    "A": 5
+  },
+  "mutations_detected_by_target_assertions": 8,
+  "permanent_test_registration_added": false,
+  "production_test_hooks_added": false,
+  "old_f14_packages": [],
+  "valid_dependency_archives_unchanged": [
+    "test/archives/S5-journal-recycling.tar.gz",
+    "test/archives/F34-node-lifecycle.tar.gz",
+    "test/archives/F12-data-allocator.tar.gz",
+    "test/archives/F13-object-mapping.tar.gz"
+  ],
+  "existing_ignore_rule": "/test-results/*/* with README/SHA256SUMS/cleanup-verification exceptions",
+  "markdown_local_targets_checked": 513,
+  "markdown_missing_targets": [],
+  "scratch_removed": "/tmp/bustub-f14-20261002",
+  "scratch_exists_after": false,
+  "cleanup_pending": false,
+  "commit_created": false,
+  "removed_file_count": 2297,
+  "removed_file_bytes": 1054607359,
+  "removed_allocated_bytes": 1061412864,
+  "archives_scanned": 34,
+  "same_module_archives": [
+    "test/archives/F14-object-references.tar.gz",
+    "test-results/storage-f14-20261002/F14-results.tar.gz"
+  ],
+  "same_module_obsolete_packages": [],
+  "git_diff_check": true,
+  "result_archive_ignored": true,
+  "source_archive_not_ignored": true,
+  "review_20261002": {
+    "scope": "code-first plan/production/test-design review and archive evidence verification",
+    "production_tests_archives_unchanged": true,
+    "tests_rerun": false,
+    "verified_production_hashes": 71,
+    "verified_dependency_hashes": 4,
+    "verified_test_sources": 3,
+    "verified_result_members": 87,
+    "verified_passing_tests": 36,
+    "verified_mutation_assertions": 8,
+    "new_blocking_findings": [],
+    "obsolete_f14_packages": [],
+    "scratch_directory_absent": true,
+    "record": "docs/storage_redesign/f14_execution_20261002.md#11-再次复审方案代码与测试证据2026-10-02",
+    "commit_created": false
+  },
+  "precommit_review": {
+    "date": "2026-10-02",
+    "code_review": "range protection / ownership slicing / atomic release / v1 compatibility / shutdown bounds",
+    "production_and_tests_unchanged": true,
+    "tests_rerun": false,
+    "verified_passing_tests": 36,
+    "verified_mutations": 8,
+    "production_hashes": 71,
+    "dependency_hashes": 4,
+    "result_members": 87,
+    "archives_scanned": 34,
+    "f14_archives": [
+      "test/archives/F14-object-references.tar.gz",
+      "test-results/storage-f14-20261002/F14-results.tar.gz"
+    ],
+    "obsolete_f14_archives": [],
+    "scratch_absent": true,
+    "markdown_local_targets": 535,
+    "documentation_corrections": [
+      "F02 S2 foundation status",
+      "F34 S6 owner stage",
+      "F33 S6 capability cooperation"
+    ],
+    "git_diff_check": true,
+    "commit_requested_by_user": true
+  }
+}
