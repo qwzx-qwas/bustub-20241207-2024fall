@@ -30,7 +30,15 @@ constexpr uint64_t CONTROL = 13;
 constexpr uint64_t MAGIC = 0x4253544f424a4d50ULL;  // BSTOBJMP
 constexpr uint64_t FORMAT = 2;
 constexpr uint64_t SPACE_LIMIT = (uint64_t{1} << 56) - 1;
-enum Kind : uint64_t { Space = 1, Descriptor = 2, Mapping = 3, Allocation = 4, PendingRange = 5, OwnedRange = 6 };
+enum Kind : uint64_t {
+  Space = 1,
+  Descriptor = 2,
+  Mapping = 3,
+  Allocation = 4,
+  PendingRange = 5,
+  OwnedRange = 6,
+  Control = 7
+};
 using Bytes = std::vector<std::byte>;
 [[noreturn]] inline void Fail(ObjectMappingErrorCode code, const char *message) {
   throw ObjectMappingError(code, message);

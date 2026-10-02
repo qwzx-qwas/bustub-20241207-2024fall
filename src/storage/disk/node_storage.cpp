@@ -7,7 +7,8 @@
 #include <mutex>               // NOLINT(build/c++11)
 #include <utility>
 
-#include "object_io_internal.h"  // NOLINT(build/include_subdir): private sibling component.
+#include "object_io_internal.h"           // NOLINT(build/include_subdir): private sibling component.
+#include "object_transaction_internal.h"  // NOLINT(build/include_subdir): private sibling component.
 
 namespace bustub {
 namespace {
@@ -66,8 +67,9 @@ class NodeStateController {
     Set(NodeStorageCondition::BootstrapRepairFailed, status.repair_state_ == BootstrapRepairState::Failed);
     view_.repair_error_ = status.last_error_;
   }
-  void Objects(bool ready, const std::exception_ptr &error) {
+  void Objects(bool ready, bool transactions, const std::exception_ptr &error) {
     view_.object_read_ = view_.object_data_write_ = ready;
+    view_.object_transaction_ = transactions;
     view_.object_error_ = error;
   }
   auto View() const -> NodeStorageView {
@@ -76,6 +78,7 @@ class NodeStateController {
         result.phase_ == NodeStoragePhase::Serving;
     result.object_read_ = result.object_read_ && result.metadata_read_;
     result.object_data_write_ = result.object_data_write_ && result.metadata_write_;
+    result.object_transaction_ = result.object_transaction_ && result.metadata_write_;
     for (auto condition : {NodeStorageCondition::RecoveryFailed, NodeStorageCondition::IOFault,
                            NodeStorageCondition::BootstrapRepairFailed, NodeStorageCondition::ResourcePressure,
                            NodeStorageCondition::BootstrapRedundancyLost}) {
@@ -101,7 +104,11 @@ struct ObjectContext {
   std::unique_ptr<ObjectMappingStore> mapping_;
   std::unique_ptr<ObjectReferenceManager> references_;
   std::unique_ptr<ObjectIO> io_;
+  std::unique_ptr<ObjectTransactionPipeline> transactions_;
   void Close() {
+    if (transactions_) {
+      transactions_->Close();
+    }
     if (io_) {
       io_->Close();
     }
@@ -124,7 +131,8 @@ void RequireDurable(const JournalResult &result) {
 // Called only by startup or explicit InitializeObjects under its initialization
 // mutex. A failed Open instance is discarded before explicit Create.
 auto OpenObjects(BootstrapStore &bootstrap, IOExecutor &executor, MetadataEngine &metadata,
-                 const ObjectStorageOptions &options, bool initialize) -> std::unique_ptr<ObjectContext> {
+                 const ObjectStorageOptions &options, const std::optional<ObjectTransactionOptions> &transactions,
+                 const IOExecutorOptions &io_limits, bool initialize) -> std::unique_ptr<ObjectContext> {
   auto context = std::make_unique<ObjectContext>();
   context->regions_ = std::make_unique<RegionManager>(bootstrap);
   context->allocator_ = std::make_unique<DataAllocator>(metadata, options.allocator_);
@@ -148,8 +156,13 @@ auto OpenObjects(BootstrapStore &bootstrap, IOExecutor &executor, MetadataEngine
     RequireDurable(context->mapping_->Create());
   }
   context->references_ = std::make_unique<ObjectReferenceManager>(*context->mapping_, options.references_);
-  context->io_ = std::make_unique<ObjectIO>(*context->regions_, executor, *context->allocator_, *context->mapping_,
-                                            *context->references_, options.max_read_bytes_, options.max_write_bytes_);
+  context->io_ =
+      std::make_unique<ObjectIO>(*context->regions_, executor, *context->allocator_, *context->mapping_,
+                                 *context->references_, options.max_read_bytes_, options.max_write_bytes_, io_limits);
+  if (transactions) {
+    context->transactions_ = std::make_unique<ObjectTransactionPipeline>(*context->io_, *context->mapping_,
+                                                                         *context->references_, *transactions);
+  }
   return context;
 }
 
@@ -215,6 +228,9 @@ struct StorageContext {
 
 struct NodeStorage::Impl {
   explicit Impl(NodeStorageOptions options) : options_(std::move(options)) {
+    if (options_.transactions_ && !options_.objects_) {
+      throw std::invalid_argument("object transactions require ordinary object storage");
+    }
     if (options_.repair_.max_attempts_ == 0 || options_.repair_.retry_delay_.count() <= 0 ||
         options_.repair_.admission_timeout_.count() <= 0) {
       throw std::invalid_argument("node storage repair requires positive attempt and wait limits");
@@ -244,7 +260,11 @@ struct NodeStorage::Impl {
   // mutex_ held; object IO only takes its short state lock here.
   void ObserveObjectError() {
     if (context_ && context_->objects_) {
-      if (auto error = context_->objects_->io_->Error()) {
+      auto error = context_->objects_->io_->Error();
+      if (!error && context_->objects_->transactions_) {
+        error = context_->objects_->transactions_->Error();
+      }
+      if (error) {
         auto view = state_.View();
         const auto generation = view.phase_ == NodeStoragePhase::Draining ? view.generation_ - 1 : view.generation_;
         state_.Fail(generation, NodeStorageCondition::IOFault, error);
@@ -284,18 +304,18 @@ struct NodeStorage::Impl {
     }
     try {
       auto objects = OpenObjects(*call.context_->bootstrap_, *call.context_->executor_, *call.context_->metadata_,
-                                 *options_.objects_, true);
+                                 *options_.objects_, options_.transactions_, options_.io_, true);
       std::lock_guard<std::mutex> lock(mutex_);
       // Close may have begun: retain the completed stack for its ordered drain,
       // but never reopen admission or change the phase here.
       call.context_->objects_ = std::move(objects);
       call.context_->object_error_ = nullptr;
-      state_.Objects(true, nullptr);
+      state_.Objects(true, options_.transactions_.has_value(), nullptr);
     } catch (...) {
       const auto error = std::current_exception();
       std::lock_guard<std::mutex> lock(mutex_);
       call.context_->object_error_ = error;
-      state_.Objects(false, error);
+      state_.Objects(false, false, error);
       // Initialization failure is explicit and may include an uncertain commit.
       state_.Fail(call.generation_, NodeStorageCondition::RecoveryFailed, error);
       throw;
@@ -358,7 +378,7 @@ struct NodeStorage::Impl {
       if (options_.objects_) {
         try {
           context->objects_ = OpenObjects(*context->bootstrap_, *context->executor_, *context->metadata_,
-                                          *options_.objects_, layout != nullptr);
+                                          *options_.objects_, options_.transactions_, options_.io_, layout != nullptr);
         } catch (const AllocationError &error) {
           if (layout != nullptr || error.Code() != AllocationErrorCode::NotInitialized) {
             throw;
@@ -390,7 +410,8 @@ struct NodeStorage::Impl {
         } catch (...) {
           context->repair_start_error_ = std::current_exception();
         }
-        state_.Objects(context->objects_ != nullptr, context->object_error_);
+        state_.Objects(context->objects_ != nullptr, context->objects_ && context->objects_->transactions_,
+                       context->object_error_);
         state_.Phase(generation, NodeStoragePhase::Serving);
         state_.Repair(context->RepairStatus());
         context_ = std::move(context);
@@ -610,6 +631,16 @@ auto NodeStorage::PublishObjectData(const ObjectMappingSnapshot &base, ObjectKey
   return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
     auto result = c.io_->Publish(base, key, offset, write);
     impl_->Outcome(generation, result);
+    return result;
+  });
+}
+auto NodeStorage::SubmitObjects(ObjectTransaction &transaction) -> ObjectTransactionSubmission {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    if (!c.transactions_) {
+      throw MetadataError(MetadataErrorCode::NotReady, "object transactions are not configured");
+    }
+    auto result = c.transactions_->Submit(transaction);
+    impl_->Pressure(generation, result.admission_ == IOAdmission::Full);
     return result;
   });
 }

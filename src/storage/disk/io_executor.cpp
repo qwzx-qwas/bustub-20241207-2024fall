@@ -141,6 +141,7 @@ struct IOBatchData {
   bool external_;
   IOBatchResult result_;
   std::function<void(const IOBatchResult &)> completion_;
+  std::function<void()> ready_;
   std::condition_variable done_;
   IOBatchPhase phase_{IOBatchPhase::Prepared};
   size_t next_{0};
@@ -212,6 +213,12 @@ void Finish(const std::shared_ptr<IOBatchData> &batch, bool success, std::unique
   batch->phase_ = success ? IOBatchPhase::Succeeded : IOBatchPhase::Failed;
   batch->core_->active_.erase(batch->position_);
   batch->done_.notify_all();
+  lock.unlock();
+  if (batch->ready_) {
+    auto ready = std::move(batch->ready_);
+    ready();
+  }
+  lock.lock();
 }
 
 void RunWorkers(const std::shared_ptr<IOCore> &core) {
@@ -393,12 +400,16 @@ auto IOBatch::WaitFor(std::chrono::milliseconds timeout) const -> bool {
 }
 
 void IOBatch::RetainUntilComplete(std::function<void(const IOBatchResult &)> completion) {
+  RetainUntilComplete(std::move(completion), {});
+}
+void IOBatch::RetainUntilComplete(std::function<void(const IOBatchResult &)> completion, std::function<void()> ready) {
   auto &data = Data();
   std::lock_guard<std::mutex> lock(data.core_->mutex_);
   if (data.phase_ != IOBatchPhase::Prepared || data.completion_ || !completion) {
     throw std::logic_error("execution resources require one Prepared batch owner");
   }
   data.completion_ = std::move(completion);
+  data.ready_ = std::move(ready);
 }
 
 auto IOBatch::Result() const -> const IOBatchResult & {

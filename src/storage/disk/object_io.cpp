@@ -9,7 +9,8 @@
 #include <mutex>  // NOLINT(build/c++11)
 #include <utility>
 
-#include "object_io_internal.h"  // NOLINT(build/include_subdir): private sibling component.
+#include "object_change_internal.h"  // NOLINT(build/include_subdir): private sibling component.
+#include "object_io_internal.h"      // NOLINT(build/include_subdir): private sibling component.
 
 namespace bustub {
 struct ObjectIOState {
@@ -54,10 +55,11 @@ struct Activity {
   std::optional<DataAllocationLease> write_;
 };
 void Accepted(IOAdmission admission) {
+  if (admission == IOAdmission::Full) {
+    throw ObjectIOBusy();
+  }
   if (admission != IOAdmission::Accepted) {
-    throw MetadataError(
-        admission == IOAdmission::Full ? MetadataErrorCode::ResourceUnavailable : MetadataErrorCode::NotReady,
-        "object IO admission rejected");
+    throw MetadataError(MetadataErrorCode::NotReady, "object IO admission rejected");
   }
 }
 void Successful(const IOBatchResult &result) {
@@ -131,7 +133,8 @@ auto ObjectWrite::WaitFor(std::chrono::milliseconds timeout) const -> bool { ret
 auto ObjectWrite::Result() const -> const IOBatchResult & { return data_->batch_.Result(); }
 
 ObjectIO::ObjectIO(RegionManager &regions, IOExecutor &executor, DataAllocator &allocator, ObjectMappingStore &mapping,
-                   ObjectReferenceManager &references, uint64_t max_read_bytes, uint64_t max_write_bytes)
+                   ObjectReferenceManager &references, uint64_t max_read_bytes, uint64_t max_write_bytes,
+                   const IOExecutorOptions &io_limits)
     : regions_(regions),
       executor_(executor),
       allocator_(allocator),
@@ -140,13 +143,31 @@ ObjectIO::ObjectIO(RegionManager &regions, IOExecutor &executor, DataAllocator &
       region_(regions.Region(RegionKind::Data)),
       max_read_bytes_(max_read_bytes),
       max_write_bytes_(max_write_bytes),
+      io_limits_(io_limits),
       state_(std::make_shared<ObjectIOState>()) {
   if (max_read_bytes == 0 || max_write_bytes == 0) {
     throw std::invalid_argument("object IO requires positive request budgets");
   }
 }
 ObjectIO::~ObjectIO() { Close(); }
+void ObjectIO::CheckBatchBudget(const std::vector<RegionIORequest> &requests) const {
+  if (requests.size() > io_limits_.max_operations_) {
+    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object batch exceeds executor member limit");
+  }
+  auto remaining = io_limits_.max_buffer_bytes_;
+  const auto padding = executor_.DeviceInfo().memory_alignment_ - 1;
+  for (const auto &request : requests) {
+    if (request.size_ > remaining || padding > remaining - request.size_) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object batch exceeds executor buffer limit");
+    }
+    remaining -= request.size_ + padding;
+  }
+}
 auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length) -> ObjectRead {
+  return Read(view, key, offset, length, {});
+}
+auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
+                    std::function<void()> ready) -> ObjectRead {
   if (length > max_read_bytes_) {
     throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object read exceeds request budget");
   }
@@ -169,10 +190,12 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
     data->size_ += piece.size_;
   }
   if (!requests.empty()) {
+    CheckBatchBudget(requests);
     auto prepared = regions_.TryPrepare(requests, false);
     Accepted(prepared.admission_);
     data->batch_ = std::move(prepared.batch_);
-    data->batch_->RetainUntilComplete([activity](const IOBatchResult &result) { activity->Complete(result); });
+    data->batch_->RetainUntilComplete([activity](const IOBatchResult &result) { activity->Complete(result); },
+                                      std::move(ready));
     Accepted(executor_.TrySubmit(*data->batch_));
   }
   return ObjectRead(std::move(data));
@@ -191,6 +214,7 @@ auto ObjectIO::Write(const void *source, size_t size) -> ObjectWrite {
   for (const auto &extent : reservation.Extents()) {
     requests.push_back({region_, IOOperation::Write, extent.Offset(), extent.Size()});
   }
+  CheckBatchBudget(requests);
   auto prepared = regions_.TryPrepare(requests, true);
   Accepted(prepared.admission_);
   auto data = std::make_unique<ObjectWriteData>(
@@ -227,6 +251,85 @@ auto ObjectIO::Publish(const ObjectMappingSnapshot &base, ObjectKey key, uint64_
 auto ObjectIO::Error() const -> std::exception_ptr {
   std::lock_guard<std::mutex> lock(state_->mutex_);
   return state_->error_;
+}
+auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector<std::vector<std::byte>> &bytes,
+                           std::function<void()> ready) -> CommonDataWrite {
+  CommonDataWrite data;
+  auto activity = std::make_shared<Activity>(state_);
+  const auto unit = ObjectMappingAccess::Unit(mapping_);
+  uint64_t allocation_size = 0;
+  for (const auto &op : *changes) {
+    if (op.length_ != 0 && (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append)) {
+      const auto rounded = (op.length_ + unit - 1) / unit * unit;
+      if (rounded > max_write_bytes_ - allocation_size) {
+        throw MetadataError(MetadataErrorCode::ResourceUnavailable, "Common allocation exceeds data budget");
+      }
+      allocation_size += rounded;
+    }
+  }
+  if (allocation_size != 0) {
+    data.reservation_.emplace(allocator_.Reserve(allocation_size));
+    activity->write_.emplace(data.reservation_->Lease());
+  }
+  std::vector<RegionIORequest> requests;
+  struct InputSlice {
+    size_t input_, offset_, length_;
+  };
+  std::vector<InputSlice> slices;
+  size_t extent = 0;
+  uint64_t used = 0;
+  for (size_t i = 0; i < changes->size(); ++i) {
+    auto &op = (*changes)[i];
+    op.extents_.clear();
+    if (bytes[i].empty()) {
+      continue;
+    }
+    uint64_t remaining = (op.length_ + unit - 1) / unit * unit;
+    size_t cursor = 0;
+    while (remaining != 0) {
+      const auto &owned = data.reservation_->Extents()[extent];
+      const auto take = std::min(remaining, owned.Size() - used);
+      op.extents_.push_back(*StorageByteRange::Create(owned.Offset() + used, take));
+      requests.push_back({region_, IOOperation::Write, owned.Offset() + used, take});
+      const auto payload = std::min<uint64_t>(take, bytes[i].size() - cursor);
+      slices.push_back({i, cursor, static_cast<size_t>(payload)});
+      cursor += payload;
+      remaining -= take;
+      used += take;
+      if (used == owned.Size()) {
+        ++extent;
+        used = 0;
+      }
+    }
+  }
+  if (requests.empty()) {
+    data.durable_ = true;  // Metadata-only request, no data Flush to invent.
+    return data;
+  }
+  CheckBatchBudget(requests);
+  auto prepared = regions_.TryPrepare(requests, true);
+  Accepted(prepared.admission_);
+  data.batch_ = std::move(prepared.batch_);
+  for (size_t i = 0; i < requests.size(); ++i) {
+    auto *buffer = data.batch_->Buffer(i);
+    const auto &slice = slices[i];
+    std::memcpy(buffer, bytes[slice.input_].data() + slice.offset_, slice.length_);
+    std::memset(buffer + slice.length_, 0, requests[i].size_ - slice.length_);
+  }
+  data.batch_->RetainUntilComplete([activity](const IOBatchResult &result) { activity->Complete(result); },
+                                   std::move(ready));
+  Accepted(executor_.TrySubmit(*data.batch_));
+  return data;
+}
+void ObjectIO::FinishCommon(CommonDataWrite *write) {
+  if (write->batch_) {
+    Successful(write->batch_->Result());
+    if (!write->batch_->Result().writes_durable_) {
+      throw std::logic_error("Common publication requires durable data");
+    }
+    write->durable_ = true;
+    write->batch_.reset();  // B's Journal must be able to use these IO slots.
+  }
 }
 void ObjectIO::Close() {
   std::unique_lock<std::mutex> lock(state_->mutex_);

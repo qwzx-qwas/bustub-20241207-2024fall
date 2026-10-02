@@ -1,0 +1,38 @@
+{
+  "source_archive": "test/archives/F19-common-pipeline.tar.gz",
+  "source_sha256": "1a9dcc200a2433ff9751a705f7a0e93f557b120d1d53af652a3acb6a59c8d5f3",
+  "source_members": 4,
+  "results_archive": "test-results/storage-s7-common-20261002/F19-results.tar.gz",
+  "results_sha256": "55693247ec567f809c88b6d5bf803ff2a21cd60207604fd8a2d3462d0b901db6",
+  "results_members": 567,
+  "production_files": 446,
+  "results": {
+    "passed": {
+      "transaction.xml": 10,
+      "object.xml": 7,
+      "executor.xml": 8,
+      "lifecycle.xml": 5,
+      "references.xml": 18,
+      "s5.xml": 8
+    },
+    "mutations_detected": 12,
+    "scope": "Common production object transactions on Direct files; not SQL/Raft E2E, power loss or performance."
+  },
+  "member_hashes_verified": true,
+  "production_and_tests_match_final_run": true,
+  "unchanged_regression_archives": {
+    "test/archives/F02-object-io.tar.gz": "0ace3be5d0c90bc79ff8443649e0d701d5c325cd0fccf72c9cf3f2975f6bd5fa",
+    "test/archives/F34-node-lifecycle.tar.gz": "a4ba304e6a515fe68cf5b1fef92069f2eb796493fa29b0a939af21b4e80e035c",
+    "test/archives/F12-data-allocator.tar.gz": "db3c8f9f779b43db1b3124e7d2646c16a996f7d92f89c07fa005e56e005acd0a",
+    "test/archives/F13-object-mapping.tar.gz": "fc40bbc67dc42651e7a6f52c391ac2c45451fb91e10099593dd92241e3ab0874",
+    "test/archives/F14-object-references.tar.gz": "e39e0c82aa5b2b52b3fff6d27d4e5189f11e2d751e7c7878b0d14a07f7bb8128",
+    "test/archives/S5-journal-recycling.tar.gz": "c400a836110d672575829eef5130dbeda97f8ac36653e4629102bcbc64512f47"
+  },
+  "superseded_source_sha256": "22c0a8923800afe45afa569b47be730af547c849d852b5b98d56ffde54d84ac4",
+  "superseded_result_sha256": "7f9431b9accf892a42ff50e37a9d6f0c3d351f89806d17559462545cb6a71c0c",
+  "superseded_archives_replaced_without_backup": true,
+  "temporary_directory": "/tmp/bustub-s7-review-20261002",
+  "temporary_directory_removed": true,
+  "result_ignore_rule": "Existing /test-results/*/* rule with README/SHA256SUMS/cleanup exceptions; no new ignore pattern needed.",
+  "cleanup_scope": "Removed the dedicated review directory (about 1.2 GiB): expanded stage tests, builds, device images, mutations and obsolete intermediate evidence. Final source/result archives remain; superseded F19 pair was replaced without backup."
+}

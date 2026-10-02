@@ -23,7 +23,15 @@ struct DataAllocatorOptions {
   uint64_t max_search_nodes_;
 };
 
-enum class AllocationErrorCode { NotInitialized, AlreadyInitialized, Corrupt, NoSpace, ResourceUnavailable, NotReady };
+enum class AllocationErrorCode {
+  NotInitialized,
+  AlreadyInitialized,
+  Corrupt,
+  NoSpace,
+  ResourceUnavailable,  // Request/search limits; waiting alone cannot guarantee progress.
+  NotReady,
+  Busy  // Reservation slots are held by other operations; retry after release.
+};
 class AllocationError : public std::runtime_error {
  public:
   AllocationError(AllocationErrorCode code, const std::string &message) : std::runtime_error(message), code_(code) {}

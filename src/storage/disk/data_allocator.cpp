@@ -23,7 +23,7 @@ constexpr uint64_t MAGIC = 0x425354414c4c4f43ULL;  // BSTALLOC
 using Words = std::vector<uint64_t>;
 
 [[noreturn]] void Fail(AllocationErrorCode code, const char *message) { throw AllocationError(code, message); }
-auto Ceil(uint64_t n, uint64_t d) -> uint64_t { return n / d + (n % d != 0); }
+auto Ceil(uint64_t n, uint64_t d) -> uint64_t { return n / d + static_cast<uint64_t>(n % d != 0); }
 auto LowMask(uint64_t n) -> uint64_t { return n == 64 ? ~uint64_t{0} : (uint64_t{1} << n) - 1; }
 auto Range(uint64_t start, uint64_t length) -> StorageByteRange { return *StorageByteRange::Create(start, length); }
 struct Summary {
@@ -323,10 +323,15 @@ struct DataAllocator::Impl {
     std::lock_guard<std::mutex> lock(c.mutex_);
     c.Ready();
     if (c.tickets_ >= c.options_.max_reservations_) {
-      Fail(AllocationErrorCode::ResourceUnavailable, "allocator reservation budget full");
+      Fail(AllocationErrorCode::Busy, "allocator reservation budget full");
     }
-    uint64_t run_start = 0, run_size = 0, selected = 0, seen = 0, visits = 0;
-    bool found = false, exhausted = false;
+    uint64_t run_start = 0;
+    uint64_t run_size = 0;
+    uint64_t selected = 0;
+    uint64_t seen = 0;
+    uint64_t visits = 0;
+    bool found = false;
+    bool exhausted = false;
     auto save_fragment = [&] {
       if (selected < need && run_size != 0 && state->ranges_.size() < c.options_.max_extents_) {
         const auto take = std::min(run_size, need - selected);

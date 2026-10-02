@@ -14,6 +14,7 @@
 #include "storage/disk/metadata_engine.h"
 #include "storage/disk/object_io.h"
 #include "storage/disk/object_reference.h"
+#include "storage/disk/object_transaction.h"
 
 namespace bustub {
 
@@ -36,6 +37,7 @@ struct NodeStorageView {
   bool metadata_maintenance_{false};
   bool object_read_{false};
   bool object_data_write_{false};  // New data IO, not a complete S7 transaction API.
+  bool object_transaction_{false};
   std::exception_ptr object_error_;
   std::exception_ptr error_;
   std::exception_ptr repair_error_;
@@ -60,6 +62,8 @@ struct NodeStorageOptions {
   BootstrapRepairOptions repair_;
   // Empty preserves the production metadata-only deployment. Open never formats.
   std::optional<ObjectStorageOptions> objects_{std::nullopt};
+  // Explicit S7 service; metadata-only and S6 deployments keep their contracts.
+  std::optional<ObjectTransactionOptions> transactions_{std::nullopt};
 };
 
 /** Owns one device -> executor -> bootstrap -> B/Journal stack exclusively.
@@ -105,6 +109,10 @@ class NodeStorage {
   auto WriteObjectData(const void *source, size_t size) -> ObjectWrite;
   auto PublishObjectData(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, ObjectWrite &write)
       -> JournalResult;
+  /** Non-waiting queue admission; Accepted consumes input and owns execution.
+   * Full/Stopped leave input intact. The ticket reports durable publication.
+   */
+  auto SubmitObjects(ObjectTransaction &transaction) -> ObjectTransactionSubmission;
   void Close();
 
  private:

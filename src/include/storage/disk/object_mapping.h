@@ -77,10 +77,12 @@ class ObjectMappingSnapshot {
   auto Resolve(ObjectKey key, uint64_t offset, uint64_t length) const -> ObjectReadPage;
   /** F14 handoff, inclusive id cursor (starts at zero), also valid for tombstones. */
   auto Retired(ObjectKey key, uint64_t from_id) const -> RetiredRangePage;
+  auto Control(ObjectKey owner, uint64_t item) const -> std::optional<std::vector<std::byte>>;
 
  private:
   friend class ObjectMappingStore;
   friend class ObjectReferenceManager;
+  friend struct ObjectMappingAccess;
   ObjectMappingSnapshot(MetadataSnapshot base, std::shared_ptr<ObjectMappingContext> context);
   MetadataSnapshot base_;
   std::shared_ptr<ObjectMappingContext> context_;
@@ -120,6 +122,7 @@ class ObjectMappingStore {
 
  private:
   friend class ObjectReferenceManager;
+  friend struct ObjectMappingAccess;
   auto ReferenceContext() const -> std::shared_ptr<ObjectMappingContext>;
   struct Impl;
   std::unique_ptr<Impl> impl_;

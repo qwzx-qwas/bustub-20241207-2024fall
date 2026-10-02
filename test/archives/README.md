@@ -38,6 +38,7 @@
 
 | 模块包 | 原源码 | 历史用途 | 当前状态 |
 | --- | --- | --- | --- |
+| [F19-common-pipeline.tar.gz](F19-common-pipeline.tar.gz) | 包内 `tests/transaction_test.cpp`、`run_stage.py` | 10 项 S7 正式对象事务集成、原 46 项回归、12 个定向变异 | S7 Common/COW 已完成；原分配尾部复用、S8/S9 业务接入未启用 |
 | [S5-journal-recycling.tar.gz](S5-journal-recycling.tar.gz) | 包内 `recycling_test.cpp`、fixture、旧生产镜像生成器和 runner | 8 项 S5 + 23 项复用回归；8 个变异 | 基础回收完成；节点编排/Deferred/业务接入未完成 |
 | [F10-metadata-checkpoint.tar.gz](F10-metadata-checkpoint.tar.gz) | 包内 `test/storage_redesign/metadata_checkpoint_test.cpp`、`run_stage.py` | 6 项真实 B checkpoint/恢复，9 个变异；执行原 26 项回归 | 本轮 B 路径完成；日志裁剪/复用、Deferred、A 接入未完成 |
 | [F09-metadata-page-writer.tar.gz](F09-metadata-page-writer.tar.gz) | 包内 `test/storage_redesign/metadata_page_writer_test.cpp`、`run_stage.py` | 4 项最终页/并发/失败，8 个变异；原 F08 六项回归 | F09 当轮完成，仅压缩；checkpoint/最终页恢复由 F10 接续，回收待后续 |
@@ -206,3 +207,13 @@ F12 再次复审修正合法分配粒度的夹具限制，补强隔离被旧 sna
 风险 `F14/range-lifetime、partial-reclaim、ownership-reuse、atomic-recovery、legacy-format` 在 S6 正式 ObjectIO、S7/F21/F26/S11 接入时接管，保留独立正文/容量 oracle，不复制各层同义矩阵。[八项审查](../../docs/storage_redesign/f14_execution_20261002.md) 与 [结果/清理](../../test-results/storage-f14-20261002/README.md) 记录全部证据。
 
 首次创建本模块包，仅最终源码/结果各一份，无旧 F14 或展开常驻测试。F13/F12/F34/S5 的有效包为未改回归依赖，保留。共同 C/P 未改、未重跑。
+
+## F19 / S7 恢复与风险交接
+
+本模块仅保留再次复审后的最终源码包，旧 F19 包已原位替换，未展开到常驻测试目录。基准 `e24b5e6`，最终生产快照和本次完整运行的逐文件哈希见本地结果包和 MANIFEST；按包内 RESTORE 在隔离目录恢复。S6/F02、F12/F13/F14、F34、S5 六个有效档案为原样回归依赖，不复制测试正文，也不将它们当作错误旧包删除。
+
+风险 `F19/handoff、object-order、atomic-publication、cow-content、capacity-lifetime、failure-recovery、automatic-reclaim` 由 S8/S9/S10/S11/S12/S13 正式业务接入时按职责接管；不为各层另建同义矩阵。[八项设计审查](../../docs/storage_redesign/s7_execution_20261002.md) 和 [结果/清理](../../test-results/storage-s7-common-20261002/README.md) 记录 56 项通过、12 个指定变异命中及局限。
+
+正式 NodeStorage/S7/B/Direct 文件路径，没有 production 测试 hook。小尾部追加采用 COW，F01 的 IO 对齐不能证明原地尾部写的掉电隔离。当前证据不是业务 SQL/Raft E2E、裸设备/真实掉电或性能基线；共同 C/P 内容未改、未重跑。
+
+F19 本次复审修复永久超限被无限重试的问题，并补强提交结果与恢复内容的一致性判据；10 项新集成＋46 项原回归、12 个变异完整重跑。F19 源码/结果包均原位替换，无旧包备份；原回归依赖保持不变。见 [审查 §9](../../docs/storage_redesign/s7_execution_20261002.md#9-再次复审进度保证与恢复判断2026-10-02)。

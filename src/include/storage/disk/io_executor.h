@@ -122,6 +122,11 @@ class IOBatch {
    * Must not throw, wait for IO, or close/destroy this executor.
    */
   void RetainUntilComplete(std::function<void(const IOBatchResult &)> completion);
+  /** Same resource owner, followed by a notification AFTER terminal publication.
+   * The notification must not throw, wait for IO or close the executor. It may
+   * wake a coordinator which consumes Result; it must not execute its work.
+   */
+  void RetainUntilComplete(std::function<void(const IOBatchResult &)> completion, std::function<void()> ready);
 
  private:
   friend class IOExecutor;
