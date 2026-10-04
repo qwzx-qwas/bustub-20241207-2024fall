@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-10-04（F26 / S9.1b）：新增 [F26-array-buffer-pool.tar.gz](F26-array-buffer-pool.tar.gz)，五项真实 RAM 基础组件测试与独立 runner；ASan/UBSan/LSan、TSan 通过，十一个定向变异检出。复审补充普通内存回退与真实错误区别，运行器拒绝 skip。见 [八项设计审查](../../docs/storage_redesign/s9b_execution_20261004.md) 和 [结果](../../test-results/storage-f26-s9b-20261004/README.md)。只保留模块压缩源码，不注册常驻测试；c 的真实 PageGuard/对象 IO、d 的 PathCache/回收仍未接入。本次复审原位替换旧 F26 包，无备份；其他有效模块归档保持原字节。
+
 2026-10-03（S8；2026-10-04 测试契约复验）：更新 [S8-raft-object-stores.tar.gz](S8-raft-object-stores.tar.gz)。F23/F24/F25 共用 8 个真实对象后端场景，含 SQL/会话恢复、TCP 三节点 InstallSnapshot/重启；58 个相邻回归、10 个定向变异通过。T2 已删除控制根观察，验证公开额度下的合法后继写入；T8 在受限 Data 容量内验证 Store 退役→真实后台回收→新数据写入与重开，不再仅依赖删除计数；T6 去掉重复的重启前查询。生产代码未为本轮测试改动。见 [八项审查](../../docs/storage_redesign/s8_execution_20261003.md) 与 [结果](../../test-results/storage-s8-20261003/README.md)。只保留最终 S8 压缩版本，不注册常驻目标，不保留旧包/备份；S5 fixture 和其他有效模块包保持原样。
 
 2026-10-02（F02/S6 对象接入）：更新 [F02-object-io.tar.gz](F02-object-io.tar.gz)，当前含七项真实 NodeStorage 对象路径＋原八项执行器测试；runner 复用 F34/F12/F13/F14/S5，合计46项通过、7个定向变异命中。旧 F02 包原位替换，旧结果包删除；见 [八项审查](../../docs/storage_redesign/s6_object_io_execution_20261002.md) 和 [最终结果](../../test-results/storage-s6-object-io-20261002/README.md)。

@@ -6,6 +6,10 @@ add_library(
         lru_replacer.cpp
         lru_k_replacer.cpp)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(bustub_buffer PRIVATE frame_arena.cpp translation_directory.cpp)
+endif()
+
 set(ALL_OBJECT_FILES
         ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:bustub_buffer>
         PARENT_SCOPE)
