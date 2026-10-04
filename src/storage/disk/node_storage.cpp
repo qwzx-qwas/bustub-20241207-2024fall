@@ -634,6 +634,27 @@ auto NodeStorage::PublishObjectData(const ObjectMappingSnapshot &base, ObjectKey
     return result;
   });
 }
+void NodeStorage::CheckControlBatch(const std::vector<ObjectControlMutation> &controls) const {
+  const auto &o = impl_->options_;
+  if (!o.transactions_ || !o.objects_ || controls.empty() || controls.size() > o.transactions_->max_operations_ ||
+      controls.size() > o.objects_->mapping_.max_update_entries_) {
+    throw std::invalid_argument("control publication exceeds operation budget");
+  }
+  uint64_t bytes = 0;
+  uint64_t encoded = 0;
+  for (const auto &c : controls) {
+    const auto size = c.value_ ? c.value_->size() : 0;
+    if (size > o.metadata_.max_value_bytes_ || size > o.transactions_->max_request_bytes_ - bytes) {
+      throw std::invalid_argument("control publication exceeds value/request budget");
+    }
+    bytes += size;
+    encoded += size + 32;
+  }
+  if (encoded > o.metadata_.max_batch_bytes_ || encoded > o.objects_->mapping_.max_update_bytes_ ||
+      bytes > o.transactions_->max_pending_bytes_) {
+    throw std::invalid_argument("control publication exceeds metadata batch budget");
+  }
+}
 auto NodeStorage::SubmitObjects(ObjectTransaction &transaction) -> ObjectTransactionSubmission {
   return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
     if (!c.transactions_) {

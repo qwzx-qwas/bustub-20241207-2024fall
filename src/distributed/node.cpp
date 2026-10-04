@@ -143,6 +143,9 @@ auto ErrorPayload(const std::string &message) -> std::vector<std::byte> {
 }  // namespace
 
 void DistributedNodeConfig::Validate() const {
+  if (object_storage_ && (!object_storage_->storage_.objects_ || !object_storage_->storage_.transactions_)) {
+    throw std::runtime_error("Raft object deployment requires object IO and transactions");
+  }
   if (node_id_ == 0 || group_id_.empty() || group_id_.size() > 128 || data_directory_.empty() ||
       raft_listen_.host_.empty() || client_listen_.host_.empty() || peers_.size() != 2 ||
       election_timeout_min_ms_ == 0 || election_timeout_min_ms_ >= election_timeout_max_ms_ ||
@@ -186,8 +189,16 @@ void DistributedNode::Initialize() {
   }
   std::sort(voters.begin(), voters.end());
   directory_->EnsureIdentity(config_.node_id_, config_.group_id_, voters);
+  if (config_.object_storage_) {
+    const auto &deployment = *config_.object_storage_;
+    local_storage_ = std::make_shared<NodeStorage>(deployment.storage_);
+    local_storage_->Open();
+    object_storage_ = RaftObjectStorage::Open(local_storage_, deployment.space_, deployment.raft_);
+    object_storage_->EnsureIdentity(config_.node_id_, config_.group_id_, voters);
+  }
   state_machine_ = BusTubRaftStateMachine::Open(directory_.get(), storage_, config_.buffer_pool_size_);
-  auto recovered = RecoverRaftPersistentState(directory_->RaftDirectory(), storage_, state_machine_);
+  auto recovered = object_storage_ ? RecoverRaftPersistentState(object_storage_, state_machine_)
+                                   : RecoverRaftPersistentState(directory_->RaftDirectory(), storage_, state_machine_);
 
   std::map<NodeId, TcpEndpoint> raft_peers;
   for (const auto &[peer_id, peer] : config_.peers_) {
@@ -206,7 +217,7 @@ void DistributedNode::Initialize() {
 DistributedNode::~DistributedNode() { Stop(); }
 
 void DistributedNode::Start() {
-  std::lock_guard lock(mutex_);
+  std::unique_lock lock(mutex_);
   if (running_) {
     throw std::runtime_error("distributed node is already running");
   }
@@ -229,10 +240,20 @@ void DistributedNode::Start() {
     running_ = true;
     tick_thread_ = std::thread([this] { TickLoop(); });
     client_thread_ = std::thread([this] { ClientLoop(); });
+    if (object_storage_) {
+      storage_thread_ = std::thread([this] { StorageMaintenanceLoop(); });
+    }
   } catch (...) {
-    close(client_listen_fd_);
-    client_listen_fd_ = -1;
-    throw;
+    const auto error = std::current_exception();
+    const bool started = running_;
+    lock.unlock();
+    if (started) {
+      Stop();
+    } else {
+      close(client_listen_fd_);
+      client_listen_fd_ = -1;
+    }
+    std::rethrow_exception(error);
   }
 }
 
@@ -246,6 +267,9 @@ void DistributedNode::Stop() {
   }
   if (tick_thread_.joinable()) {
     tick_thread_.join();
+  }
+  if (storage_thread_.joinable()) {
+    storage_thread_.join();
   }
   if (client_thread_.joinable()) {
     client_thread_.join();
@@ -262,6 +286,26 @@ void DistributedNode::Stop() {
     }
   }
   client_workers_.clear();
+}
+
+void DistributedNode::StorageMaintenanceLoop() {
+  const auto interval = config_.object_storage_->storage_.transactions_->gc_interval_;
+  while (running_) {
+    std::unique_lock lock(mutex_);
+    state_changed_.wait_for(lock, interval, [&] { return !running_ || fatal_error_; });
+    if (!running_ || fatal_error_) {
+      return;
+    }
+    lock.unlock();
+    try {
+      object_storage_->Collect(1);
+    } catch (...) {
+      std::lock_guard guard(mutex_);
+      fatal_error_ = std::current_exception();
+      state_changed_.notify_all();
+      return;
+    }
+  }
 }
 
 void DistributedNode::TickLoop() {

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "raft/snapshot_store.h"
+#include "object_snapshot_store.h"
 
 #include <algorithm>
 #include <array>
@@ -318,6 +319,9 @@ void SnapshotStore::Recover() {
 }
 
 auto SnapshotStore::PrepareCapturePath() -> std::filesystem::path {
+  if (object_) {
+    throw std::logic_error("object snapshots require the stream interface");
+  }
   if (storage_->Exists(capture_path_)) {
     storage_->RemoveFile(capture_path_);
   }
@@ -325,9 +329,66 @@ auto SnapshotStore::PrepareCapturePath() -> std::filesystem::path {
 }
 
 void SnapshotStore::CancelCapture() {
+  if (object_) {
+    return;
+  }
   if (storage_->Exists(capture_path_)) {
     storage_->RemoveFile(capture_path_);
     storage_->SyncDirectory(directory_);
+  }
+}
+
+auto SnapshotStore::OpenObjects(std::shared_ptr<RaftObjectStorage> storage) -> std::unique_ptr<SnapshotStore> {
+  auto out = std::unique_ptr<SnapshotStore>(new SnapshotStore({}, nullptr));
+  out->object_ = std::make_shared<ObjectSnapshotStore>(std::move(storage));
+  return out;
+}
+auto SnapshotStore::Latest() const -> std::optional<RaftSnapshot> { return object_ ? object_->Latest() : latest_; }
+auto SnapshotStore::OldestRetained() const -> std::optional<RaftSnapshot> {
+  return object_ ? object_->Oldest() : (previous_ ? previous_ : latest_);
+}
+auto SnapshotStore::Input(const RaftSnapshot &snapshot) -> SnapshotInput {
+  if (object_) {
+    return object_->Input(snapshot);
+  }
+  auto file = FileSnapshotInput(PayloadFile(snapshot), storage_);
+  auto &weak = file_readers_[snapshot.generation_];
+  auto use = weak.lock();
+  if (!use) {
+    use = std::make_shared<unsigned char>(0);
+    weak = use;
+  }
+  return {0, file.size_, [file, use](uint64_t offset, size_t size) { return file.Read(offset, size); }};
+}
+auto SnapshotStore::StagedInput(std::string_view id) -> std::optional<SnapshotInput> {
+  if (object_) {
+    return object_->StagedInput(id);
+  }
+  auto file = StagedPayloadFile(id);
+  return file ? std::optional<SnapshotInput>(FileSnapshotInput(*file, storage_)) : std::nullopt;
+}
+auto SnapshotStore::PublishStaged(std::string_view id, bool retain) -> RaftSnapshot {
+  if (object_) {
+    return object_->PublishStaged(id, retain);
+  }
+  auto info = Staged(id);
+  auto file = StagedPayloadFile(id);
+  if (!info || !file) {
+    throw std::runtime_error("snapshot download is incomplete");
+  }
+  return PublishFile(info->last_included_index_, info->last_included_term_, file->path_, retain);
+}
+auto SnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot {
+  if (object_) {
+    return object_->Capture(index, term, machine);
+  }
+  auto capture = PrepareCapturePath();
+  try {
+    machine.CreateSnapshotFile(capture);
+    return PublishFile(index, term, capture);
+  } catch (...) {
+    CancelCapture();
+    throw;
   }
 }
 
@@ -345,6 +406,9 @@ auto SnapshotStore::Publish(uint64_t last_included_index, uint64_t last_included
 
 auto SnapshotStore::PublishFile(uint64_t last_included_index, uint64_t last_included_term,
                                 const std::filesystem::path &payload_path, bool retain_previous) -> RaftSnapshot {
+  if (object_) {
+    throw std::logic_error("object snapshots require the stream interface");
+  }
   const auto payload_size = storage_->FileSize(payload_path);
   if (payload_size > MAX_SNAPSHOT_BYTES || (last_included_index == 0 && last_included_term != 0) ||
       (latest_.has_value() && last_included_index <= latest_->last_included_index_)) {
@@ -382,6 +446,14 @@ auto SnapshotStore::PublishFile(uint64_t last_included_index, uint64_t last_incl
 
 auto SnapshotStore::ReadPayloadChunk(const RaftSnapshot &snapshot, uint64_t offset, size_t maximum_size)
     -> std::vector<std::byte> {
+  if (object_) {
+    auto input = object_->Input(snapshot);
+    if (offset > input.size_ || maximum_size > STREAM_CHUNK_BYTES) {
+      throw std::out_of_range("snapshot read range");
+    }
+    return input.Read(offset, std::min<uint64_t>(maximum_size, input.size_ - offset));
+  }
+
   if (snapshot.generation_ == 0 || offset > snapshot.payload_size_ || maximum_size > STREAM_CHUNK_BYTES) {
     throw std::runtime_error("invalid Raft snapshot payload range");
   }
@@ -401,6 +473,9 @@ auto SnapshotStore::ReadPayloadChunk(const RaftSnapshot &snapshot, uint64_t offs
 }
 
 auto SnapshotStore::PayloadFile(const RaftSnapshot &snapshot) -> DurableFileSlice {
+  if (object_) {
+    throw std::logic_error("object snapshots require the stream interface");
+  }
   const auto payload_offset = payload_offsets_.find(snapshot.generation_);
   const auto stored =
       latest_.has_value() && latest_->generation_ == snapshot.generation_
@@ -424,9 +499,10 @@ void SnapshotStore::PruneSnapshots() {
   bool removed = false;
   for (const auto &entry : storage_->ListDirectory(directory_)) {
     const auto generation = SnapshotGeneration(entry);
-    if (generation.has_value() && retained.count(*generation) == 0) {
+    if (generation.has_value() && retained.count(*generation) == 0 && file_readers_[*generation].expired()) {
       storage_->RemoveFile(directory_ / entry);
       payload_offsets_.erase(*generation);
+      file_readers_.erase(*generation);
       removed = true;
     }
   }
@@ -436,6 +512,10 @@ void SnapshotStore::PruneSnapshots() {
 }
 
 void SnapshotStore::RetainOnlyLatest() {
+  if (object_) {
+    object_->RetainOnlyLatest();
+    return;
+  }
   if (!latest_.has_value()) {
     throw std::runtime_error("cannot retain a missing latest Raft snapshot");
   }
@@ -444,6 +524,9 @@ void SnapshotStore::RetainOnlyLatest() {
 }
 
 auto SnapshotStore::StageChunk(const SnapshotChunk &chunk) -> SnapshotStageResult {
+  if (object_) {
+    return object_->Stage(chunk);
+  }
   if (chunk.snapshot_id_.empty() || chunk.total_size_ > MAX_SNAPSHOT_BYTES || chunk.data_.size() > chunk.total_size_ ||
       chunk.offset_ > chunk.total_size_ - chunk.data_.size() ||
       (chunk.last_included_index_ == 0 && chunk.last_included_term_ != 0)) {
@@ -471,12 +554,10 @@ auto SnapshotStore::StageChunk(const SnapshotChunk &chunk) -> SnapshotStageResul
       download.payload_checksum_ != chunk.payload_checksum_) {
     throw std::runtime_error("Raft snapshot chunk metadata changed during download");
   }
-  if (download.complete_) {
-    return {SnapshotStageStatus::DUPLICATE_COMPLETE, download.received_size_};
-  }
-  if (chunk.offset_ < download.received_size_) {
+  if (chunk.offset_ < download.received_size_ || download.complete_) {
     const auto existing = storage_->ReadFileRange(download_path_, chunk.offset_, chunk.data_.size());
-    if (chunk.offset_ + chunk.data_.size() > download.received_size_ || existing != chunk.data_) {
+    if (chunk.offset_ > download.received_size_ || chunk.data_.size() > download.received_size_ - chunk.offset_ ||
+        existing != chunk.data_) {
       throw std::runtime_error("conflicting duplicate Raft snapshot chunk");
     }
   } else {
@@ -485,6 +566,9 @@ auto SnapshotStore::StageChunk(const SnapshotChunk &chunk) -> SnapshotStageResul
     }
     storage_->AppendFileDurable(download_path_, chunk.data_);
     download.received_size_ += chunk.data_.size();
+  }
+  if (download.complete_) {
+    return {SnapshotStageStatus::DUPLICATE_COMPLETE, download.received_size_};
   }
   if (chunk.done_) {
     if (download.received_size_ != download.total_size_ ||
@@ -501,6 +585,9 @@ auto SnapshotStore::StageChunk(const SnapshotChunk &chunk) -> SnapshotStageResul
 }
 
 auto SnapshotStore::Staged(std::string_view snapshot_id) const -> std::optional<RaftSnapshot> {
+  if (object_) {
+    return object_->Staged(snapshot_id);
+  }
   if (!download_.has_value() || !download_->complete_ || download_->snapshot_id_ != snapshot_id) {
     return std::nullopt;
   }
@@ -514,6 +601,9 @@ auto SnapshotStore::Staged(std::string_view snapshot_id) const -> std::optional<
 }
 
 auto SnapshotStore::StagedPayloadFile(std::string_view snapshot_id) const -> std::optional<DurableFileSlice> {
+  if (object_) {
+    throw std::logic_error("object snapshots require the stream interface");
+  }
   if (!download_.has_value() || !download_->complete_ || download_->snapshot_id_ != snapshot_id) {
     return std::nullopt;
   }
@@ -521,6 +611,10 @@ auto SnapshotStore::StagedPayloadFile(std::string_view snapshot_id) const -> std
 }
 
 void SnapshotStore::CancelStaged(std::string_view snapshot_id) {
+  if (object_) {
+    object_->Cancel(snapshot_id);
+    return;
+  }
   if (!download_.has_value() || download_->snapshot_id_ != snapshot_id) {
     return;
   }

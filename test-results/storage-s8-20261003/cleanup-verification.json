@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-04",
+  "state": "complete",
+  "source_archive": "test/archives/S8-raft-object-stores.tar.gz",
+  "results_archive": "test-results/storage-s8-20261003/S8-results.tar.gz",
+  "removed": [
+    "/home/qwzx/projects/bustub-20241207-2024fall/build-s8",
+    "/tmp/s8-build.log",
+    "/tmp/s8-build2.log",
+    "/tmp/s8-build3.log",
+    "/tmp/s8-build4.log",
+    "/tmp/s8-config.log",
+    "/tmp/s8-validation-build.log",
+    "/home/qwzx/projects/bustub-20241207-2024fall/build-s8-review",
+    "/home/qwzx/projects/bustub-20241207-2024fall/build-s8-review-20261004",
+    "/home/qwzx/projects/bustub-20241207-2024fall/build-s8-contract-review"
+  ],
+  "build_s8_exists": false,
+  "unpacked_stage_test_exists": false,
+  "old_s8_archives_found": [],
+  "other_module_archives_preserved": true,
+  "ignored_results_archive": true,
+  "review": "public-capacity-and-physical-reuse",
+  "build_s8_review_exists": false,
+  "other_module_archive_count": 18,
+  "source_sha256": "12331c393e3c0ed9b7db2d7bdbd2500793614e217d20246c016f78e4b06832ca",
+  "results_sha256": "229eacc7dc92478a884eafe8acab00e210551b6051b3188aa5ba639e5fe4655e",
+  "verification": {
+    "stage_passed": 8,
+    "regressions_passed": 58,
+    "mutations_killed": 10,
+    "archive_members_verified": 642
+  },
+  "build_s8_review_20261004_exists": false,
+  "removed_apparent_bytes": 3117316814,
+  "build_s8_contract_review_exists": false,
+  "documentation_review": {
+    "date": "2026-10-04",
+    "tests_changed": false,
+    "production_changed": false,
+    "rerun": false
+  },
+  "commit_review": {
+    "date": "2026-10-04",
+    "production_hash_count": 489,
+    "production_changed": false,
+    "test_code_changed": false,
+    "rerun": false,
+    "documentation_snapshot_updated": true
+  }
+}

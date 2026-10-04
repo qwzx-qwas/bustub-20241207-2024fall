@@ -24,6 +24,7 @@
 
 #include "distributed/client_protocol.h"
 #include "distributed/raft_state_machine.h"
+#include "raft/object_storage.h"
 #include "raft/raft_node.h"
 #include "raft/tcp_transport.h"
 
@@ -32,6 +33,12 @@ namespace bustub {
 struct DistributedPeerConfig {
   TcpEndpoint raft_endpoint_;
   TcpEndpoint client_endpoint_;
+};
+
+struct RaftObjectDeployment {
+  NodeStorageOptions storage_;
+  uint64_t space_;
+  RaftObjectOptions raft_;
 };
 
 struct DistributedNodeConfig {
@@ -48,6 +55,9 @@ struct DistributedNodeConfig {
   uint64_t client_timeout_ms_{5000};
   size_t buffer_pool_size_{128};
   uint64_t snapshot_threshold_entries_{10000};
+
+  // Explicitly provisioned device/namespace. Empty preserves existing file deployments.
+  std::optional<RaftObjectDeployment> object_storage_{std::nullopt};
 
   void Validate() const;
 };
@@ -71,6 +81,7 @@ class DistributedNode {
   DistributedNode(DistributedNodeConfig config, std::shared_ptr<DurableStorage> storage);
   void Initialize();
   void TickLoop();
+  void StorageMaintenanceLoop();
   void ClientLoop();
   void HandleConnection(int socket_fd);
   void MaybeCreateSnapshot();
@@ -85,6 +96,8 @@ class DistributedNode {
 
   DistributedNodeConfig config_;
   std::shared_ptr<DurableStorage> storage_;
+  std::shared_ptr<NodeStorage> local_storage_;
+  std::shared_ptr<RaftObjectStorage> object_storage_;
   std::unique_ptr<NodeDirectory> directory_;
   std::shared_ptr<TcpRaftTransport> transport_;
   std::shared_ptr<BusTubRaftStateMachine> state_machine_;
@@ -107,6 +120,7 @@ class DistributedNode {
   TcpEndpoint bound_client_endpoint_;
   std::atomic<bool> running_{false};
   std::thread tick_thread_;
+  std::thread storage_thread_;
   std::thread client_thread_;
   std::mutex client_workers_mutex_;
   struct ClientWorker {

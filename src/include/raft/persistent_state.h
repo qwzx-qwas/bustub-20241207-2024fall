@@ -35,4 +35,8 @@ auto RecoverRaftPersistentState(const std::filesystem::path &raft_directory,
                                 const std::shared_ptr<DurableStorage> &storage,
                                 const std::shared_ptr<RaftStateMachine> &state_machine) -> RecoveredRaftPersistentState;
 
+/** Object deployment: the explicit namespace and local storage are already open. */
+auto RecoverRaftPersistentState(std::shared_ptr<RaftObjectStorage> objects,
+                                const std::shared_ptr<RaftStateMachine> &state_machine) -> RecoveredRaftPersistentState;
+
 }  // namespace bustub

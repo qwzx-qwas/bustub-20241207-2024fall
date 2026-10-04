@@ -18,6 +18,7 @@
 
 #include "recovery/durable_storage.h"
 #include "recovery/log_codec.h"
+#include "recovery/snapshot_stream.h"
 
 namespace bustub {
 
@@ -28,6 +29,9 @@ class RaftStateMachine {
   virtual void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const = 0;
   virtual void Apply(const ReplicatedLogEntry &entry) = 0;
   virtual auto LastApplied() const -> uint64_t = 0;
+  virtual void WriteSnapshot(const SnapshotAppend &append) const = 0;
+  virtual void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) = 0;
+  virtual void LoadSnapshot(const SnapshotInput &payload, uint64_t index) = 0;
   virtual void CreateSnapshotFile(const std::filesystem::path &path) const = 0;
   /** Fully validate a staged snapshot without replacing published state. */
   virtual void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) = 0;
@@ -57,6 +61,9 @@ class KvStateMachine : public RaftStateMachine {
   /** Small-state conveniences retained for direct unit tests. */
   auto CreateSnapshot() const -> std::vector<std::byte>;
   void InstallSnapshot(const std::vector<std::byte> &payload, uint64_t last_included_index);
+  void WriteSnapshot(const SnapshotAppend &append) const override;
+  void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) override;
+  void LoadSnapshot(const SnapshotInput &payload, uint64_t index) override;
   void CreateSnapshotFile(const std::filesystem::path &path) const override;
   void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
   void InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;

@@ -66,6 +66,10 @@ struct RetiredRangePage {
   bool complete_;
   std::vector<RetiredObjectRange> ranges_;
 };
+struct ObjectControlEntry {
+  uint64_t item_;
+  std::vector<std::byte> value_;
+};
 struct ObjectMappingContext;
 /** Immutable metadata view. It is NOT a physical-data pin. F14 must protect
  * actual reads before physical release is enabled. Pagination uses this same
@@ -75,9 +79,15 @@ class ObjectMappingSnapshot {
  public:
   auto Describe(ObjectKey key) const -> ObjectInfo;
   auto Resolve(ObjectKey key, uint64_t offset, uint64_t length) const -> ObjectReadPage;
+  /** Read-only trim plan: return a smaller logical length, touching at most
+   * one tail mapping (or hole) and at most maximum_bytes. Empty objects return
+   * zero. The caller serializes mutations; this neither retires nor pins data. */
+  auto PlanTailTrim(ObjectKey key, uint64_t maximum_bytes) const -> uint64_t;
   /** F14 handoff, inclusive id cursor (starts at zero), also valid for tombstones. */
   auto Retired(ObjectKey key, uint64_t from_id) const -> RetiredRangePage;
   auto Control(ObjectKey owner, uint64_t item) const -> std::optional<std::vector<std::byte>>;
+  /** Inclusive cursor; bounded by limit and the configured mapping query budget. */
+  auto Controls(ObjectKey owner, uint64_t from, size_t limit) const -> std::vector<ObjectControlEntry>;
 
  private:
   friend class ObjectMappingStore;

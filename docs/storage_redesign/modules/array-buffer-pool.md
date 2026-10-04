@@ -1,6 +1,6 @@
 # F26 子方案：数组式 BufferPool
 
-更新时间：2026-09-23（Asia/Shanghai）
+更新时间：2026-10-04（Asia/Shanghai；同步 B 当前实现边界）
 
 [主方案](../README.md) · [F26 页与缓存接入](page-storage-adapter.md) · [F02 外部缓冲](object-io.md#f02-external-buffers)
 
@@ -27,6 +27,8 @@
 F26 原有 PostgreSQL pin/内容锁/IO 状态分离、RocksDB 独立 IO 重叠等待的参考继续适用，见父方案。下面的身份、生命周期、预算与 F02 租约是本项目设计，不能当作论文已替本项目证明正确。
 
 ## 3. 结构与职责
+
+下图表示拟复用组件的目标分工，不是当前调用链：F08 已采用独立版本页访问，而 A 仍使用原 BufferPoolManager。S9.1a 须据此确定通用数组/帧组件如何接入 B，保持事务私有页与已发布版本隔离；不能假定替换 A 的缓存便自动完成 B 的接入。
 
     A 的表 / B+Tree / 执行器       B 的元数据页访问
              ↓                         ↓

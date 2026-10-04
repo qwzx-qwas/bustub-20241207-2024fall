@@ -140,6 +140,7 @@ class RaftNode {
     uint64_t offset_{0};
     uint64_t end_offset_{0};
     uint64_t request_id_{0};
+    SnapshotInput input_;
   };
   std::map<NodeId, SnapshotTransfer> snapshot_transfers_;
 

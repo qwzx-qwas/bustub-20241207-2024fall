@@ -131,34 +131,26 @@ void KvStateMachine::InstallSnapshot(const std::vector<std::byte> &payload, uint
   last_applied_ = last_included_index;
 }
 
+void KvStateMachine::WriteSnapshot(const SnapshotAppend &append) const { append(CreateSnapshot()); }
+void KvStateMachine::ValidateSnapshot(const SnapshotInput &payload, uint64_t index) {
+  KvStateMachine candidate;
+  candidate.LoadSnapshot(payload, index);
+}
+void KvStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t index) {
+  if (payload.size_ > KV_MAX_SNAPSHOT_BYTES) {
+    throw std::runtime_error("KV snapshot exceeds teaching-state limit");
+  }
+  InstallSnapshot(payload.Read(0, payload.size_), index);
+}
 void KvStateMachine::CreateSnapshotFile(const std::filesystem::path &path) const {
   PosixDurableStorage storage;
-  storage.WriteFile(path, CreateSnapshot());
+  storage.WriteFile(path, {});
+  WriteSnapshot([&](const auto &bytes) { storage.AppendFile(path, bytes); });
 }
-
-void KvStateMachine::ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {
-  if (payload.size_ > KV_MAX_SNAPSHOT_BYTES) {
-    throw std::runtime_error("KV snapshot exceeds its in-memory teaching-state limit");
-  }
-  PosixDurableStorage storage;
-  const auto bytes = storage.ReadFileRange(payload.path_, payload.offset_, static_cast<size_t>(payload.size_));
-  if (bytes.size() != payload.size_) {
-    throw std::runtime_error("KV snapshot file was truncated");
-  }
-  KvStateMachine candidate;
-  candidate.InstallSnapshot(bytes, last_included_index);
+void KvStateMachine::ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t index) {
+  ValidateSnapshot(FileSnapshotInput(payload, std::make_shared<PosixDurableStorage>()), index);
 }
-
-void KvStateMachine::InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {
-  if (payload.size_ > KV_MAX_SNAPSHOT_BYTES) {
-    throw std::runtime_error("KV snapshot exceeds its in-memory teaching-state limit");
-  }
-  PosixDurableStorage storage;
-  const auto bytes = storage.ReadFileRange(payload.path_, payload.offset_, static_cast<size_t>(payload.size_));
-  if (bytes.size() != payload.size_) {
-    throw std::runtime_error("KV snapshot file was truncated");
-  }
-  InstallSnapshot(bytes, last_included_index);
+void KvStateMachine::InstallSnapshotFile(const DurableFileSlice &payload, uint64_t index) {
+  LoadSnapshot(FileSnapshotInput(payload, std::make_shared<PosixDurableStorage>()), index);
 }
-
 }  // namespace bustub

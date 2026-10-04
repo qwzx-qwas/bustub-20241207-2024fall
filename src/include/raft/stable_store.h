@@ -19,6 +19,7 @@
 #include "recovery/durable_storage.h"
 
 namespace bustub {
+class RaftObjectStorage;
 
 class HardStateCodec {
  public:
@@ -33,6 +34,8 @@ class StableStore {
   static auto Open(std::filesystem::path raft_directory, std::shared_ptr<DurableStorage> storage)
       -> std::unique_ptr<StableStore>;
 
+  static auto OpenObjects(std::shared_ptr<RaftObjectStorage> storage) -> std::unique_ptr<StableStore>;
+
   auto State() const -> HardState;
   /** Returns only after the new HardState file and its parent directory are durable. */
   void Update(uint64_t current_term, std::optional<NodeId> voted_for, uint64_t commit_index);
@@ -41,6 +44,7 @@ class StableStore {
   StableStore(std::filesystem::path raft_directory, std::shared_ptr<DurableStorage> storage, HardState state)
       : raft_directory_(std::move(raft_directory)), storage_(std::move(storage)), state_(state) {}
 
+  std::shared_ptr<RaftObjectStorage> object_;
   std::filesystem::path raft_directory_;
   std::shared_ptr<DurableStorage> storage_;
   mutable std::mutex mutex_;

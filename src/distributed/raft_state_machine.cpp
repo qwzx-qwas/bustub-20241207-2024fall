@@ -60,25 +60,24 @@ auto GenerationName(uint64_t generation) -> std::string {
   return output.str();
 }
 
-auto ReadExact(DurableStorage *storage, const DurableFileSlice &slice, size_t maximum_size, std::string_view name)
-    -> std::vector<std::byte> {
+auto ReadExact(const SnapshotInput &slice, size_t maximum_size, std::string_view name) -> std::vector<std::byte> {
   if (slice.size_ > maximum_size) {
     throw std::runtime_error(std::string(name) + " exceeds its limit");
   }
-  auto bytes = storage->ReadFileRange(slice.path_, slice.offset_, static_cast<size_t>(slice.size_));
+  auto bytes = slice.Read(0, static_cast<size_t>(slice.size_));
   if (bytes.size() != slice.size_) {
     throw std::runtime_error(std::string(name) + " was truncated");
   }
   return bytes;
 }
 
-auto ChecksumSlice(DurableStorage *storage, const DurableFileSlice &slice, uint32_t initial = 0) -> uint32_t {
+auto ChecksumSlice(const SnapshotInput &slice, uint32_t initial = 0) -> uint32_t {
   uint32_t checksum = initial;
   uint64_t consumed = 0;
   while (consumed < slice.size_) {
     constexpr size_t chunk_size = 1U * 1024U * 1024U;
     const auto request = static_cast<size_t>(std::min<uint64_t>(chunk_size, slice.size_ - consumed));
-    const auto chunk = storage->ReadFileRange(slice.path_, slice.offset_ + consumed, request);
+    const auto chunk = slice.Read(consumed, request);
     if (chunk.size() != request) {
       throw std::runtime_error("snapshot bundle was truncated during streaming checksum");
     }
@@ -88,27 +87,27 @@ auto ChecksumSlice(DurableStorage *storage, const DurableFileSlice &slice, uint3
   return checksum;
 }
 
-auto AppendSlice(DurableStorage *storage, const DurableFileSlice &slice, const std::filesystem::path &output,
-                 uint32_t initial_checksum) -> uint32_t {
+auto AppendSlice(const SnapshotInput &slice, const SnapshotAppend &append, uint32_t initial_checksum) -> uint32_t {
   uint32_t checksum = initial_checksum;
   uint64_t consumed = 0;
   while (consumed < slice.size_) {
     constexpr size_t chunk_size = 1U * 1024U * 1024U;
     const auto request = static_cast<size_t>(std::min<uint64_t>(chunk_size, slice.size_ - consumed));
-    const auto chunk = storage->ReadFileRange(slice.path_, slice.offset_ + consumed, request);
+    const auto chunk = slice.Read(consumed, request);
     if (chunk.size() != request) {
       throw std::runtime_error("canonical snapshot file was truncated while bundling");
     }
-    storage->AppendFile(output, chunk);
+    append(chunk);
     checksum = Crc32cExtend(checksum, chunk.data(), chunk.size());
     consumed += chunk.size();
   }
   return checksum;
 }
 
-void CopySlice(DurableStorage *storage, const DurableFileSlice &slice, const std::filesystem::path &output) {
+void CopySlice(DurableStorage *storage, const SnapshotInput &slice, const std::filesystem::path &output) {
   storage->WriteFile(output, {});
-  static_cast<void>(AppendSlice(storage, slice, output, 0));
+  static_cast<void>(AppendSlice(
+      slice, [&](const auto &bytes) { storage->AppendFile(output, bytes); }, 0));
 }
 
 }  // namespace
@@ -160,14 +159,17 @@ auto BusTubSnapshotBundleCodec::Decode(const std::vector<std::byte> &bytes) -> B
   return bundle;
 }
 
-void BusTubSnapshotBundleCodec::EncodeFiles(uint64_t last_included_index, const CanonicalSnapshotPaths &paths,
-                                            const std::filesystem::path &output, DurableStorage *storage) {
-  if (storage == nullptr || output.empty() || last_included_index >= TXN_START_ID) {
+void BusTubSnapshotBundleCodec::Write(uint64_t last_included_index, const CanonicalSnapshotPaths &paths,
+                                      const SnapshotAppend &append, DurableStorage *storage) {
+  if (storage == nullptr || !append || last_included_index >= TXN_START_ID) {
     throw std::runtime_error("invalid streamed BusTub snapshot bundle target");
   }
-  const DurableFileSlice database{paths.database_file_, 0, storage->FileSize(paths.database_file_)};
-  const DurableFileSlice catalog{paths.catalog_file_, 0, storage->FileSize(paths.catalog_file_)};
-  const DurableFileSlice sessions{paths.session_file_, 0, storage->FileSize(paths.session_file_)};
+  const auto database = FileSnapshotInput({paths.database_file_, 0, storage->FileSize(paths.database_file_)},
+                                          std::shared_ptr<DurableStorage>(storage, [](DurableStorage *) {}));
+  const auto catalog = FileSnapshotInput({paths.catalog_file_, 0, storage->FileSize(paths.catalog_file_)},
+                                         std::shared_ptr<DurableStorage>(storage, [](DurableStorage *) {}));
+  const auto sessions = FileSnapshotInput({paths.session_file_, 0, storage->FileSize(paths.session_file_)},
+                                          std::shared_ptr<DurableStorage>(storage, [](DurableStorage *) {}));
   const auto framing_bytes = BUNDLE_MAGIC.size() + sizeof(uint32_t) * 2 + sizeof(uint64_t) * 4;
   if (database.size_ > MAX_STREAM_BUNDLE_BYTES || catalog.size_ > CatalogSnapshotCodec::MAX_CATALOG_BYTES ||
       sessions.size_ > 64U * 1024U * 1024U ||
@@ -182,56 +184,53 @@ void BusTubSnapshotBundleCodec::EncodeFiles(uint64_t last_included_index, const 
   body_header.PutU64(last_included_index);
   body_header.PutU64(database.size_);
   prefix.PutBytes(body_header.Data());
-  storage->WriteFile(output, prefix.Data());
+  append(prefix.Data());
   uint32_t checksum = Crc32c(body_header.Data());
-  checksum = AppendSlice(storage, database, output, checksum);
+  checksum = AppendSlice(database, append, checksum);
 
   ByteWriter catalog_size;
   catalog_size.PutU64(catalog.size_);
-  storage->AppendFile(output, catalog_size.Data());
+  append(catalog_size.Data());
   checksum = Crc32cExtend(checksum, catalog_size.Data().data(), catalog_size.Data().size());
-  checksum = AppendSlice(storage, catalog, output, checksum);
+  checksum = AppendSlice(catalog, append, checksum);
 
   ByteWriter session_size;
   session_size.PutU64(sessions.size_);
-  storage->AppendFile(output, session_size.Data());
+  append(session_size.Data());
   checksum = Crc32cExtend(checksum, session_size.Data().data(), session_size.Data().size());
-  checksum = AppendSlice(storage, sessions, output, checksum);
+  checksum = AppendSlice(sessions, append, checksum);
 
   ByteWriter trailer;
   trailer.PutU32(checksum);
-  storage->AppendFile(output, trailer.Data());
+  append(trailer.Data());
 }
 
-auto BusTubSnapshotBundleCodec::DecodeFile(const DurableFileSlice &payload, DurableStorage *storage)
-    -> BusTubSnapshotBundleFileView {
+auto BusTubSnapshotBundleCodec::Read(const SnapshotInput &payload) -> BusTubSnapshotBundleView {
   constexpr uint64_t fixed_bytes = BUNDLE_MAGIC.size() + sizeof(uint32_t) * 2 + sizeof(uint64_t) * 4;
   const auto payload_range = StorageByteRange::Create(payload.offset_, payload.size_);
-  if (storage == nullptr || !payload_range.has_value() || payload.size_ < fixed_bytes ||
-      payload.size_ > MAX_STREAM_BUNDLE_BYTES) {
+  if (!payload_range.has_value() || payload.size_ < fixed_bytes || payload.size_ > MAX_STREAM_BUNDLE_BYTES) {
     throw std::runtime_error("invalid streamed BusTub snapshot bundle size");
   }
-  const auto slice_at = [&](uint64_t offset, uint64_t size) -> DurableFileSlice {
+  const auto slice_at = [&](uint64_t offset, uint64_t size) -> SnapshotInput {
     const auto range = payload_range->Subrange(offset, size);
     if (!range.has_value()) {
       throw std::runtime_error("file range exceeds streamed BusTub snapshot bundle");
     }
-    return {payload.path_, range->Offset(), range->Size()};
+    return payload.Slice(offset, size);
   };
   auto read_u64 = [&](uint64_t offset) {
-    const auto bytes =
-        ReadExact(storage, slice_at(offset, sizeof(uint64_t)), sizeof(uint64_t), "snapshot bundle length");
+    const auto bytes = ReadExact(slice_at(offset, sizeof(uint64_t)), sizeof(uint64_t), "snapshot bundle length");
     ByteReader reader(bytes);
     return reader.ReadU64();
   };
   const auto first =
-      ReadExact(storage, slice_at(0, BUNDLE_MAGIC.size() + 20), BUNDLE_MAGIC.size() + 20, "snapshot bundle header");
+      ReadExact(slice_at(0, BUNDLE_MAGIC.size() + 20), BUNDLE_MAGIC.size() + 20, "snapshot bundle header");
   ByteReader header(first);
   if (header.ReadBytes(BUNDLE_MAGIC.size()) != std::vector<std::byte>(BUNDLE_MAGIC.begin(), BUNDLE_MAGIC.end()) ||
       header.ReadU32() != FORMAT_VERSION) {
     throw std::runtime_error("unsupported streamed BusTub snapshot bundle");
   }
-  BusTubSnapshotBundleFileView result;
+  BusTubSnapshotBundleView result{};
   result.last_included_index_ = header.ReadU64();
   const auto database_size = header.ReadU64();
   uint64_t cursor = first.size();
@@ -257,12 +256,27 @@ auto BusTubSnapshotBundleCodec::DecodeFile(const DurableFileSlice &payload, Dura
 
   const auto protected_body = slice_at(BUNDLE_MAGIC.size(), payload.size_ - BUNDLE_MAGIC.size() - sizeof(uint32_t));
   const auto expected_bytes =
-      ReadExact(storage, slice_at(cursor, sizeof(uint32_t)), sizeof(uint32_t), "snapshot bundle checksum");
+      ReadExact(slice_at(cursor, sizeof(uint32_t)), sizeof(uint32_t), "snapshot bundle checksum");
   ByteReader expected(expected_bytes);
-  if (ChecksumSlice(storage, protected_body) != expected.ReadU32()) {
+  if (ChecksumSlice(protected_body) != expected.ReadU32()) {
     throw std::runtime_error("streamed BusTub snapshot bundle checksum mismatch");
   }
   return result;
+}
+
+void BusTubSnapshotBundleCodec::EncodeFiles(uint64_t index, const CanonicalSnapshotPaths &paths,
+                                            const std::filesystem::path &output, DurableStorage *storage) {
+  storage->WriteFile(output, {});
+  Write(
+      index, paths, [&](const auto &bytes) { storage->AppendFile(output, bytes); }, storage);
+}
+auto BusTubSnapshotBundleCodec::DecodeFile(const DurableFileSlice &payload, DurableStorage *storage)
+    -> BusTubSnapshotBundleFileView {
+  auto view = Read(FileSnapshotInput(payload, std::shared_ptr<DurableStorage>(storage, [](DurableStorage *) {})));
+  return {view.last_included_index_,
+          {payload.path_, view.database_.offset_, view.database_.size_},
+          {payload.path_, view.catalog_.offset_, view.catalog_.size_},
+          {payload.path_, view.sessions_.offset_, view.sessions_.size_}};
 }
 
 auto BusTubRaftStateMachine::Open(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage,
@@ -321,7 +335,7 @@ auto BusTubRaftStateMachine::LastApplied() const -> uint64_t {
   return fsm_->LastApplied();
 }
 
-void BusTubRaftStateMachine::CreateSnapshotFile(const std::filesystem::path &path) const {
+void BusTubRaftStateMachine::WriteSnapshot(const SnapshotAppend &append) const {
   std::filesystem::path capture_directory;
   uint64_t snapshot_index = 0;
   {
@@ -338,15 +352,26 @@ void BusTubRaftStateMachine::CreateSnapshotFile(const std::filesystem::path &pat
         storage_.get(), buffer_pool_size_);
   }
   try {
-    BusTubSnapshotBundleCodec::EncodeFiles(
+    BusTubSnapshotBundleCodec::Write(
         snapshot_index,
-        {capture_directory / "db.bustub", capture_directory / "catalog.bin", capture_directory / "session.bin"}, path,
+        {capture_directory / "db.bustub", capture_directory / "catalog.bin", capture_directory / "session.bin"}, append,
         storage_.get());
     storage_->RemoveTree(capture_directory);
   } catch (...) {
     storage_->RemoveTree(capture_directory);
     throw;
   }
+}
+
+void BusTubRaftStateMachine::CreateSnapshotFile(const std::filesystem::path &path) const {
+  storage_->WriteFile(path, {});
+  WriteSnapshot([&](const auto &bytes) { storage_->AppendFile(path, bytes); });
+}
+void BusTubRaftStateMachine::ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t index) {
+  ValidateSnapshot(FileSnapshotInput(payload, storage_), index);
+}
+void BusTubRaftStateMachine::InstallSnapshotFile(const DurableFileSlice &payload, uint64_t index) {
+  LoadSnapshot(FileSnapshotInput(payload, storage_), index);
 }
 
 auto BusTubRaftStateMachine::OpenWorkingState(uint64_t last_included_index, const std::vector<std::byte> &catalog_bytes,
@@ -380,20 +405,19 @@ auto BusTubRaftStateMachine::OpenWorkingState(uint64_t last_included_index, cons
   return state;
 }
 
-auto BusTubRaftStateMachine::BuildWorkingState(const BusTubSnapshotBundleFileView &bundle,
+auto BusTubRaftStateMachine::BuildWorkingState(const BusTubSnapshotBundleView &bundle,
                                                const std::filesystem::path &directory)
     -> std::unique_ptr<WorkingState> {
   storage_->RemoveTree(directory);
   storage_->CreateDirectories(directory);
   CopySlice(storage_.get(), bundle.database_, directory / "db.bustub");
-  const auto catalog =
-      ReadExact(storage_.get(), bundle.catalog_, CatalogSnapshotCodec::MAX_CATALOG_BYTES, "catalog snapshot");
-  const auto sessions = ReadExact(storage_.get(), bundle.sessions_, 64U * 1024U * 1024U, "session snapshot");
+  const auto catalog = ReadExact(bundle.catalog_, CatalogSnapshotCodec::MAX_CATALOG_BYTES, "catalog snapshot");
+  const auto sessions = ReadExact(bundle.sessions_, 64U * 1024U * 1024U, "session snapshot");
   return OpenWorkingState(bundle.last_included_index_, catalog, sessions, directory);
 }
 
-void BusTubRaftStateMachine::ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {
-  auto bundle = BusTubSnapshotBundleCodec::DecodeFile(payload, storage_.get());
+void BusTubRaftStateMachine::ValidateSnapshot(const SnapshotInput &payload, uint64_t last_included_index) {
+  auto bundle = BusTubSnapshotBundleCodec::Read(payload);
   if (bundle.last_included_index_ != last_included_index || last_included_index >= TXN_START_ID) {
     throw std::runtime_error("BusTub streamed snapshot bundle index mismatch");
   }
@@ -413,8 +437,8 @@ void BusTubRaftStateMachine::ValidateSnapshotFile(const DurableFileSlice &payloa
   }
 }
 
-void BusTubRaftStateMachine::InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) {
-  auto bundle = BusTubSnapshotBundleCodec::DecodeFile(payload, storage_.get());
+void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t last_included_index) {
+  auto bundle = BusTubSnapshotBundleCodec::Read(payload);
   if (bundle.last_included_index_ != last_included_index || last_included_index >= TXN_START_ID) {
     throw std::runtime_error("BusTub streamed snapshot bundle index mismatch");
   }

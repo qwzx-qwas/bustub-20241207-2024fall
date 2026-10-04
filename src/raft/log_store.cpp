@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "raft/log_store.h"
+#include "object_log_store.h"
 
 #include <algorithm>
 #include <array>
@@ -250,6 +251,38 @@ auto LogStore::DecodeMutation(const std::vector<std::byte> &bytes, size_t offset
   }
 }
 
+LogStore::~LogStore() = default;
+auto LogStore::OpenObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t snapshot_index,
+                           uint64_t snapshot_term) -> std::unique_ptr<LogStore> {
+  auto out = std::unique_ptr<LogStore>(new LogStore({}, nullptr, commit, {}));
+  out->object_ = std::make_shared<ObjectLogStore>(std::move(storage), commit);
+  if (out->object_->base_ > snapshot_index ||
+      (out->object_->base_ == snapshot_index && out->object_->base_term_ != snapshot_term)) {
+    throw std::runtime_error("object log base disagrees with recovery snapshot");
+  }
+  if (out->object_->base_ < snapshot_index) {
+    const bool retain = out->object_->Term(snapshot_index) == std::optional<uint64_t>(snapshot_term);
+    out->object_->Base(snapshot_index, snapshot_term, retain);
+  }
+  return out;
+}
+auto LogStore::ProbeObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t recovery,
+                            uint64_t latest) -> LogStoreRecoveryProbe {
+  ObjectLogStore log(std::move(storage), commit);
+  return {log.base_, log.base_term_, log.Last(), log.Term(recovery), log.Term(latest)};
+}
+auto LogStore::RebuildObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t index,
+                              uint64_t term) -> std::unique_ptr<LogStore> {
+  if (commit != index) {
+    throw std::invalid_argument("verified snapshot must cover the committed history");
+  }
+  // The verified recovery caller authorizes this explicit destructive reset.
+  auto out = std::unique_ptr<LogStore>(new LogStore({}, nullptr, commit, {}));
+  out->object_ = std::make_shared<ObjectLogStore>(std::move(storage), commit, true);
+  out->object_->Rebuild(index, term);
+  return out;
+}
+
 auto LogStore::ProbeRecovery(const std::filesystem::path &directory, std::shared_ptr<DurableStorage> storage,
                              uint64_t effective_commit_index, uint64_t recovery_boundary_index,
                              uint64_t latest_boundary_index, LogStoreOptions options) -> LogStoreRecoveryProbe {
@@ -480,11 +513,22 @@ void LogStore::RewriteJournalFromCurrentState() { RewriteJournal(snapshot_base_i
 
 void LogStore::Append(const std::vector<ReplicatedLogEntry> &entries) {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    if (entries.empty()) {
+      throw std::invalid_argument("empty Raft log append");
+    }
+    object_->Replace(object_->Last() + 1, entries);
+    return;
+  }
   AppendMutation(entries);
 }
 
 void LogStore::ReplaceSuffix(uint64_t from_index, const std::vector<ReplicatedLogEntry> &new_entries) {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    object_->Replace(from_index, new_entries);
+    return;
+  }
   if (from_index <= snapshot_base_index_ ||
       (from_index > LastLogIndexUnlocked() &&
        (LastLogIndexUnlocked() == std::numeric_limits<uint64_t>::max() || from_index != LastLogIndexUnlocked() + 1)) ||
@@ -503,6 +547,10 @@ void LogStore::ReplaceSuffix(uint64_t from_index, const std::vector<ReplicatedLo
 
 void LogStore::InstallSnapshotBase(uint64_t index, uint64_t term, bool retain_old_suffix) {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    object_->Base(index, term, retain_old_suffix);
+    return;
+  }
   const Mutation installation{MutationType::INSTALL_SNAPSHOT_BASE, index, term, retain_old_suffix, {}};
   ValidateMutation(installation, false);
   std::vector<ReplicatedLogEntry> retained;
@@ -523,6 +571,10 @@ void LogStore::InstallSnapshotBase(uint64_t index, uint64_t term, bool retain_ol
 
 void LogStore::AdvanceCommittedIndex(uint64_t committed_index) {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    object_->Advance(committed_index);
+    return;
+  }
   if (committed_index < effective_commit_index_ || committed_index > LastLogIndexUnlocked()) {
     throw std::runtime_error("invalid committed Raft log index");
   }
@@ -531,16 +583,25 @@ void LogStore::AdvanceCommittedIndex(uint64_t committed_index) {
 
 auto LogStore::SnapshotBaseIndex() const -> uint64_t {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    return object_->base_;
+  }
   return snapshot_base_index_;
 }
 
 auto LogStore::SnapshotBaseTerm() const -> uint64_t {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    return object_->base_term_;
+  }
   return snapshot_base_term_;
 }
 
 auto LogStore::CommittedIndex() const -> uint64_t {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    return object_->commit_;
+  }
   return effective_commit_index_;
 }
 
@@ -550,11 +611,17 @@ auto LogStore::LastLogIndexUnlocked() const -> uint64_t {
 
 auto LogStore::LastLogIndex() const -> uint64_t {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    return object_->Last();
+  }
   return LastLogIndexUnlocked();
 }
 
 auto LogStore::LastLogTerm() const -> uint64_t {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    return *object_->Term(object_->Last());
+  }
   return entries_.empty() ? snapshot_base_term_ : entries_.back().term_;
 }
 
@@ -570,11 +637,20 @@ auto LogStore::TermAtUnlocked(uint64_t index) const -> std::optional<uint64_t> {
 
 auto LogStore::TermAt(uint64_t index) const -> std::optional<uint64_t> {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    return object_->Term(index);
+  }
   return TermAtUnlocked(index);
 }
 
 auto LogStore::EntryAt(uint64_t index) const -> std::optional<ReplicatedLogEntry> {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    if (index <= object_->base_ || index > object_->Last()) {
+      return std::nullopt;
+    }
+    return object_->Entries(index, index).front();
+  }
   if (index <= snapshot_base_index_ || index > LastLogIndexUnlocked()) {
     return std::nullopt;
   }
@@ -583,6 +659,9 @@ auto LogStore::EntryAt(uint64_t index) const -> std::optional<ReplicatedLogEntry
 
 auto LogStore::Entries(uint64_t first_index, uint64_t last_index) const -> std::vector<ReplicatedLogEntry> {
   std::lock_guard lock(mutex_);
+  if (object_) {
+    return object_->Entries(first_index, last_index);
+  }
   if (first_index > last_index) {
     return {};
   }

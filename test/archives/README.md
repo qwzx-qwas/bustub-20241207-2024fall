@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-10-03（S8；2026-10-04 测试契约复验）：更新 [S8-raft-object-stores.tar.gz](S8-raft-object-stores.tar.gz)。F23/F24/F25 共用 8 个真实对象后端场景，含 SQL/会话恢复、TCP 三节点 InstallSnapshot/重启；58 个相邻回归、10 个定向变异通过。T2 已删除控制根观察，验证公开额度下的合法后继写入；T8 在受限 Data 容量内验证 Store 退役→真实后台回收→新数据写入与重开，不再仅依赖删除计数；T6 去掉重复的重启前查询。生产代码未为本轮测试改动。见 [八项审查](../../docs/storage_redesign/s8_execution_20261003.md) 与 [结果](../../test-results/storage-s8-20261003/README.md)。只保留最终 S8 压缩版本，不注册常驻目标，不保留旧包/备份；S5 fixture 和其他有效模块包保持原样。
+
 2026-10-02（F02/S6 对象接入）：更新 [F02-object-io.tar.gz](F02-object-io.tar.gz)，当前含七项真实 NodeStorage 对象路径＋原八项执行器测试；runner 复用 F34/F12/F13/F14/S5，合计46项通过、7个定向变异命中。旧 F02 包原位替换，旧结果包删除；见 [八项审查](../../docs/storage_redesign/s6_object_io_execution_20261002.md) 和 [最终结果](../../test-results/storage-s6-object-io-20261002/README.md)。
 
 同日再次复审：修正辅助函数失败传播和异常关闭清理；46项/7个变异重新通过，源码与结果包原位更新，生产未改，见上述审查 §10。

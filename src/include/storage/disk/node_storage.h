@@ -113,6 +113,9 @@ class NodeStorage {
    * Full/Stopped leave input intact. The ticket reports durable publication.
    */
   auto SubmitObjects(ObjectTransaction &transaction) -> ObjectTransactionSubmission;
+  /** Preflight a final control-only publication before preparing large bodies.
+   * Checks permanent encoding/admission limits, not a promise of free resources. */
+  void CheckControlBatch(const std::vector<ObjectControlMutation> &controls) const;
   void Close();
 
  private:

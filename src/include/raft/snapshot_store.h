@@ -19,8 +19,12 @@
 #include <vector>
 
 #include "recovery/durable_storage.h"
+#include "recovery/snapshot_stream.h"
 
 namespace bustub {
+class RaftObjectStorage;
+class ObjectSnapshotStore;
+class RaftStateMachine;
 
 struct RaftSnapshot {
   uint32_t format_version_{1};
@@ -61,9 +65,14 @@ class SnapshotStore {
   static auto Open(std::filesystem::path directory, std::shared_ptr<DurableStorage> storage)
       -> std::unique_ptr<SnapshotStore>;
 
-  auto Latest() const -> std::optional<RaftSnapshot> { return latest_; }
+  static auto OpenObjects(std::shared_ptr<RaftObjectStorage> storage) -> std::unique_ptr<SnapshotStore>;
+  auto Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot;
+  auto Input(const RaftSnapshot &snapshot) -> SnapshotInput;
+  auto StagedInput(std::string_view id) -> std::optional<SnapshotInput>;
+  auto PublishStaged(std::string_view id, bool retain) -> RaftSnapshot;
+  auto Latest() const -> std::optional<RaftSnapshot>;
   /** Oldest snapshot that still has to remain recoverable with the local bridge log. */
-  auto OldestRetained() const -> std::optional<RaftSnapshot> { return previous_.has_value() ? previous_ : latest_; }
+  auto OldestRetained() const -> std::optional<RaftSnapshot>;
   /** Drop the previous generation after the caller has durably rebased recovery on the verified latest image. */
   void RetainOnlyLatest();
   /** Compatibility helper for small tests. The formal runtime path uses PublishFile. */
@@ -117,6 +126,7 @@ class SnapshotStore {
   void PruneSnapshots();
   void Recover();
 
+  std::shared_ptr<ObjectSnapshotStore> object_;
   std::filesystem::path directory_;
   std::filesystem::path current_path_;
   std::filesystem::path download_path_;
@@ -126,6 +136,7 @@ class SnapshotStore {
   std::optional<RaftSnapshot> previous_;
   std::optional<Download> download_;
   std::map<uint64_t, uint64_t> payload_offsets_;
+  std::map<uint64_t, std::weak_ptr<void>> file_readers_;
 };
 
 }  // namespace bustub

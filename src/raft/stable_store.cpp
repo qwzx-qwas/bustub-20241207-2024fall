@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "raft/stable_store.h"
+#include "raft/object_storage.h"
 
 #include <array>
 #include <stdexcept>
@@ -76,6 +77,17 @@ auto StableStore::Open(std::filesystem::path raft_directory, std::shared_ptr<Dur
   return std::unique_ptr<StableStore>(new StableStore(std::move(raft_directory), std::move(storage), state));
 }
 
+auto StableStore::OpenObjects(std::shared_ptr<RaftObjectStorage> storage) -> std::unique_ptr<StableStore> {
+  const auto bytes = storage->Control(2, 0);
+  HardState state;
+  if (bytes) {
+    state = HardStateCodec::Decode(*bytes);
+  }
+  auto out = std::unique_ptr<StableStore>(new StableStore({}, nullptr, state));
+  out->object_ = std::move(storage);
+  return out;
+}
+
 auto StableStore::State() const -> HardState {
   std::lock_guard lock(mutex_);
   return state_;
@@ -89,6 +101,13 @@ void StableStore::Update(uint64_t current_term, std::optional<NodeId> voted_for,
     throw std::runtime_error("non-monotonic or conflicting HARD_STATE update");
   }
   HardState next{1, state_.generation_ + 1, current_term, voted_for, commit_index};
+  if (object_) {
+    auto changes = std::vector<ObjectControlMutation>{object_->Change(2, 0, HardStateCodec::Encode(next))};
+    object_->Check(changes);
+    object_->Commit({{}, std::move(changes)});
+    state_ = next;
+    return;
+  }
   const auto temporary = raft_directory_ / "HARD_STATE.tmp";
   const auto formal = raft_directory_ / "HARD_STATE";
   storage_->WriteFile(temporary, HardStateCodec::Encode(next));

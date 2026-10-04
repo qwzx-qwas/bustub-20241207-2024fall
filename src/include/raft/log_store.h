@@ -21,6 +21,8 @@
 #include "recovery/log_codec.h"
 
 namespace bustub {
+class RaftObjectStorage;
+class ObjectLogStore;
 
 struct LogStoreOptions {
   static constexpr size_t MAXIMUM_JOURNAL_BYTES = 512U * 1024U * 1024U;
@@ -44,6 +46,13 @@ struct LogStoreRecoveryProbe {
  */
 class LogStore {
  public:
+  ~LogStore();
+  static auto OpenObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t effective_commit_index,
+                          uint64_t snapshot_index, uint64_t snapshot_term) -> std::unique_ptr<LogStore>;
+  static auto ProbeObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t recovery,
+                           uint64_t latest) -> LogStoreRecoveryProbe;
+  static auto RebuildObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t index, uint64_t term)
+      -> std::unique_ptr<LogStore>;
   /** Parse and validate the committed journal without cleaning or rewriting any file. */
   static auto ProbeRecovery(const std::filesystem::path &directory, std::shared_ptr<DurableStorage> storage,
                             uint64_t effective_commit_index, uint64_t recovery_boundary_index,
@@ -136,6 +145,7 @@ class LogStore {
   auto LastLogIndexUnlocked() const -> uint64_t;
   void ValidateCommittedRange() const;
 
+  std::shared_ptr<ObjectLogStore> object_;
   std::filesystem::path directory_;
   std::filesystem::path journal_path_;
   std::filesystem::path journal_temporary_path_;

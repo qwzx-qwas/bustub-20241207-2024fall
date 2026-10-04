@@ -146,6 +146,27 @@ auto ObjectMappingSnapshot::Resolve(ObjectKey key, uint64_t offset, uint64_t len
   }
   return result;
 }
+auto ObjectMappingSnapshot::PlanTailTrim(ObjectKey key, uint64_t maximum_bytes) const -> uint64_t {
+  if (maximum_bytes == 0) {
+    throw std::invalid_argument("tail trim requires a positive byte limit");
+  }
+  Active active(*context_);
+  const auto end = ReadDescription(base_, key).info_.size_;
+  if (end == 0) {
+    return 0;
+  }
+  const auto start = end - std::min(end, maximum_bytes);
+  const auto upper = Key(Mapping, key, end - 1);
+  const auto entry = base_.GetFloor(upper);
+  if (!entry || !SamePrefix(entry->key_, upper)) {
+    return start;  // Entire object is a hole.
+  }
+  const auto span = ReadSpan(*entry);
+  const auto mapped_end = span.offset_ + span.size_;
+  Require(mapped_end <= end, "object mapping exceeds logical length");
+  // A trailing hole is trimmed separately from the mapping before it.
+  return std::max(start, mapped_end < end ? mapped_end : span.offset_);
+}
 auto ObjectMappingSnapshot::Retired(ObjectKey key, uint64_t from_id) const -> RetiredRangePage {
   Active active(*context_);
   const auto d = ReadDescription(base_, key, true);
@@ -306,6 +327,21 @@ auto ObjectMappingStore::Remove(const ObjectMappingSnapshot &base, ObjectKey key
 }
 auto ObjectMappingSnapshot::Control(ObjectKey owner, uint64_t item) const -> std::optional<std::vector<std::byte>> {
   return base_.Get(Key(object_mapping_detail::Control, owner, item));
+}
+auto ObjectMappingSnapshot::Controls(ObjectKey owner, uint64_t from, size_t limit) const
+    -> std::vector<ObjectControlEntry> {
+  if (limit == 0 || limit > context_->options_.max_query_spans_) {
+    throw std::invalid_argument("control scan exceeds query budget");
+  }
+  const auto lower = Key(object_mapping_detail::Control, owner, from);
+  std::vector<ObjectControlEntry> result;
+  for (const auto &entry : base_.Scan(lower, limit)) {
+    if (!SamePrefix(entry.key_, lower)) {
+      break;
+    }
+    result.push_back({entry.key_.item_, entry.value_});
+  }
+  return result;
 }
 auto ObjectMappingAccess::Unit(ObjectMappingStore &store) -> uint64_t { return store.impl_->context_->unit_; }
 auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSnapshot &base,

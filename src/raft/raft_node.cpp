@@ -75,7 +75,7 @@ RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transpo
       throw std::runtime_error("Raft SnapshotStore and recovery log bridge disagree");
     }
     if (state_machine_->LastApplied() == 0 && snapshot.last_included_index_ != 0) {
-      state_machine_->InstallSnapshotFile(snapshot_store_->PayloadFile(snapshot), snapshot.last_included_index_);
+      state_machine_->LoadSnapshot(snapshot_store_->Input(snapshot), snapshot.last_included_index_);
     }
   }
   const auto recovered_snapshot_index = snapshot_store_ != nullptr && snapshot_store_->Latest().has_value()
@@ -458,7 +458,7 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     return;
   }
   const auto staged = snapshot_store_->Staged(request.snapshot_id_);
-  const auto staged_payload = snapshot_store_->StagedPayloadFile(request.snapshot_id_);
+  const auto staged_payload = snapshot_store_->StagedInput(request.snapshot_id_);
   if (!staged.has_value() || !staged_payload.has_value()) {
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
     return;
@@ -482,7 +482,7 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     throw std::runtime_error("Raft snapshot boundary cannot preserve the committed suffix");
   }
   try {
-    state_machine_->ValidateSnapshotFile(*staged_payload, staged->last_included_index_);
+    state_machine_->ValidateSnapshot(*staged_payload, staged->last_included_index_);
   } catch (const std::exception &) {
     try {
       snapshot_store_->CancelStaged(request.snapshot_id_);
@@ -494,8 +494,7 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     return;
   }
   try {
-    snapshot_store_->PublishFile(staged->last_included_index_, staged->last_included_term_, staged_payload->path_,
-                                 retain_suffix);
+    snapshot_store_->PublishStaged(request.snapshot_id_, retain_suffix);
     const auto new_commit = std::max(hard_state_.commit_index_, staged->last_included_index_);
     if (new_commit > hard_state_.commit_index_) {
       PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, new_commit);
@@ -513,7 +512,7 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     if (log_store_->CommittedIndex() < new_commit) {
       AdvanceLogCommitOrStop(new_commit);
     }
-    state_machine_->InstallSnapshotFile(*staged_payload, staged->last_included_index_);
+    state_machine_->LoadSnapshot(*staged_payload, staged->last_included_index_);
     snapshot_store_->CancelStaged(request.snapshot_id_);
     last_applied_ = staged->last_included_index_;
     published_applied_index_ = staged->last_included_index_;
@@ -623,15 +622,8 @@ auto RaftNode::CreateSnapshot() -> RaftSnapshot {
     }
     return *existing;
   }
-  const auto capture = snapshot_store_->PrepareCapturePath();
   try {
-    state_machine_->CreateSnapshotFile(capture);
-  } catch (...) {
-    snapshot_store_->CancelCapture();
-    throw;
-  }
-  try {
-    auto snapshot = snapshot_store_->PublishFile(index, *term, capture);
+    auto snapshot = snapshot_store_->Capture(index, *term, *state_machine_);
     const auto recovery_base = snapshot_store_->OldestRetained();
     if (!recovery_base.has_value()) {
       throw std::runtime_error("published Raft snapshot has no recovery base");
@@ -706,7 +698,10 @@ void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_of
   auto transfer = snapshot_transfers_.find(peer);
   if (transfer == snapshot_transfers_.end() || transfer->second.snapshot_.snapshot_id_ != snapshot.snapshot_id_) {
     const auto request_id = ++last_request_id_[peer];
-    transfer = snapshot_transfers_.insert_or_assign(peer, SnapshotTransfer{snapshot, 0, 0, request_id}).first;
+    transfer =
+        snapshot_transfers_
+            .insert_or_assign(peer, SnapshotTransfer{snapshot, 0, 0, request_id, snapshot_store_->Input(snapshot)})
+            .first;
   } else if (acknowledged_offset.has_value()) {
     if (*acknowledged_offset < transfer->second.end_offset_ || *acknowledged_offset >= snapshot.payload_size_) {
       throw std::runtime_error("follower acknowledged an invalid Raft snapshot offset");
@@ -717,7 +712,7 @@ void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_of
   constexpr size_t max_chunk_bytes = 64U * 1024U;
   const auto offset = transfer->second.offset_;
   const auto chunk_size = static_cast<size_t>(std::min<uint64_t>(max_chunk_bytes, snapshot.payload_size_ - offset));
-  auto chunk = snapshot_store_->ReadPayloadChunk(snapshot, offset, chunk_size);
+  auto chunk = transfer->second.input_.Read(offset, chunk_size);
   transfer->second.end_offset_ = offset + chunk.size();
   const auto done = transfer->second.end_offset_ == snapshot.payload_size_;
   Send(peer,

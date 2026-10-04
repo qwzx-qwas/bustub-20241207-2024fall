@@ -42,6 +42,13 @@ struct BusTubSnapshotBundleFileView {
   DurableFileSlice sessions_;
 };
 
+struct BusTubSnapshotBundleView {
+  uint64_t last_included_index_;
+  SnapshotInput database_;
+  SnapshotInput catalog_;
+  SnapshotInput sessions_;
+};
+
 /** Portable Raft payload containing the complete canonical BusTub snapshot, not a working-file reference. */
 class BusTubSnapshotBundleCodec {
  public:
@@ -53,6 +60,9 @@ class BusTubSnapshotBundleCodec {
   /** Compatibility helpers; the formal BusTub FSM never calls these aggregate APIs. */
   static auto Encode(const BusTubSnapshotBundleV1 &bundle) -> std::vector<std::byte>;
   static auto Decode(const std::vector<std::byte> &bytes) -> BusTubSnapshotBundleV1;
+  static void Write(uint64_t index, const CanonicalSnapshotPaths &paths, const SnapshotAppend &append,
+                    DurableStorage *storage);
+  static auto Read(const SnapshotInput &payload) -> BusTubSnapshotBundleView;
   static void EncodeFiles(uint64_t last_included_index, const CanonicalSnapshotPaths &paths,
                           const std::filesystem::path &output, DurableStorage *storage);
   static auto DecodeFile(const DurableFileSlice &payload, DurableStorage *storage) -> BusTubSnapshotBundleFileView;
@@ -67,6 +77,9 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const override;
   void Apply(const ReplicatedLogEntry &entry) override;
   auto LastApplied() const -> uint64_t override;
+  void WriteSnapshot(const SnapshotAppend &append) const override;
+  void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) override;
+  void LoadSnapshot(const SnapshotInput &payload, uint64_t index) override;
   void CreateSnapshotFile(const std::filesystem::path &path) const override;
   void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
   void InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
@@ -89,7 +102,7 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   BusTubRaftStateMachine(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage,
                          size_t buffer_pool_size);
   void InitializeEmpty();
-  auto BuildWorkingState(const BusTubSnapshotBundleFileView &bundle, const std::filesystem::path &directory)
+  auto BuildWorkingState(const BusTubSnapshotBundleView &bundle, const std::filesystem::path &directory)
       -> std::unique_ptr<WorkingState>;
   auto OpenWorkingState(uint64_t last_included_index, const std::vector<std::byte> &catalog_bytes,
                         const std::vector<std::byte> &session_bytes, const std::filesystem::path &directory)
