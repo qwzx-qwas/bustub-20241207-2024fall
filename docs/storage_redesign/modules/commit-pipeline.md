@@ -184,3 +184,12 @@ Drive 与 CommitLoop 分开协调和同步 B 等待，可靠交接、有界 pend
 ### S7 重试条件复审
 
 仅明确临时准入占用才保留 pending 重试；请求本身超过静态容量/搜索限制时交付 NotCommitted 和错误，保持旧映射及控制记录，归还准备资源。不能只根据笼统 ResourceUnavailable 无限重试。测试同时核对返回结果与恢复结果：NotCommitted 对应旧状态，只有 Indeterminate 才允许完整旧/完整新状态。
+
+
+## 2026-10-04 S9.1a 页写回任务交接
+
+[S9.1a §5–6](../s9_buffer_pool_protocol.md#5-正常访问加载及淘汰协议) 区分 F26 保留、F02 Prepared、worker Accepted、设备完成及 Common Durable。借用输入与自有输入使用当前同一排序/提交/发布路径；IO 归还内存许可不代表映射已经提交，F26 父任务继续保留必要身份和内容版本。
+
+S9.1c 的正式消费者需接通不丢失的完成结果/唤醒，不能为每次页写另开等待线程，也不能在未被下方接纳时抛掉任务。本轮仅设计，不增加第二个 coordinator、业务状态机或事务日志。
+
+当前 ObjectIO::FinishCommon 已在数据 durable 后、B 提交前清理数据 batch_，CommitLoop 又在结果发布前清理 CommonDataWrite 的其余资源；这条现有顺序继续复用。ObjectTransactionData::input_ 仍随结果票据存活，现为自有正文。c 引入借用帧时须单独归还终态后已不再使用的稳定正文来源，不能把帧许可直接放入 input_ 然后一直留到观察者销毁结果。F26 完整页发布责任与业务 Guard 自己的引用继续保留到各自终点。下层票据由各自拥有者消费后释放、结果保留必要摘要，不穿透私有实现，不改变原公开票据的预算合同，详见共同协议 §5.2/§6。

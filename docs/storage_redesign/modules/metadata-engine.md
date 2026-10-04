@@ -100,7 +100,7 @@ S9 的 [F26](page-storage-adapter.md) 若修改共用 BufferPool/PageGuard，须
 
 ### 6.2 S9 数组 BufferPool 的共享边界
 
-[F26 数组子方案](array-buffer-pool.md) 将 Calico 的驻留翻译机制用于本项目；其来源/差异在该文档 §2 统一说明。本模块可复用实现，但保持独立目录、数据空间、打开身份和帧预算，不能把 A/B 同页号当作同一页。
+[F26 数组子方案](array-buffer-pool.md) 主要替换 A 的驻留哈希，来源/差异见其 §2。当前 B 已采用 MetadataVersion/MetadataPager 的独立版本页数组；可复用帧/IO 组件不要求套用 A 的驻留生命周期。当前交接以 [S9.1a §8](../s9_buffer_pool_protocol.md#8-ab-与-f36-的冻结边界) 为准，保持独立数据空间、打开身份、私有版本及 WAL，不能把 A/B 同页号当同一页。
 
 S4/S5 的私有页、WAL 先行和恢复基础仍先行，不依赖 S9 优化才能正确。S9 若替换共用 BufferPool/PageGuard，未提交私有版本不能直接发布到公共页号条目或走通用淘汰写到最终位置。私有版本的存放/索引方式由本模块定义，数组条目不接管元数据事务。
 
