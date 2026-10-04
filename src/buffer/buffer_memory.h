@@ -65,6 +65,7 @@ class Region {
   auto Size() const -> size_t { return bytes_; }
 
   void UseBasePages() const {
+#ifdef MADV_NOHUGEPAGE
     if (madvise(base_, bytes_, MADV_NOHUGEPAGE) == 0) {
       return;
     }
@@ -76,6 +77,7 @@ class Region {
       return;
     }
     throw std::system_error(error, std::generic_category(), "disable buffer THP");
+#endif
   }
 
  private:

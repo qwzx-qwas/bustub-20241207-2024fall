@@ -8,9 +8,22 @@
 #include <memory>
 
 #include "storage/disk/io_executor.h"
+#include "storage/disk/metadata_engine.h"
 
 namespace bustub {
 class ObjectIO;
+/** Exclusive permission to fill an existing buffer, retained through real IO.
+ * Owner includes memory lifetime AND the caller's content access protection. */
+struct ObjectReadTarget {
+  void *data_;
+  size_t capacity_;
+  std::shared_ptr<void> owner_;
+};
+// Only a batch which fits the configured executor can report temporary pressure.
+class ObjectIOBusy : public MetadataError {
+ public:
+  ObjectIOBusy() : MetadataError(MetadataErrorCode::ResourceUnavailable, "object IO capacity is held") {}
+};
 struct ObjectReadData;
 struct ObjectWriteData;
 
@@ -27,6 +40,8 @@ class ObjectRead {
   void Wait() const;
   auto WaitFor(std::chrono::milliseconds timeout) const -> bool;
   void CopyTo(void *destination, size_t capacity) const;
+  /** Complete a ReadInto request; checks failures and copies only planned edges. */
+  void Finish() const;
 
  private:
   friend class ObjectIO;

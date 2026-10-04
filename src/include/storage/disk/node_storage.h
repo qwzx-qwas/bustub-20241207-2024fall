@@ -64,6 +64,13 @@ struct NodeStorageOptions {
   std::optional<ObjectStorageOptions> objects_{std::nullopt};
   // Explicit S7 service; metadata-only and S6 deployments keep their contracts.
   std::optional<ObjectTransactionOptions> transactions_{std::nullopt};
+  size_t external_buffer_bytes_{0};  // Explicit frame retention budget; zero disables it.
+};
+struct PageIOCapabilities {
+  size_t memory_alignment_;
+  size_t max_batch_pages_;
+  uint64_t max_read_bytes_;
+  uint64_t max_write_bytes_;
 };
 
 /** Owns one device -> executor -> bootstrap -> B/Journal stack exclusively.
@@ -106,6 +113,9 @@ class NodeStorage {
   auto RemoveObject(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult;
   auto ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t allocation) -> ObjectReclaimResult;
   auto ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length) -> ObjectRead;
+  auto ReadObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
+                      ObjectReadTarget target) -> ObjectRead;
+  auto PageIO() const -> PageIOCapabilities;
   auto WriteObjectData(const void *source, size_t size) -> ObjectWrite;
   auto PublishObjectData(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, ObjectWrite &write)
       -> JournalResult;

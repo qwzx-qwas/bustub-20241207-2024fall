@@ -113,12 +113,26 @@ void CopySlice(DurableStorage *storage, const SnapshotInput &slice, const std::f
 }  // namespace
 
 struct BusTubRaftStateMachine::WorkingState {
+  std::shared_ptr<ObjectPageStorage> object_pages_;
   std::unique_ptr<DiskManager> disk_manager_;
   std::unique_ptr<BufferPoolManager> buffer_pool_manager_;
   std::unique_ptr<Catalog> catalog_;
   std::unique_ptr<SessionTable> sessions_;
   std::unique_ptr<TransactionManager> transaction_manager_;
   std::unique_ptr<ExecutionEngine> execution_engine_;
+  ~WorkingState() {
+    if (object_pages_) {
+      if (buffer_pool_manager_) {
+        buffer_pool_manager_->Close();
+      }
+      try {
+        object_pages_->Retire();
+      } catch (const std::exception &e) {
+        // The persistent registry keeps cleanup resumable on the next Open.
+        LOG_ERROR("working page retirement deferred: %s", e.what());
+      }
+    }
+  }
 };
 
 auto BusTubSnapshotBundleCodec::Encode(const BusTubSnapshotBundleV1 &bundle) -> std::vector<std::byte> {
@@ -293,6 +307,20 @@ auto BusTubRaftStateMachine::Open(NodeDirectory *node_directory, std::shared_ptr
   return result;
 }
 
+auto BusTubRaftStateMachine::OpenObjectPages(NodeDirectory *directory, std::shared_ptr<DurableStorage> storage,
+                                             size_t frames, ObjectPageDeployment deployment)
+    -> std::shared_ptr<BusTubRaftStateMachine> {
+  if (!directory || !storage || frames == 0 || !deployment.storage_) {
+    throw std::invalid_argument("invalid object page deployment");
+  }
+  ObjectPageStorage::RetireAbandoned(deployment.storage_, deployment.pages_);
+  auto result =
+      std::shared_ptr<BusTubRaftStateMachine>(new BusTubRaftStateMachine(directory, std::move(storage), frames));
+  result->page_deployment_ = std::move(deployment);
+  result->InitializeEmpty();
+  return result;
+}
+
 BusTubRaftStateMachine::BusTubRaftStateMachine(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage,
                                                size_t buffer_pool_size)
     : node_directory_(node_directory),
@@ -306,8 +334,14 @@ void BusTubRaftStateMachine::InitializeEmpty() {
   active_directory_ = runtime_directory_ / GenerationName(next_generation_++);
   storage_->CreateDirectories(active_directory_);
   auto state = std::make_unique<WorkingState>();
-  state->disk_manager_ = std::make_unique<DiskManager>(active_directory_ / "db.bustub");
-  state->buffer_pool_manager_ = std::make_unique<BufferPoolManager>(buffer_pool_size_, state->disk_manager_.get());
+  if (page_deployment_) {
+    state->object_pages_ = ObjectPageStorage::Create(page_deployment_->storage_, page_deployment_->pages_);
+    state->buffer_pool_manager_ =
+        std::make_unique<BufferPoolManager>(buffer_pool_size_, state->object_pages_, page_deployment_->cache_);
+  } else {
+    state->disk_manager_ = std::make_unique<DiskManager>(active_directory_ / "db.bustub");
+    state->buffer_pool_manager_ = std::make_unique<BufferPoolManager>(buffer_pool_size_, state->disk_manager_.get());
+  }
   state->catalog_ = std::make_unique<Catalog>(state->buffer_pool_manager_.get(), nullptr, nullptr);
   state->sessions_ = std::make_unique<SessionTable>();
   state->transaction_manager_ = std::make_unique<TransactionManager>();
@@ -383,8 +417,28 @@ auto BusTubRaftStateMachine::OpenWorkingState(uint64_t last_included_index, cons
   SessionSnapshotCodec::DecodeInto(session_bytes, sessions.get());
   sessions->ValidateSnapshotBoundary(last_included_index);
   auto state = std::make_unique<WorkingState>();
-  state->disk_manager_ = std::make_unique<DiskManager>(directory / "db.bustub");
-  state->buffer_pool_manager_ = std::make_unique<BufferPoolManager>(buffer_pool_size_, state->disk_manager_.get());
+  if (page_deployment_) {
+    state->object_pages_ = ObjectPageStorage::Create(page_deployment_->storage_, page_deployment_->pages_);
+    state->buffer_pool_manager_ =
+        std::make_unique<BufferPoolManager>(buffer_pool_size_, state->object_pages_, page_deployment_->cache_);
+    const auto file = directory / "db.bustub";
+    const auto size = storage_->FileSize(file);
+    if (size % BUSTUB_PAGE_SIZE != 0 || size / BUSTUB_PAGE_SIZE > INT32_MAX) {
+      throw std::runtime_error("snapshot database page geometry is invalid");
+    }
+    state->buffer_pool_manager_->SetNextPageIdForRecovery(size / BUSTUB_PAGE_SIZE);
+    for (uint64_t page = 0; page < size / BUSTUB_PAGE_SIZE; ++page) {
+      auto guard = state->buffer_pool_manager_->WritePage(page);
+      const auto bytes = storage_->ReadFileRange(file, page * BUSTUB_PAGE_SIZE, BUSTUB_PAGE_SIZE);
+      if (bytes.size() != BUSTUB_PAGE_SIZE) {
+        throw std::runtime_error("short snapshot database page");
+      }
+      std::memcpy(guard.GetDataMut(), bytes.data(), bytes.size());
+    }
+  } else {
+    state->disk_manager_ = std::make_unique<DiskManager>(directory / "db.bustub");
+    state->buffer_pool_manager_ = std::make_unique<BufferPoolManager>(buffer_pool_size_, state->disk_manager_.get());
+  }
   state->catalog_ = std::make_unique<Catalog>(state->buffer_pool_manager_.get(), nullptr, nullptr);
   CatalogSnapshotCodec::Restore(catalog_snapshot, state->catalog_.get(), state->buffer_pool_manager_.get(), nullptr);
   for (const auto &table_name : state->catalog_->GetTableNames()) {

@@ -143,8 +143,9 @@ auto ErrorPayload(const std::string &message) -> std::vector<std::byte> {
 }  // namespace
 
 void DistributedNodeConfig::Validate() const {
-  if (object_storage_ && (!object_storage_->storage_.objects_ || !object_storage_->storage_.transactions_)) {
-    throw std::runtime_error("Raft object deployment requires object IO and transactions");
+  if (object_storage_ && (!object_storage_->storage_.objects_ || !object_storage_->storage_.transactions_ ||
+                          !object_storage_->pages_ || object_storage_->pages_->pages_per_object_ == 0)) {
+    throw std::runtime_error("Raft object deployment requires object IO, transactions and explicit page configuration");
   }
   if (node_id_ == 0 || group_id_.empty() || group_id_.size() > 128 || data_directory_.empty() ||
       raft_listen_.host_.empty() || client_listen_.host_.empty() || peers_.size() != 2 ||
@@ -196,7 +197,14 @@ void DistributedNode::Initialize() {
     object_storage_ = RaftObjectStorage::Open(local_storage_, deployment.space_, deployment.raft_);
     object_storage_->EnsureIdentity(config_.node_id_, config_.group_id_, voters);
   }
-  state_machine_ = BusTubRaftStateMachine::Open(directory_.get(), storage_, config_.buffer_pool_size_);
+  if (config_.object_storage_) {
+    const auto &deployment = *config_.object_storage_;
+    state_machine_ = BusTubRaftStateMachine::OpenObjectPages(
+        directory_.get(), storage_, config_.buffer_pool_size_,
+        {local_storage_, {deployment.pages_->pages_per_object_, {deployment.space_, 5}}, deployment.pages_->cache_});
+  } else {
+    state_machine_ = BusTubRaftStateMachine::Open(directory_.get(), storage_, config_.buffer_pool_size_);
+  }
   auto recovered = object_storage_ ? RecoverRaftPersistentState(object_storage_, state_machine_)
                                    : RecoverRaftPersistentState(directory_->RaftDirectory(), storage_, state_machine_);
 

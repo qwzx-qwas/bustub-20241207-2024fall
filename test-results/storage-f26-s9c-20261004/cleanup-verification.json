@@ -1,0 +1,35 @@
+{
+  "stage": "S9.1c",
+  "production_and_test_audit": "docs/storage_redesign/s9c_execution_20261004.md",
+  "source_archives": [
+    "test/archives/F26-array-buffer-pool.tar.gz"
+  ],
+  "result_archives": [
+    "test-results/storage-f26-s9c-20261004/F26-results.tar.gz"
+  ],
+  "source_sha256": "e2ad72a53fae0291fafa4873ce951ee67d3d4b871213b856329c4afb38d4c665",
+  "result_sha256": "99d29bace7de53fdb0c615933b04ca74335d60bbb645b9143f66ab788797c671",
+  "old_f26_result_removed": true,
+  "old_source_replaced_without_backup": true,
+  "other_valid_source_archives_unchanged": 19,
+  "temporary_tree_removed": true,
+  "temporary_scripts_builds_images_removed": true,
+  "no_permanent_stage_test_target": true,
+  "new_regular_course_test_change": "explicit <thread> include only",
+  "existing_gitignore_covers_result_archive": true,
+  "unique_cases": 28,
+  "thread_sanitizer_cases": 9,
+  "assertion_detected_mutations": 14,
+  "next_stage": "S9.1d not started",
+  "review_production_changes": false,
+  "review_rerun_page_cases": 5,
+  "review_rerun_tsan_cases": 5,
+  "review_rerun_mutations": 6,
+  "retained_unchanged_cases": 23,
+  "temporary_review_tree_removed": true,
+  "source_archive_files": 6,
+  "result_archive_files": 180,
+  "commit_status_source": "Git history; this file records verification before the requested commit",
+  "precommit_production_and_test_hashes_verified": true,
+  "precommit_runtime_rerun": false
+}

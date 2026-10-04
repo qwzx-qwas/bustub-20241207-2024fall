@@ -51,17 +51,21 @@ void DiskScheduler::StartWorkerThread() {
     }
     // 在该线程中处理请求
     DiskRequest request = std::move(request_opt).value();
-    if (request.is_delete_) {
-      disk_manager_->DeletePage(request.page_id_);
-    } else if (request.is_write_) {
-      // 如果是写请求，调用DiskManager的WritePage方法
-      disk_manager_->WritePage(request.page_id_, request.data_);
-    } else {
-      // 如果是读请求，调用DiskManager的ReadPage方法
-      disk_manager_->ReadPage(request.page_id_, request.data_);
+    try {
+      if (request.is_delete_) {
+        disk_manager_->DeletePage(request.page_id_);
+      } else if (request.is_write_) {
+        // 如果是写请求，调用DiskManager的WritePage方法
+        disk_manager_->WritePage(request.page_id_, request.data_);
+      } else {
+        // 如果是读请求，调用DiskManager的ReadPage方法
+        disk_manager_->ReadPage(request.page_id_, request.data_);
+      }
+      // 完成请求后，设置promise的值为true，表示操作成功，唤醒等待的future
+      request.callback_.set_value(true);
+    } catch (...) {
+      request.callback_.set_exception(std::current_exception());
     }
-    // 完成请求后，设置promise的值为true，表示操作成功，唤醒等待的future
-    request.callback_.set_value(true);
   }
 }
 

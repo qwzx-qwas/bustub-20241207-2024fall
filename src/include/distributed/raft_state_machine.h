@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "buffer/buffer_pool_manager.h"
 #include "catalog/catalog_snapshot.h"
 #include "common/state_visibility.h"
 #include "distributed/bustub_state_machine.h"
@@ -69,10 +70,19 @@ class BusTubSnapshotBundleCodec {
 };
 
 /** Formal RaftStateMachine adapter that owns replaceable canonical BusTub working state. */
+struct ObjectPageDeployment {
+  std::shared_ptr<NodeStorage> storage_;
+  ObjectPageOptions pages_;
+  BufferPoolOptions cache_;
+};
 class BusTubRaftStateMachine : public RaftStateMachine {
  public:
   static auto Open(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage = nullptr,
                    size_t buffer_pool_size = 128) -> std::shared_ptr<BusTubRaftStateMachine>;
+
+  static auto OpenObjectPages(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage,
+                              size_t buffer_pool_size, ObjectPageDeployment deployment)
+      -> std::shared_ptr<BusTubRaftStateMachine>;
 
   void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const override;
   void Apply(const ReplicatedLogEntry &entry) override;
@@ -108,6 +118,7 @@ class BusTubRaftStateMachine : public RaftStateMachine {
                         const std::vector<std::byte> &session_bytes, const std::filesystem::path &directory)
       -> std::unique_ptr<WorkingState>;
 
+  std::optional<ObjectPageDeployment> page_deployment_;
   NodeDirectory *node_directory_;
   std::shared_ptr<DurableStorage> storage_;
   size_t buffer_pool_size_;

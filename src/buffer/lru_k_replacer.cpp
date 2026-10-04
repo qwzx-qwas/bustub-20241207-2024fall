@@ -22,9 +22,19 @@ LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_fra
 }
 // 找出应被淘汰的frame（具有最大向后k距离的frame），没有就返回std::nullopt
 auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
-  // 加锁
   std::lock_guard<std::mutex> lock(latch_);
-
+  auto victim = CandidateLocked();
+  if (victim) {
+    node_store_.erase(*victim);
+    --curr_size_;
+  }
+  return victim;
+}
+auto LRUKReplacer::Candidate() -> std::optional<frame_id_t> {
+  std::lock_guard<std::mutex> lock(latch_);
+  return CandidateLocked();
+}
+auto LRUKReplacer::CandidateLocked() -> std::optional<frame_id_t> {
   // 遍历 node_store_，找出具有最大向后 k 距离的 frame
   frame_id_t evict_frame_id = -1;
   size_t max_k_distance = 0;
@@ -67,12 +77,7 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
     }
   }
 
-  if (evict_frame_id != -1) {
-    node_store_.erase(evict_frame_id);
-    curr_size_ = std::max(curr_size_ - 1, static_cast<size_t>(0));
-    return evict_frame_id;
-  }
-  return std::nullopt;
+  return evict_frame_id == -1 ? std::nullopt : std::optional<frame_id_t>(evict_frame_id);
 }
 
 void LRUKReplacer::RecordAccess(frame_id_t frame_id, AccessType access_type) {

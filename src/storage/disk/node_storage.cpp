@@ -2,6 +2,7 @@
 // BusTub: F34 lifecycle ownership; F33 short, serialized state decisions.
 //===----------------------------------------------------------------------===//
 #include "storage/disk/node_storage.h"
+#include "common/config.h"
 
 #include <condition_variable>  // NOLINT(build/c++11)
 #include <mutex>               // NOLINT(build/c++11)
@@ -132,7 +133,8 @@ void RequireDurable(const JournalResult &result) {
 // mutex. A failed Open instance is discarded before explicit Create.
 auto OpenObjects(BootstrapStore &bootstrap, IOExecutor &executor, MetadataEngine &metadata,
                  const ObjectStorageOptions &options, const std::optional<ObjectTransactionOptions> &transactions,
-                 const IOExecutorOptions &io_limits, bool initialize) -> std::unique_ptr<ObjectContext> {
+                 const IOExecutorOptions &io_limits, size_t external_bytes, bool initialize)
+    -> std::unique_ptr<ObjectContext> {
   auto context = std::make_unique<ObjectContext>();
   context->regions_ = std::make_unique<RegionManager>(bootstrap);
   context->allocator_ = std::make_unique<DataAllocator>(metadata, options.allocator_);
@@ -156,9 +158,9 @@ auto OpenObjects(BootstrapStore &bootstrap, IOExecutor &executor, MetadataEngine
     RequireDurable(context->mapping_->Create());
   }
   context->references_ = std::make_unique<ObjectReferenceManager>(*context->mapping_, options.references_);
-  context->io_ =
-      std::make_unique<ObjectIO>(*context->regions_, executor, *context->allocator_, *context->mapping_,
-                                 *context->references_, options.max_read_bytes_, options.max_write_bytes_, io_limits);
+  context->io_ = std::make_unique<ObjectIO>(*context->regions_, executor, *context->allocator_, *context->mapping_,
+                                            *context->references_, options.max_read_bytes_, options.max_write_bytes_,
+                                            io_limits, external_bytes);
   if (transactions) {
     context->transactions_ = std::make_unique<ObjectTransactionPipeline>(*context->io_, *context->mapping_,
                                                                          *context->references_, *transactions);
@@ -303,8 +305,9 @@ struct NodeStorage::Impl {
       }
     }
     try {
-      auto objects = OpenObjects(*call.context_->bootstrap_, *call.context_->executor_, *call.context_->metadata_,
-                                 *options_.objects_, options_.transactions_, options_.io_, true);
+      auto objects =
+          OpenObjects(*call.context_->bootstrap_, *call.context_->executor_, *call.context_->metadata_,
+                      *options_.objects_, options_.transactions_, options_.io_, options_.external_buffer_bytes_, true);
       std::lock_guard<std::mutex> lock(mutex_);
       // Close may have begun: retain the completed stack for its ordered drain,
       // but never reopen admission or change the phase here.
@@ -350,7 +353,8 @@ struct NodeStorage::Impl {
     try {
       context = std::make_shared<StorageContext>();
       context->device_ = std::make_unique<BlockDevice>(options_.device_path_, options_.device_);
-      context->executor_ = std::make_unique<IOExecutor>(*context->device_, options_.io_);
+      context->executor_ =
+          std::make_unique<IOExecutor>(*context->device_, options_.io_, options_.external_buffer_bytes_);
       context->bootstrap_ = std::make_unique<BootstrapStore>(*context->executor_);
       if (layout != nullptr) {
         if (layout->identity_.storage_ != options_.identity_.storage_ ||
@@ -377,8 +381,9 @@ struct NodeStorage::Impl {
       }
       if (options_.objects_) {
         try {
-          context->objects_ = OpenObjects(*context->bootstrap_, *context->executor_, *context->metadata_,
-                                          *options_.objects_, options_.transactions_, options_.io_, layout != nullptr);
+          context->objects_ =
+              OpenObjects(*context->bootstrap_, *context->executor_, *context->metadata_, *options_.objects_,
+                          options_.transactions_, options_.io_, options_.external_buffer_bytes_, layout != nullptr);
         } catch (const AllocationError &error) {
           if (layout != nullptr || error.Code() != AllocationErrorCode::NotInitialized) {
             throw;
@@ -622,6 +627,31 @@ auto NodeStorage::ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key
 auto NodeStorage::ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length)
     -> ObjectRead {
   return impl_->ObjectCall([&](ObjectContext &c, uint64_t) { return c.io_->Read(base, key, offset, length); });
+}
+auto NodeStorage::ReadObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
+                                 ObjectReadTarget target) -> ObjectRead {
+  return impl_->ObjectCall(
+      [&](ObjectContext &c, uint64_t) { return c.io_->ReadInto(base, key, offset, length, std::move(target)); });
+}
+auto NodeStorage::PageIO() const -> PageIOCapabilities {
+  const auto &o = impl_->options_;
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t) {
+    if (!o.transactions_ || o.external_buffer_bytes_ < BUSTUB_PAGE_SIZE) {
+      throw std::invalid_argument("page backend requires Common and external frame budget");
+    }
+    const auto info = c.regions_->Describe(c.regions_->Region(RegionKind::Data));
+    const auto unit = o.objects_->allocator_.allocation_bytes_;
+    const auto rounded = (BUSTUB_PAGE_SIZE + unit - 1) / unit * unit;
+    const auto stride =
+        (BUSTUB_PAGE_SIZE + info.memory_alignment_ - 1) / info.memory_alignment_ * info.memory_alignment_;
+    const auto charge = stride + BUSTUB_PAGE_SIZE + 2 * unit;
+    const auto limit = std::min({o.io_.max_operations_, o.transactions_->max_operations_,
+                                 static_cast<size_t>(o.external_buffer_bytes_ / stride),
+                                 static_cast<size_t>(o.transactions_->max_request_bytes_ / BUSTUB_PAGE_SIZE),
+                                 static_cast<size_t>(o.transactions_->max_pending_bytes_ / charge),
+                                 static_cast<size_t>(o.objects_->max_write_bytes_ / rounded)});
+    return PageIOCapabilities{info.memory_alignment_, limit, o.objects_->max_read_bytes_, o.objects_->max_write_bytes_};
+  });
 }
 auto NodeStorage::WriteObjectData(const void *source, size_t size) -> ObjectWrite {
   return impl_->ObjectCall([&](ObjectContext &c, uint64_t) { return c.io_->Write(source, size); });

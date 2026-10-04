@@ -55,6 +55,11 @@ struct ObjectTransactionData {
   }
   void Finish(JournalResult result) {
     std::lock_guard<std::mutex> lock(mutex_);
+    for (auto &op : input_.objects_) {
+      op.source_.reset();  // Release frame permission before publishing completion.
+      std::vector<std::byte>().swap(op.bytes_);
+    }
+    bytes_.clear();
     result_ = std::move(result);
     done_.notify_all();
   }
@@ -71,7 +76,7 @@ struct ObjectTransactionData {
   Step step_{Step::Pending};  // Written only by the coordinator.
   std::optional<ObjectMappingSnapshot> view_;
   std::vector<ObjectChange> changes_;
-  std::vector<std::vector<std::byte>> bytes_;
+  std::vector<CommonInput> bytes_;
   std::vector<std::array<std::optional<ObjectRead>, 2>> reads_;
   std::vector<std::array<bool, 2>> read_done_;
   std::vector<bool> assembled_;
@@ -164,18 +169,23 @@ struct ObjectTransactionPipeline::Impl {
         throw std::invalid_argument("invalid or repeated object in transaction");
       }
       const bool write = op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append;
-      if ((write == op.bytes_.empty()) || (op.operation_ == ObjectOperation::Append && op.offset_ != 0) ||
+      if ((write == (op.Size() == 0)) || (op.operation_ == ObjectOperation::Append && op.offset_ != 0) ||
           (op.operation_ == ObjectOperation::Remove && op.offset_ != 0)) {
         throw std::invalid_argument("object operation has incompatible input");
       }
       if (op.operation_ < ObjectOperation::Create || op.operation_ > ObjectOperation::Remove) {
         throw std::invalid_argument("unknown object operation");
       }
-      account(op.bytes_.size());
+      if (op.source_ && (!op.bytes_.empty() || !op.source_->data_ || !op.source_->owner_ ||
+                         op.source_->size_ > op.source_->capacity_)) {
+        throw std::invalid_argument("invalid borrowed object source");
+      }
+      account(op.Size());
       // Charge the moved input's retained capacity, plus worst-case assembly.
       // F02 owns its separate IO-buffer budget; operation/result slots are bounded
       // independently by max_requests/max_operations.
-      charge = End(charge, End(op.bytes_.capacity(), write ? End(op.bytes_.size(), End(unit_, unit_)) : 0));
+      charge = End(charge, End((op.source_ ? op.source_->capacity_ : op.bytes_.capacity()),
+                               write ? End(op.Size(), End(unit_, unit_)) : 0));
     }
     for (const auto &control : input.controls_) {
       if (control.owner_.space_ == 0 || control.owner_.space_ >= (uint64_t{1} << 56) ||
@@ -185,6 +195,9 @@ struct ObjectTransactionPipeline::Impl {
       const auto size = control.value_ ? control.value_->size() : 0;
       account(size);
       charge = End(charge, control.value_ ? control.value_->capacity() : 0);
+    }
+    if (charge > options_.max_pending_bytes_) {
+      throw std::invalid_argument("one object transaction exceeds pending byte budget");
     }
     auto task = std::make_shared<ObjectTransactionData>();
     task->charge_ = charge;
@@ -226,13 +239,13 @@ struct ObjectTransactionPipeline::Impl {
     task.bytes_.clear();
     for (const auto &op : task.input_.objects_) {
       ObjectChange change{op.operation_, op.object_, 0, op.offset_, op.offset_, op.mode_, {}};
-      std::vector<std::byte> bytes;
+      CommonInput bytes;
       if (op.operation_ != ObjectOperation::Create) {
         const auto info = task.view_->Describe(op.object_);
         change.version_ = info.version_;
         if (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append) {
           change.offset_ = op.operation_ == ObjectOperation::Append ? info.size_ : op.offset_;
-          const auto end = End(change.offset_, op.bytes_.size());
+          const auto end = End(change.offset_, op.Size());
           if (info.mode_ == ObjectSizeMode::Fixed && end > info.size_) {
             throw std::invalid_argument("write exceeds fixed object size");
           }
@@ -245,7 +258,12 @@ struct ObjectTransactionPipeline::Impl {
           if (change.length_ > options_.max_request_bytes_ + 2 * unit_) {
             throw std::invalid_argument("object assembly exceeds request budget");
           }
-          bytes.resize(change.length_);  // Holes/new suffix start initialized to zero.
+          if (op.source_ && change.offset_ == (op.operation_ == ObjectOperation::Append ? info.size_ : op.offset_) &&
+              change.length_ == op.Size() && change.length_ % unit_ == 0) {
+            bytes.source_ = op.source_;
+          } else {
+            bytes.owned_.resize(change.length_);  // Explicit preservation/padding buffer.
+          }
         }
       }
       task.changes_.push_back(std::move(change));
@@ -265,7 +283,7 @@ struct ObjectTransactionPipeline::Impl {
       auto &bytes = task.bytes_[i];
       const auto &op = task.input_.objects_[i];
       const auto &change = task.changes_[i];
-      if (bytes.empty()) {
+      if (bytes.Size() == 0 || bytes.source_) {
         task.assembled_[i] = true;
         continue;
       }
@@ -274,7 +292,7 @@ struct ObjectTransactionPipeline::Impl {
       std::array<std::pair<uint64_t, uint64_t>, 2> edges{};
       {
         const auto prefix_end = std::min(target, info.size_);
-        const auto written_end = target + op.bytes_.size();
+        const auto written_end = target + op.Size();
         const auto preserved_end = std::min(change.offset_ + change.length_, info.size_);
         if (prefix_end > change.offset_) {
           edges[0] = {change.offset_, prefix_end - change.offset_};
@@ -302,7 +320,7 @@ struct ObjectTransactionPipeline::Impl {
         }
         if (read->WaitFor(std::chrono::milliseconds(0))) {
           const auto destination = edges[part].first - change.offset_;
-          read->CopyTo(bytes.data() + destination, bytes.size() - destination);
+          read->CopyTo(bytes.owned_.data() + destination, bytes.owned_.size() - destination);
           read.reset();
           task.read_done_[i][part] = true;
         }
@@ -311,7 +329,7 @@ struct ObjectTransactionPipeline::Impl {
         complete = false;
         continue;
       }
-      std::memcpy(bytes.data() + (target - change.offset_), op.bytes_.data(), op.bytes_.size());
+      std::memcpy(bytes.owned_.data() + (target - change.offset_), op.Data(), op.Size());
       task.assembled_[i] = true;
     }
     return complete;
@@ -427,10 +445,19 @@ struct ObjectTransactionPipeline::Impl {
           if (!task->write_.durable_) {
             throw std::logic_error("metadata commit requires completed data dependencies");
           }
-          const auto base = mapping_.Read();
-          result = ObjectMappingAccess::Apply(mapping_, base, task->changes_,
-                                              task->write_.reservation_ ? &*task->write_.reservation_ : nullptr,
-                                              task->input_.controls_);
+          for (;;) {
+            try {
+              const auto base = mapping_.Read();
+              result = ObjectMappingAccess::Apply(mapping_, base, task->changes_,
+                                                  task->write_.reservation_ ? &*task->write_.reservation_ : nullptr,
+                                                  task->input_.controls_);
+              break;
+            } catch (const MetadataViewConflict &) {
+              // Rebuild mapping/allocation mutations, rechecking every object
+              // version. Never repeat data IO or retry an uncertain commit.
+              std::this_thread::sleep_for(options_.retry_interval_);
+            }
+          }
           if (result.outcome_ != JournalOutcome::Durable) {
             RecordError(result.error_);
           }

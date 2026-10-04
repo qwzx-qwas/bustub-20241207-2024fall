@@ -54,6 +54,14 @@ class MetadataError : public std::runtime_error {
   MetadataErrorCode code_;
 };
 
+/** Commit rejected a stale base before any WAL IO. Callers may rebuild their
+ * mutations against a fresh view. This is distinct from a changed object's
+ * semantic version conflict, which must not be retried with an obsolete plan. */
+class MetadataViewConflict final : public MetadataError {
+ public:
+  MetadataViewConflict() : MetadataError(MetadataErrorCode::Conflict, "stale or foreign metadata view") {}
+};
+
 enum class MetadataWritebackOutcome { Clean, Durable, Failed };
 
 struct MetadataWritebackResult {

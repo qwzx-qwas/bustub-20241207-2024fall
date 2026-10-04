@@ -97,6 +97,10 @@ class LRUKReplacer {
    * @return true if a frame is evicted successfully, false if no frames can be evicted.
    */
   auto Evict() -> std::optional<frame_id_t>;
+  /** Advisory victim without removing its history. Caller validates residency
+   * and pin under its own frame lock, then Remove. Concurrent hits may invalidate
+   * the candidate; a rejected candidate retains its original LRU-K history. */
+  auto Candidate() -> std::optional<frame_id_t>;
 
   /**
    * TODO(P1): Add implementation
@@ -161,6 +165,7 @@ class LRUKReplacer {
   auto Size() -> size_t;
 
  private:
+  auto CandidateLocked() -> std::optional<frame_id_t>;
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
   // 用于记录每个frame的访问历史，key是frame_id，value是对应的LRUKNode（记录访问历史）

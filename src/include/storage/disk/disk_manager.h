@@ -179,7 +179,7 @@ class DiskManager {
   /** @brief 返回日志文件名 */
 
  protected:
-  auto GetFileSize(const std::string &file_name) -> int;
+  auto GetFileSize(const std::string &file_name) -> int64_t;
   // stream to write log file
   // 用于写入日志文件的流
   std::fstream log_io_;

@@ -35,10 +35,16 @@ struct DistributedPeerConfig {
   TcpEndpoint client_endpoint_;
 };
 
+struct PageCacheDeployment {
+  uint32_t pages_per_object_;
+  BufferPoolOptions cache_;
+};
 struct RaftObjectDeployment {
   NodeStorageOptions storage_;
   uint64_t space_;
   RaftObjectOptions raft_;
+  // Object nodes require explicit A page geometry/cache budgets from S9.1c.
+  std::optional<PageCacheDeployment> pages_{std::nullopt};
 };
 
 struct DistributedNodeConfig {

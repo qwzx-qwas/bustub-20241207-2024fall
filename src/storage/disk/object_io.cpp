@@ -85,6 +85,9 @@ struct ObjectReadData {
   size_t size_{0};
   std::vector<Piece> pieces_;
   std::optional<IOBatch> batch_;
+  std::optional<ObjectReadTarget> target_;
+  bool external_{false};
+  bool finished_{false};
 };
 struct ObjectWriteData {
   std::shared_ptr<ObjectIOState> owner_;
@@ -106,7 +109,28 @@ void ObjectRead::Wait() const {
 auto ObjectRead::WaitFor(std::chrono::milliseconds timeout) const -> bool {
   return !data_->batch_ || data_->batch_->WaitFor(timeout);
 }
+void ObjectRead::Finish() const {
+  if (!data_->target_) {
+    throw std::logic_error("Finish requires a read target");
+  }
+  if (data_->finished_) {
+    return;
+  }
+  Wait();
+  if (data_->external_) {
+    if (data_->batch_) {
+      Successful(data_->batch_->Result());
+    }
+  } else {
+    CopyTo(data_->target_->data_, data_->target_->capacity_);
+  }
+  data_->finished_ = true;
+  data_->target_->owner_.reset();
+}
 void ObjectRead::CopyTo(void *destination, size_t capacity) const {
+  if (data_->external_) {
+    throw std::logic_error("external read uses Finish");
+  }
   if (capacity < Size() || (Size() != 0 && destination == nullptr)) {
     throw std::invalid_argument("object read destination is too small");
   }
@@ -134,7 +158,7 @@ auto ObjectWrite::Result() const -> const IOBatchResult & { return data_->batch_
 
 ObjectIO::ObjectIO(RegionManager &regions, IOExecutor &executor, DataAllocator &allocator, ObjectMappingStore &mapping,
                    ObjectReferenceManager &references, uint64_t max_read_bytes, uint64_t max_write_bytes,
-                   const IOExecutorOptions &io_limits)
+                   const IOExecutorOptions &io_limits, size_t external_bytes)
     : regions_(regions),
       executor_(executor),
       allocator_(allocator),
@@ -144,6 +168,7 @@ ObjectIO::ObjectIO(RegionManager &regions, IOExecutor &executor, DataAllocator &
       max_read_bytes_(max_read_bytes),
       max_write_bytes_(max_write_bytes),
       io_limits_(io_limits),
+      external_bytes_(external_bytes),
       state_(std::make_shared<ObjectIOState>()) {
   if (max_read_bytes == 0 || max_write_bytes == 0) {
     throw std::invalid_argument("object IO requires positive request budgets");
@@ -200,6 +225,76 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
   }
   return ObjectRead(std::move(data));
 }
+void ObjectIO::CheckExternalBudget(const std::vector<RegionIORequest> &requests, size_t capacity) const {
+  if (requests.size() > io_limits_.max_operations_ || capacity > external_bytes_) {
+    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "external object IO exceeds configured capacity");
+  }
+}
+auto ObjectIO::ReadInto(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
+                        ObjectReadTarget target) -> ObjectRead {
+  if (!target.owner_ || !target.data_ || length > target.capacity_ || length > max_read_bytes_) {
+    throw std::invalid_argument("invalid object read target or request budget");
+  }
+  auto activity = std::make_shared<Activity>(state_);
+  activity->read_.emplace(references_.ProtectRead(view, key, offset, length));
+  std::vector<RegionIORequest> requests;
+  std::vector<IOBufferLease> leases;
+  const auto info = regions_.Describe(region_);
+  size_t cursor = 0;
+  bool direct = true;
+  const auto &spans = activity->read_->Spans();
+  const bool holes = std::any_of(spans.begin(), spans.end(), [](const auto &s) { return !s.data_; });
+  const bool payload = std::any_of(spans.begin(), spans.end(), [](const auto &s) { return s.data_.has_value(); });
+  if (holes && payload) {
+    direct = false;
+  }
+  for (const auto &span : spans) {
+    auto *out = static_cast<char *>(target.data_) + cursor;
+    if (span.data_) {
+      if (span.data_->offset_ % info.offset_alignment_ || span.size_ % info.offset_alignment_ ||
+          reinterpret_cast<uintptr_t>(out) % info.memory_alignment_) {
+        direct = false;
+        break;
+      }
+      requests.push_back({region_, IOOperation::Read, span.data_->offset_, span.size_});
+      const auto capacity = &span == &spans.back() ? target.capacity_ - cursor : span.size_;
+      leases.push_back(IOBufferLease::ForRead(out, capacity, [owner = target.owner_] {}));
+    }
+    cursor += span.size_;
+  }
+  if (!direct) {
+    // Physical edge alignment genuinely requires a working buffer. The caller
+    // completes the copy before releasing its parent page content permission.
+    auto read = Read(view, key, offset, length);
+    read.data_->target_ = std::move(target);
+    return read;
+  }
+  auto data = std::make_unique<ObjectReadData>();
+  data->size_ = cursor;
+  data->external_ = true;
+  data->target_ = target;
+  cursor = 0;
+  for (const auto &span : activity->read_->Spans()) {
+    if (!span.data_) {
+      std::memset(static_cast<char *>(target.data_) + cursor, 0, span.size_);
+    }
+    cursor += span.size_;
+  }
+  if (!requests.empty()) {
+    // Capacity budgets include the retained frame even when holes use no IO.
+    CheckExternalBudget(requests, target.capacity_);
+    if (requests.size() == 1 && cursor == length && requests[0].size_ == length) {
+      leases.clear();
+      leases.push_back(IOBufferLease::ForRead(target.data_, target.capacity_, [owner = target.owner_] {}));
+    }
+    auto prepared = regions_.TryPrepareExternal(requests, leases, false);
+    Accepted(prepared.admission_);
+    data->batch_ = std::move(prepared.batch_);
+    data->batch_->RetainUntilComplete([activity](const IOBatchResult &r) { activity->Complete(r); });
+    Accepted(executor_.TrySubmit(*data->batch_));
+  }
+  return ObjectRead(std::move(data));
+}
 auto ObjectIO::Write(const void *source, size_t size) -> ObjectWrite {
   if (source == nullptr || size == 0) {
     throw std::invalid_argument("object data write requires nonempty bytes");
@@ -252,7 +347,7 @@ auto ObjectIO::Error() const -> std::exception_ptr {
   std::lock_guard<std::mutex> lock(state_->mutex_);
   return state_->error_;
 }
-auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector<std::vector<std::byte>> &bytes,
+auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector<CommonInput> &bytes,
                            std::function<void()> ready) -> CommonDataWrite {
   CommonDataWrite data;
   auto activity = std::make_shared<Activity>(state_);
@@ -281,7 +376,7 @@ auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector
   for (size_t i = 0; i < changes->size(); ++i) {
     auto &op = (*changes)[i];
     op.extents_.clear();
-    if (bytes[i].empty()) {
+    if (bytes[i].Size() == 0) {
       continue;
     }
     uint64_t remaining = (op.length_ + unit - 1) / unit * unit;
@@ -291,7 +386,7 @@ auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector
       const auto take = std::min(remaining, owned.Size() - used);
       op.extents_.push_back(*StorageByteRange::Create(owned.Offset() + used, take));
       requests.push_back({region_, IOOperation::Write, owned.Offset() + used, take});
-      const auto payload = std::min<uint64_t>(take, bytes[i].size() - cursor);
+      const auto payload = std::min<uint64_t>(take, bytes[i].Size() - cursor);
       slices.push_back({i, cursor, static_cast<size_t>(payload)});
       cursor += payload;
       remaining -= take;
@@ -306,15 +401,43 @@ auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector
     data.durable_ = true;  // Metadata-only request, no data Flush to invent.
     return data;
   }
-  CheckBatchBudget(requests);
-  auto prepared = regions_.TryPrepare(requests, true);
-  Accepted(prepared.admission_);
-  data.batch_ = std::move(prepared.batch_);
-  for (size_t i = 0; i < requests.size(); ++i) {
-    auto *buffer = data.batch_->Buffer(i);
+  bool external = true;
+  size_t capacity = 0;
+  for (size_t i = 0; i < slices.size(); ++i) {
     const auto &slice = slices[i];
-    std::memcpy(buffer, bytes[slice.input_].data() + slice.offset_, slice.length_);
-    std::memset(buffer + slice.length_, 0, requests[i].size_ - slice.length_);
+    const auto &input = bytes[slice.input_];
+    external =
+        external && input.source_ && slice.length_ == requests[i].size_ &&
+        (reinterpret_cast<uintptr_t>(input.Data()) + slice.offset_) % executor_.DeviceInfo().memory_alignment_ == 0;
+    capacity += input.source_ && slice.offset_ + slice.length_ == input.Size()
+                    ? input.source_->capacity_ - slice.offset_
+                    : requests[i].size_;
+  }
+  if (external) {
+    CheckExternalBudget(requests, capacity);
+    std::vector<IOBufferLease> leases;
+    for (size_t i = 0; i < slices.size(); ++i) {
+      const auto &slice = slices[i];
+      const auto &input = bytes[slice.input_];
+      leases.push_back(IOBufferLease::ForWrite(
+          static_cast<const char *>(input.Data()) + slice.offset_,
+          slice.offset_ + slice.length_ == input.Size() ? input.source_->capacity_ - slice.offset_ : requests[i].size_,
+          [owner = input.source_->owner_] {}));
+    }
+    auto prepared = regions_.TryPrepareExternal(requests, leases, true);
+    Accepted(prepared.admission_);
+    data.batch_ = std::move(prepared.batch_);
+  } else {
+    CheckBatchBudget(requests);
+    auto prepared = regions_.TryPrepare(requests, true);
+    Accepted(prepared.admission_);
+    data.batch_ = std::move(prepared.batch_);
+    for (size_t i = 0; i < requests.size(); ++i) {
+      auto *buffer = data.batch_->Buffer(i);
+      const auto &slice = slices[i];
+      std::memcpy(buffer, static_cast<const char *>(bytes[slice.input_].Data()) + slice.offset_, slice.length_);
+      std::memset(buffer + slice.length_, 0, requests[i].size_ - slice.length_);
+    }
   }
   data.batch_->RetainUntilComplete([activity](const IOBatchResult &result) { activity->Complete(result); },
                                    std::move(ready));

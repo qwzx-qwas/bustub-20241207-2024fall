@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <deque>
 #include <filesystem>
+#include <thread>
 
 #include "buffer/buffer_pool_manager.h"
 #include "gtest/gtest.h"

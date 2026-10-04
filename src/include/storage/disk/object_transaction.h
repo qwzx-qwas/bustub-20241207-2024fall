@@ -13,12 +13,23 @@
 
 namespace bustub {
 enum class ObjectOperation { Create, Write, Append, Resize, Remove };
+/** Stable immutable source. Owner retains both memory and permission to read it
+ * through Common publication. The caller must not mutate the bytes meanwhile. */
+struct ObjectWriteSource {
+  const void *data_;
+  size_t size_;
+  size_t capacity_;
+  std::shared_ptr<void> owner_;
+};
 struct ObjectMutation {
   ObjectOperation operation_;
   ObjectKey object_;
   uint64_t offset_;               // Write offset; Create/Resize length; zero for Append/Remove.
   ObjectSizeMode mode_;           // Used only by Create.
   std::vector<std::byte> bytes_;  // Nonempty only for Write/Append.
+  std::optional<ObjectWriteSource> source_{std::nullopt};  // Alternative to owned input.
+  auto Size() const -> size_t { return source_ ? source_->size_ : bytes_.size(); }
+  auto Data() const -> const void * { return source_ ? source_->data_ : bytes_.data(); }
 };
 struct ObjectControlMutation {
   ObjectKey owner_;

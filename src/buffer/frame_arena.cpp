@@ -31,12 +31,20 @@ struct FrameArena::Impl {
                 layout_.os_page_bytes_) {
     if (!options.advise_huge_pages_) {
       memory_.UseBasePages();
-    } else if (madvise(memory_.Base(), memory_.Size(), MADV_HUGEPAGE) != 0) {
+    }
+#ifdef MADV_HUGEPAGE
+    else if (madvise(memory_.Base(), memory_.Size(), MADV_HUGEPAGE) != 0) {
       layout_.huge_page_advice_ = HugePageAdvice::Unavailable;
       layout_.advice_error_ = errno;
     } else {
       layout_.huge_page_advice_ = HugePageAdvice::Accepted;
     }
+#else
+    else {
+      layout_.huge_page_advice_ = HugePageAdvice::Unavailable;
+      layout_.advice_error_ = ENOTSUP;
+    }
+#endif
   }
 
   FrameArenaLayout layout_;

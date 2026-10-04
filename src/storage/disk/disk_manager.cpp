@@ -123,12 +123,14 @@ void DiskManager::WritePage(page_id_t page_id, const char *page_data) {
   db_io_.write(page_data, BUSTUB_PAGE_SIZE);
 
   if (db_io_.bad()) {
-    LOG_DEBUG("I/O error while writing");
-    return;
+    throw std::runtime_error("database page write failed");
   }
 
   // Flush the write to disk.
   db_io_.flush();
+  if (!db_io_) {
+    throw std::runtime_error("database page flush failed");
+  }
 }
 
 /**
@@ -136,12 +138,11 @@ void DiskManager::WritePage(page_id_t page_id, const char *page_data) {
  */
 void DiskManager::ReadPage(page_id_t page_id, char *page_data) {
   std::scoped_lock scoped_db_io_latch(db_io_latch_);
-  int offset = page_id * BUSTUB_PAGE_SIZE;
+  const auto offset = static_cast<std::streamoff>(page_id) * BUSTUB_PAGE_SIZE;
 
   // Check if we have read beyond the file length.
   if (offset > GetFileSize(file_name_)) {
-    LOG_DEBUG("I/O error: Read past the end of file at offset %d", offset);
-    return;
+    throw std::runtime_error("database page read past file end");
   }
 
   // Set the read cursor to the page offset.
@@ -149,14 +150,13 @@ void DiskManager::ReadPage(page_id_t page_id, char *page_data) {
   db_io_.read(page_data, BUSTUB_PAGE_SIZE);
 
   if (db_io_.bad()) {
-    LOG_DEBUG("I/O error while reading");
-    return;
+    throw std::runtime_error("database page read failed");
   }
 
   // Check if the file ended before we could read a full page.
   int read_count = db_io_.gcount();
   if (read_count < BUSTUB_PAGE_SIZE) {
-    LOG_DEBUG("I/O error: Read hit the end of file at offset %d, missing %d bytes", offset,
+    LOG_DEBUG("I/O error: Read hit the end of file at offset %lld, missing %d bytes", static_cast<long long>(offset),
               BUSTUB_PAGE_SIZE - read_count);
     db_io_.clear();
     memset(page_data + read_count, 0, BUSTUB_PAGE_SIZE - read_count);
@@ -254,10 +254,10 @@ auto DiskManager::GetNumDeletes() const -> int { return num_deletes_; }
 /**
  * Private helper function to get disk file size
  */
-auto DiskManager::GetFileSize(const std::string &file_name) -> int {
+auto DiskManager::GetFileSize(const std::string &file_name) -> int64_t {
   struct stat stat_buf;
   int rc = stat(file_name.c_str(), &stat_buf);
-  return rc == 0 ? static_cast<int>(stat_buf.st_size) : -1;
+  return rc == 0 ? static_cast<int64_t>(stat_buf.st_size) : -1;
 }
 
 }  // namespace bustub

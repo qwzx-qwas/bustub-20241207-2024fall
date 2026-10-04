@@ -1,39 +1,8 @@
 {
-  "task": "F26/S9.1b",
-  "source_archives": [
-    "test/archives/F26-array-buffer-pool.tar.gz"
-  ],
-  "result_archives": [
-    "test-results/storage-f26-s9b-20261004/F26-results.tar.gz"
-  ],
-  "temporary_tree_removed": true,
-  "old_f26_archives": [],
-  "other_valid_source_archives_unchanged": 19,
-  "no_permanent_stage_tests_added": true,
-  "result_archive_ignored_by_existing_rules": true,
-  "production_stage": "b foundations; c default migration not implemented",
-  "review": "2026-10-04 ordinary-memory compatibility and test oracle review",
-  "old_source_and_result_archives_replaced": true,
-  "stage_tests": 5,
-  "assertion_detected_mutations": 11,
-  "latest_review": {
-    "date": "2026-10-04",
-    "production_and_test_code_changed": false,
-    "tests_reexecuted": false,
-    "result_updated_for_documentation_only": true,
-    "source_archive_unchanged_sha256": "6323f6dce70c7bb7bc88d9f687bff013f5dabd9adf427a370db44d04d98cfc98",
-    "temporary_test_tree_created": false
-  },
-  "pre_commit_audit": {
-    "date": "2026-10-04",
-    "scope": "S9.1b pre-commit audit",
-    "production_and_test_hashes_verified": true,
-    "source_archive_sha256": "6323f6dce70c7bb7bc88d9f687bff013f5dabd9adf427a370db44d04d98cfc98",
-    "source_archive_changed": false,
-    "archived_test_cases": 5,
-    "archived_mutations": 11,
-    "tests_reexecuted": false,
-    "plan_corrections": "Four stale references to nine mutations updated to eleven",
-    "next_stage": "S9.1c awaits user confirmation"
-  }
+  "stage": "S9.1b",
+  "status": "superseded by S9.1c",
+  "old_result_archive_removed": true,
+  "current_result": "test-results/storage-f26-s9c-20261004/F26-results.tar.gz",
+  "current_source": "test/archives/F26-array-buffer-pool.tar.gz",
+  "no_old_f26_backup": true
 }

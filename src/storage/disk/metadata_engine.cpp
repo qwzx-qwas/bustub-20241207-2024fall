@@ -1197,7 +1197,7 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
       throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata checkpoint is excluding modifications");
     }
     if (base.version_ != s.published_) {
-      throw MetadataError(MetadataErrorCode::Conflict, "stale or foreign metadata view");
+      throw MetadataViewConflict();
     }
   }
   if (mutations.empty()) {
