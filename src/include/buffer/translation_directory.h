@@ -35,16 +35,17 @@ class TranslationAccess {
 
  private:
   friend class TranslationDirectory;
-  TranslationAccess(std::shared_ptr<TranslationDirectoryState> owner, TranslationGroup *group, TranslationEntry *entry,
-                    std::shared_lock<std::shared_mutex> gate);
+  TranslationAccess(std::shared_ptr<TranslationDirectoryState> owner, uint32_t page, TranslationGroup *group,
+                    TranslationEntry *entry, std::shared_lock<std::shared_mutex> gate);
   std::shared_ptr<TranslationDirectoryState> owner_;
+  uint32_t page_;
   TranslationGroup *group_;
   TranslationEntry *entry_;
   std::shared_lock<std::shared_mutex> gate_;
 };
 
 struct TranslationDirectoryOptions {
-  // Owned directory/control allocations + materialized OS pages. Leaf virtual
+  // Owned directory/control/path-cache allocations + materialized OS pages. Leaf virtual
   // reservations and kernel page tables are not falsely counted as resident RAM.
   size_t max_bytes_;
 };
@@ -63,6 +64,9 @@ class TranslationDirectory {
   auto operator=(const TranslationDirectory &) -> TranslationDirectory & = delete;
 
   auto Access(page_id_t page) -> TranslationAccess;
+  /** Bounded maintenance at a BufferPool call boundary, before taking entry or
+   * frame rights. Busy groups are skipped; actual OS reclaim errors propagate. */
+  void Maintain();
 
  private:
   std::shared_ptr<TranslationDirectoryState> state_;

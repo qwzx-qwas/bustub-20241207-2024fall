@@ -1,6 +1,6 @@
 # 阶段测试源码归档
 
-2026-10-04（F26 / S9.1c）：[F26-array-buffer-pool.tar.gz](F26-array-buffer-pool.tar.gz) 已原位更新：4 项 RAM 基础＋5 项真实页路径，14 个定向变异；另原样复用课程 11 项与 S8 内容 8 项（只适配正式部署/后端）。ASan/UBSan/LSan 通过，9 项阶段场景通过 TSan。旧人工身份拼接测试删除，由真实页路径接管；旧 b 结果包删除，无备份。见 [八项审查](../../docs/storage_redesign/s9c_execution_20261004.md) 和 [结果/恢复](../../test-results/storage-f26-s9c-20261004/README.md)。c 已接通真实 PageGuard/对象 IO，d/e 未实施；源码仅压缩保存，无常驻阶段目标，其余有效归档原字节保留。
+2026-10-04（F26 / S9.1d）：[F26-array-buffer-pool.tar.gz](F26-array-buffer-pool.tar.gz) 已原位更新：4 项 RAM 基础＋6 项真实页路径，20 个定向变异；原内容复用课程 11 项与 S8 8 项（只沿用正式部署/后端适配）。29 个不同场景通过，阶段 10 项通过 TSan。PathCache/运行期 RAM 归还已实现；e/F36 未执行。源码仅压缩保存，无常驻阶段目标；旧 c 结果包删除，无备份，其他模块有效归档不改。见 [八项审查](../../docs/storage_redesign/s9d_execution_20261004.md) 和 [结果/恢复](../../test-results/storage-f26-s9d-20261004/README.md)。
 
 2026-10-03（S8；2026-10-04 测试契约复验）：更新 [S8-raft-object-stores.tar.gz](S8-raft-object-stores.tar.gz)。F23/F24/F25 共用 8 个真实对象后端场景，含 SQL/会话恢复、TCP 三节点 InstallSnapshot/重启；58 个相邻回归、10 个定向变异通过。T2 已删除控制根观察，验证公开额度下的合法后继写入；T8 在受限 Data 容量内验证 Store 退役→真实后台回收→新数据写入与重开，不再仅依赖删除计数；T6 去掉重复的重启前查询。生产代码未为本轮测试改动。见 [八项审查](../../docs/storage_redesign/s8_execution_20261003.md) 与 [结果](../../test-results/storage-s8-20261003/README.md)。只保留最终 S8 压缩版本，不注册常驻目标，不保留旧包/备份；S5 fixture 和其他有效模块包保持原样。
 
@@ -221,3 +221,5 @@ F12 再次复审修正合法分配粒度的夹具限制，补强隔离被旧 sna
 正式 NodeStorage/S7/B/Direct 文件路径，没有 production 测试 hook。小尾部追加采用 COW，F01 的 IO 对齐不能证明原地尾部写的掉电隔离。当前证据不是业务 SQL/Raft E2E、裸设备/真实掉电或性能基线；共同 C/P 内容未改、未重跑。
 
 F19 本次复审修复永久超限被无限重试的问题，并补强提交结果与恢复内容的一致性判据；10 项新集成＋46 项原回归、12 个变异完整重跑。F19 源码/结果包均原位替换，无旧包备份；原回归依赖保持不变。见 [审查 §9](../../docs/storage_redesign/s7_execution_20261002.md#9-再次复审进度保证与恢复判断2026-10-02)。
+
+2026-10-04 F26/d 再次审查：修复批量准备失败遗漏帧收尾，原 RAM 场景增加确定性准备失败和全部帧再使用判据；本轮重跑页 6、课程/S8 19、TSan 页 6、页变异 11。基础 4/9 个变异未改沿用；源码与结果原位替换，旧页运行证据不再作为当前结果保留。详见 [复审 §9](../../docs/storage_redesign/s9d_execution_20261004.md#9-再次审查批量准备失败的完整收尾)。

@@ -1,0 +1,40 @@
+{
+  "stage": "S9.1d review",
+  "audit": "docs/storage_redesign/s9d_execution_20261004.md#9",
+  "source_sha256": "fdb8e5324f465f10aa3eda81f90e1d5ed17e43ecb9711ec2109007494db69642",
+  "result_sha256": "a4619987c6f7040f28d691ccc3de598b3fef8f432dffead0a6a23076b03db877",
+  "source_archive_files": 6,
+  "result_archive_files": 188,
+  "old_b_c_results_removed": true,
+  "old_source_and_result_replaced_without_backup": true,
+  "other_valid_source_archives_unchanged": 19,
+  "unique_cases": 29,
+  "thread_sanitizer_cases": 10,
+  "assertion_detected_mutations": 20,
+  "this_review_cases": 25,
+  "this_review_tsan_cases": 6,
+  "this_review_mutations": 11,
+  "retained_foundation_cases": 4,
+  "retained_foundation_mutations": 9,
+  "temporary_review_tree_removed": true,
+  "no_permanent_stage_test_target": true,
+  "new_production_test_hooks": false,
+  "existing_gitignore_covers_result_archive": true,
+  "next_stage": "S9.1e not started",
+  "commit_requested_this_turn": true,
+  "temporary_builds_images_and_unpacked_tests_removed": true,
+  "source_result_and_dependency_hashes_verified": true,
+  "document_links_checked": true,
+  "latest_audit": {
+    "document": "docs/storage_redesign/s9d_execution_20261004.md#10",
+    "production_changed": false,
+    "test_sources_changed": false,
+    "new_test_executions": 0,
+    "existing_xml_and_hashes_verified": true,
+    "documentation_progress_corrections": [
+      "README F12/S6 owner and A page status",
+      "F14/S6 owner status"
+    ],
+    "commit_preparation": true
+  }
+}

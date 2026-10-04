@@ -21,19 +21,29 @@ namespace {
 class Call {
  public:
   explicit Call(BufferPoolState &s) : s_(s) {
-    std::lock_guard<std::mutex> lock(s_.mutex_);
-    if (s_.closed_) {
-      throw std::runtime_error("buffer pool is closed");
+    {
+      std::lock_guard<std::mutex> lock(s_.mutex_);
+      if (s_.closed_) {
+        throw std::runtime_error("buffer pool is closed");
+      }
+      ++s_.calls_;
     }
-    ++s_.calls_;
+    try {
+      s_.directory_.Maintain();
+    } catch (...) {
+      Finish();
+      throw;
+    }
   }
-  ~Call() {
+  ~Call() { Finish(); }
+
+ private:
+  void Finish() {
     std::lock_guard<std::mutex> lock(s_.mutex_);
     --s_.calls_;
     s_.changed_.notify_all();
   }
 
- private:
   BufferPoolState &s_;
 };
 void PageNumber(page_id_t p) {
@@ -208,7 +218,7 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
       throw std::overflow_error("frame reuse identity exhausted");
     }
     bool lost;
-    {
+    try {
       auto entry = directory_.Access(page);
       std::lock_guard<std::mutex> lock(f.mutex_);
       lost = entry.Frame().has_value();
@@ -221,6 +231,11 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
         f.task_ = loading;
         entry.SetFrame(f.id_);
       }
+    } catch (...) {
+      // A group may need to be rematerialized after the initial miss. Failure
+      // before registration must return this privately held, now-free frame.
+      Free(f.id_);
+      throw;
     }
     if (lost) {
       Free(f.id_);
@@ -384,62 +399,65 @@ void BufferPoolState::Flush(const std::vector<std::pair<page_id_t, uint64_t>> &p
     buffers.reserve(capacity);
     slots.reserve(capacity);
     domains.reserve(capacity);
-    while (cursor < pages.size() && held.size() < storage_->MaxBatchPages()) {
-      const auto page = pages[cursor].first;
-      const auto generation = pages[cursor].second;
-      auto slot = TrySlot();
-      if (!slot) {
-        if (!held.empty()) {
-          break;
-        }
-        std::unique_lock<std::mutex> lock(mutex_);
-        changed_.wait(lock, [&] { return tasks_ < max_tasks_; });
-        continue;
-      }
-      FrameHeader *f = nullptr;
-      std::unique_lock<std::mutex> content;
-      {
-        auto e = directory_.Access(page);
-        if (auto id = e.Frame()) {
-          f = frames_[*id].get();
-          content = std::unique_lock<std::mutex>(f->mutex_);
-        }
-      }
-      if (!f || f->generation_ != generation || f->page_ != page) {
-        ++cursor;
-        continue;
-      }
-      if (f->phase_ != FramePhase::Resident || f->writer_ || f->io_) {
-        if (!held.empty()) {
-          break;
-        }
-        const auto task = f->task_;
-        content.unlock();
-        slot.reset();
-        if (task) {
-          task->Wait();
-        } else {
-          content.lock();
-          f->changed_.wait(
-              content, [&] { return f->page_ != page || f->generation_ != generation || (!f->writer_ && !f->io_); });
-        }
-        continue;
-      }
-      const auto domain = storage_->WriteDomain(page);
-      if (std::find(domains.begin(), domains.end(), domain) != domains.end()) {
-        break;
-      }
-      domains.push_back(domain);
-      ++cursor;
-      ++f->pins_;
-      f->io_ = true;
-      replacer_.SetEvictable(f->id_, false);
-      held.push_back(f);
-      buffers.push_back(Buffer(*f));
-      slots.push_back(std::move(slot));
-    }
     std::exception_ptr error;
     try {
+      // Preparation can fail after earlier frames have been retained (for
+      // example, rematerializing an evicted page under directory pressure).
+      // Release the whole retained batch on either preparation or IO failure.
+      while (cursor < pages.size() && held.size() < storage_->MaxBatchPages()) {
+        const auto page = pages[cursor].first;
+        const auto generation = pages[cursor].second;
+        auto slot = TrySlot();
+        if (!slot) {
+          if (!held.empty()) {
+            break;
+          }
+          std::unique_lock<std::mutex> lock(mutex_);
+          changed_.wait(lock, [&] { return tasks_ < max_tasks_; });
+          continue;
+        }
+        FrameHeader *f = nullptr;
+        std::unique_lock<std::mutex> content;
+        {
+          auto e = directory_.Access(page);
+          if (auto id = e.Frame()) {
+            f = frames_[*id].get();
+            content = std::unique_lock<std::mutex>(f->mutex_);
+          }
+        }
+        if (!f || f->generation_ != generation || f->page_ != page) {
+          ++cursor;
+          continue;
+        }
+        if (f->phase_ != FramePhase::Resident || f->writer_ || f->io_) {
+          if (!held.empty()) {
+            break;
+          }
+          const auto task = f->task_;
+          content.unlock();
+          slot.reset();
+          if (task) {
+            task->Wait();
+          } else {
+            content.lock();
+            f->changed_.wait(
+                content, [&] { return f->page_ != page || f->generation_ != generation || (!f->writer_ && !f->io_); });
+          }
+          continue;
+        }
+        const auto domain = storage_->WriteDomain(page);
+        if (std::find(domains.begin(), domains.end(), domain) != domains.end()) {
+          break;
+        }
+        domains.push_back(domain);
+        ++cursor;
+        ++f->pins_;
+        f->io_ = true;
+        replacer_.SetEvictable(f->id_, false);
+        held.push_back(f);
+        buffers.push_back(Buffer(*f));
+        slots.push_back(std::move(slot));
+      }
       if (!buffers.empty()) {
         storage_->Write(buffers);
       }

@@ -1,3 +1,5 @@
+> 当前 F26 已由 [S9.1d 结果/恢复入口](../storage-f26-s9d-20261004/README.md) 接续；本目录旧结果压缩包已删除。以下为历史记录，不能按旧路径或旧哈希恢复当前测试。
+
 # F26 / S9.1c 真实页路径验证
 
 2026-10-04；基线 `8e16074` 加本轮生产/构建修改，精确恢复以源码包 MANIFEST 和本地结果包 source/ 为准。[执行与八项审查](../../docs/storage_redesign/s9c_execution_20261004.md) · [共同协议](../../docs/storage_redesign/s9_buffer_pool_protocol.md) · [当前源码包](../../test/archives/F26-array-buffer-pool.tar.gz) · [校验](SHA256SUMS)。
