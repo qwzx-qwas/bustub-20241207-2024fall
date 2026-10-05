@@ -402,7 +402,8 @@ struct DataAllocator::Impl {
 
   auto Change(const MetadataSnapshot &base, const std::vector<StorageByteRange> &ranges,
               const std::vector<MetadataMutation> &related, uint64_t owner, bool set,
-              AllocationReservationState *reservation) -> JournalResult {
+              AllocationReservationState *reservation, const std::vector<MetadataPayloadMutation> &payloads = {})
+      -> JournalResult {
     std::lock_guard<std::mutex> commit(commit_mutex_);
     auto &c = *context_;
     c.Validate(ranges);
@@ -459,7 +460,7 @@ struct DataAllocator::Impl {
     }
     // The base is deliberately not refreshed here. B owns conflict detection;
     // refreshing it without revalidating companion metadata would lose updates.
-    auto result = metadata_.Commit(base, mutations);
+    auto result = metadata_.Commit(base, mutations, payloads);
     std::lock_guard<std::mutex> lock(c.mutex_);
     if (result.outcome_ != JournalOutcome::Durable) {
       c.ready_ = false;
@@ -499,6 +500,11 @@ auto DataAllocator::Reserve(uint64_t bytes) -> DataReservation { return impl_->R
 auto DataAllocator::Commit(const MetadataSnapshot &base, DataReservation &reservation,
                            const std::vector<MetadataMutation> &related) -> JournalResult {
   return impl_->Change(base, reservation.Extents(), related, COMMITTED, true, reservation.state_.get());
+}
+auto DataAllocator::Commit(const MetadataSnapshot &base, DataReservation &reservation,
+                           const std::vector<MetadataMutation> &related,
+                           const std::vector<MetadataPayloadMutation> &payloads) -> JournalResult {
+  return impl_->Change(base, reservation.Extents(), related, COMMITTED, true, reservation.state_.get(), payloads);
 }
 auto DataAllocator::Release(const MetadataSnapshot &base, const std::vector<StorageByteRange> &ranges,
                             const std::vector<MetadataMutation> &related) -> JournalResult {

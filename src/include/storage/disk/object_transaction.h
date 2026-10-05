@@ -28,7 +28,8 @@ struct ObjectMutation {
   ObjectSizeMode mode_;           // Used only by Create.
   std::vector<std::byte> bytes_;  // Nonempty only for Write/Append.
   std::optional<ObjectWriteSource> source_{std::nullopt};  // Alternative to owned input.
-  uint64_t length_{0};  // Unmap only: remove a range without changing object length or erasing bytes.
+  uint64_t length_{0};       // Unmap only: remove a range without changing object length or erasing bytes.
+  bool common_only_{false};  // Log/snapshot writers avoid another full-body Journal copy.
   auto Size() const -> size_t { return source_ ? source_->size_ : bytes_.size(); }
   auto Data() const -> const void * { return source_ ? source_->data_ : bytes_.data(); }
 };
@@ -49,6 +50,9 @@ struct ObjectTransactionOptions {
   uint64_t max_pending_bytes_;
   std::chrono::milliseconds retry_interval_;
   std::chrono::milliseconds gc_interval_;
+  uint64_t deferred_max_bytes_{0};  // Explicit threshold on assembled object bytes; zero selects Common.
+  uint64_t deferred_pending_bytes_{0};
+  size_t deferred_pending_tasks_{0};
 };
 struct ObjectTransactionData;
 class ObjectTransactionPipeline;

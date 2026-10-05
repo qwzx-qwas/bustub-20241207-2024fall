@@ -97,6 +97,8 @@ class DataAllocator {
   auto Reserve(uint64_t bytes) -> DataReservation;
   auto Commit(const MetadataSnapshot &base, DataReservation &reservation, const std::vector<MetadataMutation> &related)
       -> JournalResult;
+  auto Commit(const MetadataSnapshot &base, DataReservation &reservation, const std::vector<MetadataMutation> &related,
+              const std::vector<MetadataPayloadMutation> &payloads) -> JournalResult;
   auto Release(const MetadataSnapshot &base, const std::vector<StorageByteRange> &ranges,
                const std::vector<MetadataMutation> &related) -> JournalResult;
   /** Explicit isolation; never automatic diagnosis/healing after an IO error.

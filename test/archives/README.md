@@ -1,6 +1,8 @@
 # 阶段测试源码归档
 
-2026-10-05（F36 / S9.3，当前）：[F36-table-space.tar.gz](F36-table-space.tar.gz) 原位替换 S9.2 包。含 9 项 F36 集成场景和 runner：保留/适配原六项，新增空页/物理复用、扫描与在途访问、持久退役恢复三项；SQL 周转使用完整行模型。复用 F26 9、课程 20、向量索引 20、S8 8，最终 66 项正常场景通过，19 个定向变异检出。见 [八项测试设计审查](../../docs/storage_redesign/s93_execution_20261005.md) 和 [当前结果](../../test-results/storage-f36-s93-20261005/README.md)。旧 F36 包不保留，S5/F26/S8 有效依赖不改；没有常驻新增阶段测试。TSan、共同性能比较、真实裸设备和物理掉电不在本轮证据内。
+2026-10-05（F27 / S10，再次复审）：更新 [F27-deferred.tar.gz](F27-deferred.tar.gz)。12 项新目标 Deferred 集成场景，复用44项已有回归（F36内含F26只计一次），56项通过、8个定向变异检出；无常驻新阶段测试。旧F27源码及结果包原位替换，不保留旧包备份；依赖包原哈希不变。见 [八项审查与修正](../../docs/storage_redesign/s10_execution_20261005.md) 与 [结果及限制](../../test-results/storage-f27-s10-20261005/README.md)。
+
+2026-10-05（F36 / S9.3）：[F36-table-space.tar.gz](F36-table-space.tar.gz) 原位替换 S9.2 包。含 9 项 F36 集成场景和 runner：保留/适配原六项，新增空页/物理复用、扫描与在途访问、持久退役恢复三项；SQL 周转使用完整行模型。复用 F26 9、课程 20、向量索引 20、S8 8，最终 66 项正常场景通过，19 个定向变异检出。见 [八项测试设计审查](../../docs/storage_redesign/s93_execution_20261005.md) 和 [当前结果](../../test-results/storage-f36-s93-20261005/README.md)。旧 F36 包不保留，S5/F26/S8 有效依赖不改；没有常驻新增阶段测试。TSan、共同性能比较、真实裸设备和物理掉电不在本轮证据内。
 
 2026-10-05（F26 / S9.1e）：[F26-array-buffer-pool.tar.gz](F26-array-buffer-pool.tar.gz) 原位更新，4 项 RAM＋9 项真实页/SQL、25 个断言变异；复用课程 11 项和 S8 8 项。32 个不同场景通过，13 项通过 TSan。真实索引窗口接通有界预取；F36 未执行。仅压缩保存，不注册常驻阶段目标；旧 b/c/d 结果包删除，其他 19 个有效模块源码包不改。见 [八项审查](../../docs/storage_redesign/s9e_execution_20261005.md) 与 [结果/恢复](../../test-results/storage-f26-s9e-20261005/README.md)。
 

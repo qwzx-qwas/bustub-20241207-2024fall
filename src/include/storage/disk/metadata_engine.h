@@ -34,6 +34,15 @@ struct MetadataMutation {
   std::optional<std::vector<std::byte>> value_;
 };
 
+/** Body stored once as a Journal record; B stores only its locator. Key category
+ * is a caller-owned 56-bit namespace. nullopt retires the durable reference. */
+struct MetadataPayloadMutation {
+  MetadataKey key_;
+  std::optional<std::vector<std::byte>> bytes_;
+};
+/** Decode the metadata layer's payload envelope after the Journal read completes. */
+auto DecodeMetadataPayload(const JournalPayloadRead &read) -> std::vector<std::byte>;
+
 struct MetadataOptions {
   uint32_t page_limit_;
   // Counts immutable published/reader-held and private page images together.
@@ -60,6 +69,13 @@ class MetadataError : public std::runtime_error {
 class MetadataViewConflict final : public MetadataError {
  public:
   MetadataViewConflict() : MetadataError(MetadataErrorCode::Conflict, "stale or foreign metadata view") {}
+};
+
+/** A checkpoint or another admitted IO temporarily owns commit capacity.
+ * Unlike an oversized batch or exhausted persistent space, this may be retried. */
+class MetadataCommitBusy final : public MetadataError {
+ public:
+  explicit MetadataCommitBusy(const char *message) : MetadataError(MetadataErrorCode::ResourceUnavailable, message) {}
 };
 
 enum class MetadataWritebackOutcome { Clean, Durable, Failed };
@@ -90,6 +106,7 @@ class MetadataSnapshot {
   auto Scan(const MetadataKey &lower, size_t limit) const -> std::vector<MetadataEntry>;
   /** Greatest key <= upper in this immutable view; may belong to another prefix. */
   auto GetFloor(const MetadataKey &upper) const -> std::optional<MetadataEntry>;
+  auto Payload(const MetadataKey &key) const -> std::optional<JournalPayload>;
 
  private:
   friend class MetadataEngine;
@@ -126,6 +143,13 @@ class MetadataEngine {
   void Open();
   auto Read() const -> MetadataSnapshot;
   auto Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations) -> JournalResult;
+  auto Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations,
+              const std::vector<MetadataPayloadMutation> &payloads) -> JournalResult;
+  /** Accumulates complete-batch read cost. Completion reports IO errors even if
+   * the reader drops its ticket; ready runs after terminal publication. */
+  auto ReadPayload(const JournalPayload &payload, IOReadBudget &budget,
+                   std::function<void(const IOBatchResult &)> complete, std::function<void()> ready)
+      -> JournalPayloadRead;
   /** F09: write at most max_pages committed pages, including their Flush.
    * Called by the maintenance owner, not implicitly on each Commit. Different
    * pages run on F02 workers; only one writeback call is admitted at a time.

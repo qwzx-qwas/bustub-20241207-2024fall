@@ -79,11 +79,13 @@ struct Piece {
   size_t size_;
   size_t skip_;
   std::optional<size_t> member_;
+  std::optional<size_t> journal_{std::nullopt};
 };
 }  // namespace
 struct ObjectReadData {
   size_t size_{0};
   std::vector<Piece> pieces_;
+  std::vector<JournalPayloadRead> journals_;
   std::optional<IOBatch> batch_;
   std::optional<ObjectReadTarget> target_;
   bool external_{false};
@@ -102,12 +104,22 @@ ObjectRead::ObjectRead(ObjectRead &&other) noexcept = default;
 auto ObjectRead::operator=(ObjectRead &&other) noexcept -> ObjectRead & = default;
 auto ObjectRead::Size() const -> size_t { return data_->size_; }
 void ObjectRead::Wait() const {
+  for (const auto &read : data_->journals_) read.Wait();
   if (data_->batch_) {
     data_->batch_->Wait();
   }
 }
 auto ObjectRead::WaitFor(std::chrono::milliseconds timeout) const -> bool {
-  return !data_->batch_ || data_->batch_->WaitFor(timeout);
+  const auto end = std::chrono::steady_clock::now() + timeout;
+  for (const auto &read : data_->journals_) {
+    if (!read.WaitFor(std::max(std::chrono::milliseconds(0), std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                                 end - std::chrono::steady_clock::now()))))
+      return false;
+  }
+  return !data_->batch_ ||
+         data_->batch_->WaitFor(
+             std::max(std::chrono::milliseconds(0),
+                      std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::steady_clock::now())));
 }
 void ObjectRead::Finish() const {
   if (!data_->target_) {
@@ -137,9 +149,18 @@ void ObjectRead::CopyTo(void *destination, size_t capacity) const {
   if (data_->batch_) {
     Successful(data_->batch_->Result());
   }
+  std::vector<std::vector<std::byte>> journal_bytes;
+  for (const auto &read : data_->journals_) {
+    journal_bytes.push_back(DecodeMetadataPayload(read));
+  }
   auto *out = static_cast<char *>(destination);
   for (const auto &piece : data_->pieces_) {
-    if (piece.member_) {
+    if (piece.journal_) {
+      const auto &body = journal_bytes[*piece.journal_];
+      if (piece.skip_ > body.size() || piece.size_ > body.size() - piece.skip_)
+        throw std::runtime_error("object payload slice exceeds record");
+      std::memcpy(out, body.data() + piece.skip_, piece.size_);
+    } else if (piece.member_) {
       std::memcpy(out, data_->batch_->Buffer(*piece.member_) + piece.skip_, piece.size_);
     } else {
       std::memset(out, 0, piece.size_);
@@ -203,7 +224,9 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
   const uint64_t align = regions_.Describe(region_).offset_alignment_;
   for (const auto &span : activity->read_->Spans()) {
     Piece piece{static_cast<size_t>(span.size_), 0, std::nullopt};
-    if (span.data_) {
+    if (span.journal_) {
+      piece.skip_ = span.journal_->offset_;
+    } else if (span.data_) {
       const auto start = span.data_->offset_ / align * align;
       const auto skip = span.data_->offset_ - start;
       const auto amount = (skip + span.size_ + align - 1) / align * align;
@@ -214,8 +237,25 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
     data->pieces_.push_back(piece);
     data->size_ += piece.size_;
   }
+  // Count all Data members before admitting Journal reads. Otherwise a logical
+  // read whose combined results cannot fit could retry forever as "busy".
+  IOReadBudget budget;
+  for (const auto &request : requests) {
+    if (!executor_.AccumulateReadBudget(
+            &budget, 1, request.size_ + executor_.DeviceInfo().memory_alignment_ - 1)) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object read exceeds total executor capacity");
+    }
+  }
+  const auto &spans = activity->read_->Spans();
+  for (size_t i = 0; i < spans.size(); ++i) {
+    if (spans[i].journal_) {
+      data->pieces_[i].journal_ = data->journals_.size();
+      data->journals_.push_back(ObjectMappingAccess::ReadPayload(
+          mapping_, spans[i].journal_->payload_, budget,
+          [activity](const IOBatchResult &result) { activity->Complete(result); }, ready));
+    }
+  }
   if (!requests.empty()) {
-    CheckBatchBudget(requests);
     auto prepared = regions_.TryPrepare(requests, false);
     Accepted(prepared.admission_);
     data->batch_ = std::move(prepared.batch_);
@@ -262,6 +302,10 @@ auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, ui
   }
   for (const auto &span : spans) {
     auto *out = static_cast<char *>(target.data_) + cursor;
+    if (span.journal_) {
+      direct = false;
+      break;
+    }
     if (span.data_) {
       if (span.data_->offset_ % info.offset_alignment_ || span.size_ % info.offset_alignment_ ||
           reinterpret_cast<uintptr_t>(out) % info.memory_alignment_) {
@@ -427,9 +471,11 @@ auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector
       const auto &owned = data.reservation_->Extents()[extent];
       const auto take = std::min(remaining, owned.Size() - used);
       op.extents_.push_back(*StorageByteRange::Create(owned.Offset() + used, take));
-      requests.push_back({region_, IOOperation::Write, owned.Offset() + used, take});
       const auto payload = std::min<uint64_t>(take, bytes[i].Size() - cursor);
-      slices.push_back({i, cursor, static_cast<size_t>(payload)});
+      if (!op.deferred_) {
+        requests.push_back({region_, IOOperation::Write, owned.Offset() + used, take});
+        slices.push_back({i, cursor, static_cast<size_t>(payload)});
+      }
       cursor += payload;
       remaining -= take;
       used += take;
@@ -495,6 +541,21 @@ void ObjectIO::FinishCommon(CommonDataWrite *write) {
     write->durable_ = true;
     write->batch_.reset();  // B's Journal must be able to use these IO slots.
   }
+}
+auto ObjectIO::WriteDeferred(const DeferredTarget &target, const std::vector<std::byte> &body) -> IOBatch {
+  if (body.empty() || body.size() > target.capacity_ || target.capacity_ > max_write_bytes_)
+    throw std::invalid_argument("Deferred body exceeds its owned target or IO budget");
+  auto activity = std::make_shared<Activity>(state_);
+  std::vector<RegionIORequest> requests{{region_, IOOperation::Write, target.offset_, target.capacity_}};
+  CheckBatchBudget(requests);
+  auto prepared = regions_.TryPrepare(requests, true);
+  Accepted(prepared.admission_);
+  std::memcpy(prepared.batch_->Buffer(0), body.data(), body.size());
+  std::memset(prepared.batch_->Buffer(0) + body.size(), 0, target.capacity_ - body.size());
+  prepared.batch_->RetainUntilComplete(
+      [activity, pin = target.payload_.retention_](const IOBatchResult &result) { activity->Complete(result); });
+  Accepted(executor_.TrySubmit(*prepared.batch_));
+  return std::move(*prepared.batch_);
 }
 void ObjectIO::Close() {
   std::unique_lock<std::mutex> lock(state_->mutex_);

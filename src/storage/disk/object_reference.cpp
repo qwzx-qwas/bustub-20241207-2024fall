@@ -176,7 +176,7 @@ void CheckOwnership(const MetadataSnapshot &base, const ProtectedRange &p, uint6
 struct ObjectReferenceManager::Impl {
   Impl(std::shared_ptr<ObjectMappingContext> context, ObjectReferenceOptions options)
       : context_(std::move(context)), state_(std::make_shared<ObjectReferenceState>(options)) {
-    if (context_->format_ != FORMAT) {
+    if (context_->format_ < 2) {
       ReferenceFail(ObjectReferenceErrorCode::UnsupportedFormat,
                     "F14 requires v2; v1 remains usable without reclamation");
     }
@@ -253,6 +253,8 @@ struct ObjectReferenceManager::Impl {
     if (allocation_id == 0 || allocation_id >= d.next_allocation_) {
       throw std::invalid_argument("unknown object allocation identity");
     }
+    // The persistent task owns its complete target through final IO and completion.
+    if (base.Get(Key(Deferred, object, allocation_id))) return {};
     const auto allocation_key = Key(object_mapping_detail::Allocation, object, allocation_id);
     const auto value = base.Get(allocation_key);
     if (!value) {

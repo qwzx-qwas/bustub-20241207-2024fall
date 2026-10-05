@@ -615,4 +615,15 @@ void IOExecutor::Shutdown() { impl_->Shutdown(); }
 
 auto IOExecutor::DeviceInfo() const -> const BlockDeviceInfo & { return impl_->core_->info_; }
 
+auto IOExecutor::AccumulateReadBudget(IOReadBudget *budget, size_t operations, size_t bytes) const -> bool {
+  const auto &limits = impl_->core_->budget_->options_;
+  if (budget->operations_ > limits.max_operations_ || operations > limits.max_operations_ - budget->operations_ ||
+      budget->buffer_bytes_ > limits.max_buffer_bytes_ || bytes > limits.max_buffer_bytes_ - budget->buffer_bytes_) {
+    return false;
+  }
+  budget->operations_ += operations;
+  budget->buffer_bytes_ += bytes;
+  return true;
+}
+
 }  // namespace bustub

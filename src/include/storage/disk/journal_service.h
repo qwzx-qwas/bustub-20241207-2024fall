@@ -24,6 +24,9 @@
 
 namespace bustub {
 
+struct IOReadBudget;
+struct IOBatchResult;
+
 using JournalIdentity = std::array<uint8_t, 16>;
 using JournalRecords = std::vector<std::vector<std::byte>>;
 
@@ -45,6 +48,7 @@ enum class JournalErrorCode {
   Corrupt,
   NotEmpty,
   ResourceUnavailable,
+  RequestTooLarge,
   ExecutorStopped
 };
 
@@ -67,6 +71,29 @@ struct JournalResult {
   uint64_t begin_;
   uint64_t end_;
   std::exception_ptr error_;
+};
+
+struct JournalPayloadRef {
+  uint64_t batch_;
+  uint32_t record_;
+  uint32_t bytes_;
+};
+struct JournalPayloadPin;
+struct JournalPayload {
+  JournalPayloadRef ref_;
+  std::shared_ptr<JournalPayloadPin> retention_;
+};
+struct JournalPayloadReadData;
+class JournalPayloadRead {
+ public:
+  void Wait() const;
+  auto WaitFor(std::chrono::milliseconds timeout) const -> bool;
+  auto Bytes() const -> std::vector<std::byte>;
+
+ private:
+  friend class JournalService;
+  explicit JournalPayloadRead(std::shared_ptr<JournalPayloadReadData> data);
+  std::shared_ptr<JournalPayloadReadData> data_;
 };
 
 struct JournalTicketData;
@@ -98,7 +125,7 @@ struct JournalSubmission {
 
 /** Single-copy Journal. Create uses the recyclable v2 format; Open preserves v1
  * append-only compatibility. B checkpoints retire whole prefix segments in v2.
- * No arbitrary payload readers or Deferred yet; B owns maintenance exclusively.
+ * B owns maintenance and persistent payload references. Reads retain complete batches.
  * Sole owner of the bound Journal region. Explicit identity/geometry; Create
  * requires an empty region. Nonzero invalid tails prevent Open, never truncate.
  * Bootstrap/executor/device outlive this instance; drain Journal first. The lifecycle owner serializes
@@ -134,6 +161,14 @@ class JournalService {
 
  private:
   friend class MetadataEngine;
+  // B is the sole append/maintenance owner and serializes this with its commit.
+  auto NextAppendPosition() const -> uint64_t;
+  void SetCompletionReserve(uint64_t units);
+  auto AppendPayload(const JournalRecords &records, uint64_t reserve_units, bool completion) -> JournalSubmission;
+  auto RetainPayload(JournalPayloadRef ref) -> JournalPayload;
+  auto ReadPayload(const JournalPayload &payload, IOReadBudget &budget,
+                   std::function<void(const IOBatchResult &)> complete, std::function<void()> ready)
+      -> JournalPayloadRead;
   auto AppendCheckpoint(const JournalRecords &records) -> JournalSubmission;
   auto CheckpointRef(uint64_t lsn) const -> MetadataCheckpointRef;
   void RetireBefore(uint64_t checkpoint_lsn);

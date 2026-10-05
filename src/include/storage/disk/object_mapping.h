@@ -46,10 +46,15 @@ struct ObjectDataLocation {
   uint64_t offset_;      // Data-region-relative bytes, not a device address.
   uint64_t allocation_;  // Identity is (space, object number, allocation).
 };
+struct ObjectJournalLocation {
+  JournalPayload payload_;
+  uint64_t offset_;  // Within the payload body (excluding its record tag).
+};
 struct ObjectSpan {
   uint64_t offset_;
   uint64_t size_;
-  std::optional<ObjectDataLocation> data_;  // nullopt is a logical zero range.
+  std::optional<ObjectDataLocation> data_;                      // Final target; nullopt is a logical zero range.
+  std::optional<ObjectJournalLocation> journal_{std::nullopt};  // Authoritative until completion commits.
 };
 struct ObjectReadPage {
   uint64_t next_offset_;

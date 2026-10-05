@@ -195,3 +195,8 @@ S8 复用 SubmitObjects 和 Control；候选正文可先持久化、最终发布
 本模块将按 [S9.1a §6/§12](../s9_buffer_pool_protocol.md#6-真正把帧接到对象-io) 接续真实页消费者：读接受受保护的目的范围，写接受自有字节或稳定借用来源；共享当前 Common/ObjectIO 契约，不增加平行对象 API。具体生产类型与调用方在 c 同步交付，本轮不添加声明或空实现。
 
 Accepted 仅为责任交接，不能直接作为 FlushPage/持久提交成功；调用者超时或退出不提前释放仍执行中的帧或 extent。正文和元数据仍原子发布，不把 batch 或一次用户态调用当作原子设备事务。
+
+
+## 2026-10-05 S10 对象接口接续
+
+已完成（本轮局部职责）。上层仍提交对象字节与控制记录，不需要管理 Journal/Data 来源。Accepted 只代表接收，Durable 表示恢复依赖及版本已经发布；Deferred 的 Durable 不表示最终 Data 已落位。Raft Store 用正式 common_only_ 约束避免正文重复写日志，部署用显式阈值/积压预算开启新目标 Deferred。实现顺序、参考及 prompt 见 [S10 协议](../s10_deferred_protocol.md)；复用 [F27 统一测试审查](../s10_execution_20261005.md)，无新常驻测试。

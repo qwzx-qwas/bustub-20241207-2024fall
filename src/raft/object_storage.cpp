@@ -121,6 +121,7 @@ void RaftObjectStorage::Check(const std::vector<ObjectControlMutation> &controls
   storage_->CheckControlBatch(controls);
 }
 void RaftObjectStorage::Commit(ObjectTransaction transaction) {
+  for (auto &op : transaction.objects_) op.common_only_ = true;
   {
     std::lock_guard lock(state_->mutex_);
     if (state_->error_) {

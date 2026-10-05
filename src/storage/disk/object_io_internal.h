@@ -11,6 +11,7 @@
 namespace bustub {
 struct ObjectIOState;
 struct ObjectChange;
+struct DeferredTarget;
 struct ObjectControlMutation;
 struct CommonInput {
   std::vector<std::byte> owned_;
@@ -45,6 +46,7 @@ class ObjectIO {
   auto WriteCommon(std::vector<ObjectChange> *changes, const std::vector<CommonInput> &bytes,
                    std::function<void()> ready) -> CommonDataWrite;
   void FinishCommon(CommonDataWrite *write);
+  auto WriteDeferred(const DeferredTarget &target, const std::vector<std::byte> &body) -> IOBatch;
   void Close();
 
  private:

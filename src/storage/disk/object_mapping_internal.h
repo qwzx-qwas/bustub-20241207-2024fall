@@ -28,7 +28,7 @@ struct ObjectMappingContext {
 namespace object_mapping_detail {
 constexpr uint64_t CONTROL = 13;
 constexpr uint64_t MAGIC = 0x4253544f424a4d50ULL;  // BSTOBJMP
-constexpr uint64_t FORMAT = 2;
+constexpr uint64_t FORMAT = 3;                     // v3 readers understand Journal-backed mappings.
 constexpr uint64_t SPACE_LIMIT = (uint64_t{1} << 56) - 1;
 enum Kind : uint64_t {
   Space = 1,
@@ -37,7 +37,8 @@ enum Kind : uint64_t {
   Allocation = 4,
   PendingRange = 5,
   OwnedRange = 6,
-  Control = 7
+  Control = 7,
+  Deferred = 8
 };
 using Bytes = std::vector<std::byte>;
 [[noreturn]] inline void Fail(ObjectMappingErrorCode code, const char *message) {
@@ -182,7 +183,7 @@ inline auto ReadControl(const MetadataSnapshot &base) -> ObjectControl {
     Fail(ObjectMappingErrorCode::NotInitialized, "object format missing; Open never creates");
   }
   const auto f = Decode(*value, 3);
-  Require(f[0] == MAGIC && (f[1] == 1 || f[1] == FORMAT) && f[2] <= SPACE_LIMIT,
+  Require(f[0] == MAGIC && (f[1] == 1 || f[1] == 2 || f[1] == FORMAT) && f[2] <= SPACE_LIMIT,
           "invalid object format or space sequence");
   return {f[1], f[2]};
 }

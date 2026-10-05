@@ -5,8 +5,10 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <mutex>  // NOLINT(build/c++11)
 #include <set>
+#include <tuple>
 #include <utility>
 
 #include "common/byte_codec.h"
@@ -107,8 +109,19 @@ auto NewImage(const std::shared_ptr<PageBudget> &budget) -> std::shared_ptr<Page
 }
 }  // namespace
 
+namespace {
+constexpr uint64_t PAYLOAD_NAMESPACE = uint64_t{254} << 56;
+constexpr uint32_t PAYLOAD_RECORD = 3;
+using PayloadKey = std::tuple<uint64_t, uint64_t, uint64_t>;
+auto PayloadIdentity(MetadataKey key) -> PayloadKey { return {key.category_, key.owner_, key.item_}; }
+auto PayloadStorageKey(MetadataKey key) -> MetadataKey {
+  if (key.category_ >= (uint64_t{1} << 56)) throw std::invalid_argument("payload namespace exceeds 56 bits");
+  return {PAYLOAD_NAMESPACE | key.category_, key.owner_, key.item_};
+}
+}  // namespace
 struct MetadataVersion {
   std::vector<std::shared_ptr<const PageImage>> pages_;
+  std::map<PayloadKey, JournalPayload> payloads_;
 };
 
 namespace {
@@ -706,7 +719,7 @@ void InspectCheckpointBatch(uint64_t lsn, const JournalRecords &records, const M
   plan->modified_.resize(h.pages_);
   for (size_t n = 1; n < records.size(); ++n) {
     ByteReader record(records[n]);
-    record.ReadU32();
+    if (record.ReadU32() == PAYLOAD_RECORD) continue;
     const auto id = record.ReadU32();
     Require(id < h.pages_, "checkpoint suffix page is out of range");
     plan->modified_[id] = true;
@@ -889,6 +902,9 @@ struct MetadataEngine::Impl {
         journal_(bootstrap, identity, journal_options),
         options_(options),
         budget_(std::make_shared<PageBudget>(options.max_live_pages_)) {
+    completion_units_ = 1 + (std::min(options.max_batch_bytes_, journal_options.max_batch_bytes_) +
+                             uint64_t{journal_options.max_records_per_batch_} * 16 + journal_options.unit_bytes_ - 85) /
+                                (journal_options.unit_bytes_ - 84);
     if (options.page_limit_ < 4 || options.page_limit_ > backend_.PageCapacity() ||
         options.page_limit_ > static_cast<uint32_t>(std::numeric_limits<page_id_t>::max()) ||
         options.max_live_pages_ < 2 || options.max_value_bytes_ >= DELETED || options.max_value_bytes_ == 0 ||
@@ -914,6 +930,7 @@ struct MetadataEngine::Impl {
     for (size_t i = 1; i < records.size(); i++) {
       ByteReader record(records[i]);
       auto type = record.ReadU32();
+      if (type == PAYLOAD_RECORD) continue;
       auto id = record.ReadU32();
       auto image = NewImage(budget_);
       image->kind_ = static_cast<PageKind>(record.ReadU32());
@@ -1009,8 +1026,8 @@ struct MetadataEngine::Impl {
     published_ = std::move(next);
   }
 
-  auto Publish(const MetadataVersion *base, std::shared_ptr<MetadataVersion> next, MetadataPager *pager)
-      -> JournalResult {
+  auto Publish(const MetadataVersion *base, std::shared_ptr<MetadataVersion> next, MetadataPager *pager,
+               const std::vector<MetadataPayloadMutation> &payloads = {}) -> JournalResult {
     auto prepared = Prepare(base, *next, *pager, options_, lsn_, checkpoint_lsn_);
     if (base != nullptr) {
       std::set<page_id_t> changed;
@@ -1023,9 +1040,32 @@ struct MetadataEngine::Impl {
         }
       }
     }
-    auto submission = journal_.TryAppend(prepared.records_);
+    JournalRecords bodies;
+    for (const auto &payload : payloads) {
+      if (payload.bytes_) {
+        ByteWriter w;
+        w.PutU32(PAYLOAD_RECORD);
+        w.PutBytes(*payload.bytes_);
+        bodies.push_back(w.Take());
+      }
+    }
+    if (!bodies.empty()) {
+      prepared.records_.insert(prepared.records_.begin() + 1, std::make_move_iterator(bodies.begin()),
+                               std::make_move_iterator(bodies.end()));
+      prepared.records_[0] = EncodeHeader(
+          {1, lsn_, static_cast<uint32_t>(next->pages_.size()), static_cast<uint32_t>(prepared.records_.size() - 1)},
+          options_);
+    }
+    const bool completion = !payloads.empty() && bodies.empty();
+    auto submission = payloads.empty() ? journal_.TryAppend(prepared.records_)
+                                       : journal_.AppendPayload(prepared.records_,
+                                                                next->payloads_.size() * completion_units_, completion);
     if (submission.admission_ != JournalAdmission::Accepted) {
-      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata Journal did not admit this batch");
+      if (submission.admission_ == JournalAdmission::Full)
+        throw MetadataCommitBusy("metadata Journal capacity is held");
+      throw MetadataError(submission.admission_ == JournalAdmission::NoSpace ? MetadataErrorCode::ResourceUnavailable
+                                                                             : MetadataErrorCode::NotReady,
+                          "metadata Journal did not admit this batch");
     }
     submission.ticket_->Wait();
     auto result = submission.ticket_->Result();
@@ -1034,8 +1074,15 @@ struct MetadataEngine::Impl {
       ready_ = false;
       return result;
     }
+    for (const auto &payload : payloads) {
+      if (payload.bytes_)
+        Require(next->payloads_.at(PayloadIdentity(payload.key_)).ref_.batch_ == result.begin_,
+                "serialized payload append changed position");
+    }
+    journal_.SetCompletionReserve(next->payloads_.size() * completion_units_);
     // No allocation after durability: all images, directory and body buffers
-    // already exist. Fill the actual F07 LSN; it was not guessed before append.
+    // already exist. Seal page images with the confirmed F07 LSN; payload
+    // locators were reserved by this sole writer and checked above.
     for (const auto &entry : prepared.bodies_) {
       auto *page = pager->Dirty()[entry.first].get();
       Seal(page, entry.first, result.begin_, entry.second);
@@ -1062,6 +1109,7 @@ struct MetadataEngine::Impl {
   std::mutex writeback_mutex_;
   mutable std::mutex view_mutex_;
   std::shared_ptr<const MetadataVersion> published_;
+  uint64_t completion_units_{0};
   uint64_t lsn_{0};
   uint64_t checkpoint_lsn_{0};
   uint32_t checkpoint_pages_{0};
@@ -1163,6 +1211,36 @@ void MetadataEngine::Open() {
     }
     Require(s.published_ != nullptr, "Journal has no committed metadata format");
     Validate(*s.published_, s.options_);
+    // Reconstruct only the FINAL live payload directory after all metadata redo.
+    // A completion in the suffix may have removed a checkpoint's old reference.
+    auto recovered = std::make_shared<MetadataVersion>(*s.published_);
+    MetadataSnapshot snapshot(recovered);
+    MetadataKey cursor{PAYLOAD_NAMESPACE, 0, 0};
+    for (;;) {
+      const auto entries = snapshot.Scan(cursor, 64);
+      bool done = entries.empty();
+      for (const auto &entry : entries) {
+        if (entry.key_.category_ >= (uint64_t{255} << 56)) {
+          done = true;
+          break;
+        }
+        Require(entry.value_.size() == 16, "invalid persistent payload reference");
+        ByteReader r(entry.value_);
+        JournalPayloadRef ref{r.ReadU64(), r.ReadU32(), r.ReadU32()};
+        auto payload = s.journal_.RetainPayload(ref);
+        IOReadBudget budget;
+        auto read = s.journal_.ReadPayload(payload, budget, {}, {});
+        read.Wait();
+        DecodeMetadataPayload(read);
+        MetadataKey key{entry.key_.category_ & ((uint64_t{1} << 56) - 1), entry.key_.owner_, entry.key_.item_};
+        recovered->payloads_.emplace(PayloadIdentity(key), std::move(payload));
+        cursor = entry.key_;
+        if (++cursor.item_ == 0 && ++cursor.owner_ == 0) ++cursor.category_;
+      }
+      if (done) break;
+    }
+    s.published_ = std::move(recovered);
+    s.journal_.SetCompletionReserve(s.published_->payloads_.size() * s.completion_units_);
     if (checkpoint) {
       // Finish publication interrupted after bootstrap persistence but before
       // retirement. The referenced checkpoint and its suffix are now validated.
@@ -1186,6 +1264,10 @@ auto MetadataEngine::Read() const -> MetadataSnapshot {
 }
 auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations)
     -> JournalResult {
+  return Commit(base, mutations, {});
+}
+auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations,
+                            const std::vector<MetadataPayloadMutation> &payloads) -> JournalResult {
   auto &s = *impl_;
   std::lock_guard<std::mutex> writer(s.writer_mutex_);
   {
@@ -1194,17 +1276,48 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
       throw MetadataError(MetadataErrorCode::NotReady, "metadata engine is not ready");
     }
     if (s.checkpointing_) {
-      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata checkpoint is excluding modifications");
+      throw MetadataCommitBusy("metadata checkpoint is excluding modifications");
     }
     if (base.version_ != s.published_) {
       throw MetadataViewConflict();
     }
   }
-  if (mutations.empty()) {
+  if (mutations.empty() && payloads.empty()) {
     throw std::invalid_argument("metadata transaction must be nonempty");
   }
-  uint64_t bytes = 0;
   for (const auto &mutation : mutations) {
+    if ((mutation.key_.category_ >> 56) == 254)
+      throw std::invalid_argument("metadata key belongs to payload directory");
+  }
+  auto updates = mutations;
+  auto next = std::make_shared<MetadataVersion>(*base.version_);
+  uint32_t ordinal = 1;
+  const bool additions =
+      std::any_of(payloads.begin(), payloads.end(), [](const auto &p) { return p.bytes_.has_value(); });
+  const auto position = additions ? s.journal_.NextAppendPosition() : 0;
+  std::set<PayloadKey> seen;
+  for (const auto &payload : payloads) {
+    auto key = PayloadStorageKey(payload.key_);
+    if (!seen.insert(PayloadIdentity(payload.key_)).second) throw std::invalid_argument("duplicate payload mutation");
+    next->payloads_.erase(PayloadIdentity(payload.key_));
+    if (payload.bytes_) {
+      if (payload.bytes_->empty() || payload.bytes_->size() > UINT32_MAX - 4)
+        throw std::invalid_argument("invalid payload length");
+      if (base.version_->payloads_.count(PayloadIdentity(payload.key_)))
+        throw std::invalid_argument("payload identity reused");
+      JournalPayloadRef ref{position, ordinal++, static_cast<uint32_t>(payload.bytes_->size() + 4)};
+      ByteWriter w;
+      w.PutU64(ref.batch_);
+      w.PutU32(ref.record_);
+      w.PutU32(ref.bytes_);
+      updates.push_back({key, w.Take()});
+      next->payloads_.emplace(PayloadIdentity(payload.key_), s.journal_.RetainPayload(ref));
+    } else {
+      updates.push_back({key, std::nullopt});
+    }
+  }
+  uint64_t bytes = 0;
+  for (const auto &mutation : updates) {
     auto size = mutation.value_ ? mutation.value_->size() : 0;
     if (size > s.options_.max_value_bytes_ || size > s.options_.max_batch_bytes_ - bytes) {
       throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata input budget exceeded");
@@ -1215,10 +1328,9 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
     }
     bytes += 32;
   }
-  auto next = std::make_shared<MetadataVersion>(*base.version_);
   MetadataPager pager(*next, s.budget_, s.options_.page_limit_);
   auto tree = TreeFor(&pager);
-  for (const auto &mutation : mutations) {
+  for (const auto &mutation : updates) {
     auto key = EncodeKey(mutation.key_);
     std::vector<RID> old;
     if (tree.GetValue(key, &old)) {
@@ -1230,7 +1342,23 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
       Require(tree.Insert(key, rid), "metadata key unexpectedly remained after replacement");
     }
   }
-  return s.Publish(base.version_.get(), next, &pager);
+  return s.Publish(base.version_.get(), next, &pager, payloads);
+}
+auto DecodeMetadataPayload(const JournalPayloadRead &read) -> std::vector<std::byte> {
+  auto bytes = read.Bytes();
+  ByteReader tag(bytes);
+  Require(tag.ReadU32() == PAYLOAD_RECORD, "payload reference points to a metadata page record");
+  bytes.erase(bytes.begin(), bytes.begin() + 4);
+  return bytes;
+}
+auto MetadataSnapshot::Payload(const MetadataKey &key) const -> std::optional<JournalPayload> {
+  const auto found = version_->payloads_.find(PayloadIdentity(key));
+  return found == version_->payloads_.end() ? std::nullopt : std::optional<JournalPayload>(found->second);
+}
+auto MetadataEngine::ReadPayload(const JournalPayload &payload, IOReadBudget &budget,
+                                 std::function<void(const IOBatchResult &)> complete, std::function<void()> ready)
+    -> JournalPayloadRead {
+  return impl_->journal_.ReadPayload(payload, budget, std::move(complete), std::move(ready));
 }
 auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
   if (max_pages == 0) {

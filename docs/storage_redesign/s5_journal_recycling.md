@@ -1,5 +1,7 @@
 # S5 Journal 回收、身份与逻辑顺序接续方案
 
+> 2026-10-05 接续：本文件保留 S5 当时范围。当前 [S10](s10_deferred_protocol.md) 已加入真实 PayloadRef；B 版本若持有正文引用，就需保留 Journal，不再属于本文件所说的“纯内存视图”。
+
 更新时间：2026-09-30（Asia/Shanghai）
 
 [总方案](README.md) · [F06](modules/journal-backend.md) · [F07](modules/journal-service.md) · [F10](modules/metadata-checkpoint.md) · [F11](modules/recovery-dispatcher.md)

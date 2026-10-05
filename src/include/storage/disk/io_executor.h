@@ -35,6 +35,13 @@ struct IOExecutorOptions {
   size_t max_buffer_bytes_;
 };
 
+/** Planned owned-buffer cost across batches belonging to one logical read.
+ * This is a capacity calculation, not a reservation of currently free slots. */
+struct IOReadBudget {
+  size_t operations_{0};
+  size_t buffer_bytes_{0};
+};
+
 enum class IOAdmission { Accepted, Full, Stopped };
 enum class IOBatchPhase { Prepared, Queued, Executing, Flushing, Draining, Succeeded, Failed };
 enum class IOOutcome { NotStarted, Succeeded, Failed };
@@ -163,6 +170,11 @@ class IOExecutor {
 
   /** Device geometry for consumers resolving durable formats on this executor. */
   auto DeviceInfo() const -> const BlockDeviceInfo &;
+
+  /** Add planned members (including alignment padding) only if the aggregate
+   * fits total capacity. False is permanent for this request/configuration;
+   * TryPrepare still decides transient contention. Does not reserve or do IO. */
+  auto AccumulateReadBudget(IOReadBudget *budget, size_t operations, size_t bytes) const -> bool;
 
   /**
    * Non-waiting admission. Reserve all member slots, result storage and aligned

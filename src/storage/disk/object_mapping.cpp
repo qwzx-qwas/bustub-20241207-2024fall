@@ -9,6 +9,7 @@
 
 #include "object_change_internal.h"   // NOLINT(build/include_subdir): private sibling component.
 #include "object_mapping_internal.h"  // NOLINT(build/include_subdir): private sibling schema.
+#include "storage/disk/object_io.h"
 
 namespace bustub {
 using namespace object_mapping_detail;  // NOLINT: shared private mapping schema, no public namespace import.
@@ -119,7 +120,18 @@ auto ObjectMappingSnapshot::Resolve(ObjectKey key, uint64_t offset, uint64_t len
       return false;
     }
     result.next_offset_ = span.offset_ + span.size_;
-    result.spans_.push_back(span);
+    if (span.data_) {
+      const auto task = base_.Get(Key(Deferred, key, span.data_->allocation_));
+      if (task) {
+        const auto fields = Decode(*task, 2);
+        auto payload = base_.Payload({key.space_, key.number_, span.data_->allocation_});
+        Require(payload.has_value() && span.data_->offset_ >= fields[0] &&
+                    End(span.data_->offset_, span.size_) <= End(fields[0], payload->ref_.bytes_ - 4),
+                "pending object source lacks its Journal body");
+        span.journal_ = ObjectJournalLocation{*payload, span.data_->offset_ - fields[0]};
+      }
+    }
+    result.spans_.push_back(std::move(span));
     return true;
   };
   for (const auto &entry : entries) {
@@ -346,7 +358,8 @@ auto ObjectMappingSnapshot::Controls(ObjectKey owner, uint64_t from, size_t limi
 auto ObjectMappingAccess::Unit(ObjectMappingStore &store) -> uint64_t { return store.impl_->context_->unit_; }
 auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
                                 const std::vector<ObjectChange> &operations, DataReservation *reservation,
-                                const std::vector<ObjectControlMutation> &controls) -> JournalResult {
+                                const std::vector<ObjectControlMutation> &controls,
+                                const std::vector<std::vector<std::byte>> &payloads) -> JournalResult {
   auto &s = *store.impl_;
   Active active(*s.context_);
   s.Check(base);
@@ -374,7 +387,10 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
   if (reservation != nullptr && (extent != reservation->Extents().size() || used != 0)) {
     throw std::invalid_argument("object transaction leaves an unowned allocation");
   }
+  std::vector<MetadataPayloadMutation> journal_payloads;
+  size_t operation = 0;
   for (const auto &op : operations) {
+    const auto payload_index = operation++;
     const auto key = op.object_;
     if (op.operation_ == ObjectOperation::Create) {
       if (!base.base_.Get(Key(Space, {key.space_, 0}, 0))) {
@@ -392,7 +408,25 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
     }
     d.info_.version_ = Advance(d.info_.version_);
     if (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append) {
+      const auto first_allocation = d.next_allocation_;
       ReplaceChanges(base.base_, key, op.offset_, op.length_, op.extents_, *s.context_, d, changes);
+      if (op.deferred_) {
+        if (s.context_->format_ != FORMAT || payload_index >= payloads.size() ||
+            payloads[payload_index].size() != op.length_) {
+          throw std::invalid_argument("Deferred requires current object format and complete initialized body");
+        }
+        size_t cursor = 0;
+        auto allocation = first_allocation;
+        for (const auto &range : op.extents_) {
+          const auto take = std::min<uint64_t>(range.Size(), op.length_ - cursor);
+          changes.Put(Key(Deferred, key, allocation), Encode({range.Offset(), range.Size()}));
+          const auto &body = payloads[payload_index];
+          journal_payloads.push_back(
+              {{key.space_, key.number_, allocation}, Bytes(body.begin() + cursor, body.begin() + cursor + take)});
+          cursor += take;
+          ++allocation;
+        }
+      }
     } else if (op.operation_ == ObjectOperation::Unmap) {
       Cut(base.base_, key, op.offset_, End(op.offset_, op.length_), d, changes);
     } else {
@@ -414,8 +448,47 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
     changes.Put(Key(object_mapping_detail::Control, control.owner_, control.item_), control.value_);
   }
   const auto mutations = changes.Take();
-  return reservation != nullptr ? s.allocator_.Commit(base.base_, *reservation, mutations)
+  return reservation != nullptr ? s.allocator_.Commit(base.base_, *reservation, mutations, journal_payloads)
                                 : s.metadata_.Commit(base.base_, mutations);
+}
+auto ObjectMappingAccess::SupportsDeferred(ObjectMappingStore &store) -> bool {
+  return store.impl_->context_->format_ >= 3;
+}
+auto ObjectMappingAccess::ReadPayload(ObjectMappingStore &store, const JournalPayload &payload,
+                                      IOReadBudget &budget, std::function<void(const IOBatchResult &)> complete,
+                                      std::function<void()> ready) -> JournalPayloadRead {
+  try {
+    return store.impl_->metadata_.ReadPayload(payload, budget, std::move(complete), std::move(ready));
+  } catch (const JournalError &error) {
+    if (error.Code() == JournalErrorCode::ResourceUnavailable) throw ObjectIOBusy();
+    if (error.Code() == JournalErrorCode::RequestTooLarge)
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, error.what());
+    throw;
+  }
+}
+auto ObjectMappingAccess::Pending(const ObjectMappingSnapshot &base, size_t limit) -> std::vector<DeferredTarget> {
+  std::vector<DeferredTarget> result;
+  for (const auto &entry : base.base_.Scan({uint64_t{Deferred} << 56, 0, 0}, limit)) {
+    if ((entry.key_.category_ >> 56) != Deferred) break;
+    ObjectKey object{entry.key_.category_ & SPACE_LIMIT, entry.key_.owner_};
+    auto payload = base.base_.Payload({object.space_, object.number_, entry.key_.item_});
+    Require(payload.has_value(), "Deferred target has no recoverable body");
+    const auto f = Decode(entry.value_, 2);
+    Require(f[1] >= payload->ref_.bytes_ - 4 && f[0] % base.context_->unit_ == 0 && f[1] % base.context_->unit_ == 0,
+            "invalid Deferred target range");
+    result.push_back({object, entry.key_.item_, f[0], f[1], *payload});
+  }
+  return result;
+}
+auto ObjectMappingAccess::Complete(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
+                                   const DeferredTarget &task) -> JournalResult {
+  auto &s = *store.impl_;
+  s.Check(base);
+  const auto key = Key(Deferred, task.object_, task.allocation_);
+  const auto entry = base.base_.Get(key);
+  Require(entry && *entry == Encode({task.offset_, task.capacity_}), "Deferred completion changed target identity");
+  return s.metadata_.Commit(base.base_, {{key, std::nullopt}},
+                            {{{task.object_.space_, task.object_.number_, task.allocation_}, std::nullopt}});
 }
 auto ObjectMappingAccess::Garbage(const ObjectMappingSnapshot &base, MetadataKey cursor) -> ObjectGCPage {
   const uint64_t category = uint64_t{PendingRange} << 56;

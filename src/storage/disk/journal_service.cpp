@@ -13,6 +13,7 @@
 #include <cstring>
 #include <limits>
 #include <list>
+#include <map>
 #include <mutex>   // NOLINT(build/c++11)
 #include <thread>  // NOLINT(build/c++11)
 #include <utility>
@@ -207,6 +208,103 @@ auto JournalTicket::Result() const -> JournalResult {
     throw std::logic_error("Journal result not terminal");
   }
   return data_->result_;
+}
+
+struct PayloadRetention {
+  std::mutex mutex_;
+  std::map<uint64_t, size_t> pins_;
+};
+struct JournalPayloadPin {
+  JournalPayloadPin(std::shared_ptr<PayloadRetention> owner, uint64_t batch) : owner_(std::move(owner)), batch_(batch) {
+    std::lock_guard<std::mutex> lock(owner_->mutex_);
+    ++owner_->pins_[batch_];
+  }
+  ~JournalPayloadPin() {
+    std::lock_guard<std::mutex> lock(owner_->mutex_);
+    auto it = owner_->pins_.find(batch_);
+    if (--it->second == 0) owner_->pins_.erase(it);
+  }
+  std::shared_ptr<PayloadRetention> owner_;
+  uint64_t batch_;
+};
+struct JournalPayloadReadData {
+  JournalPayload payload_;
+  JournalIdentity identity_;
+  uint32_t format_, unit_;
+  uint64_t segment_;
+  std::vector<uint64_t> positions_;
+  std::vector<std::pair<size_t, size_t>> pieces_;
+  std::optional<IOBatch> batch_;
+};
+JournalPayloadRead::JournalPayloadRead(std::shared_ptr<JournalPayloadReadData> data) : data_(std::move(data)) {}
+void JournalPayloadRead::Wait() const { data_->batch_->Wait(); }
+auto JournalPayloadRead::WaitFor(std::chrono::milliseconds timeout) const -> bool {
+  return data_->batch_->WaitFor(timeout);
+}
+auto JournalPayloadRead::Bytes() const -> std::vector<std::byte> {
+  CheckIO(*data_->batch_);
+  std::vector<std::byte> result;
+  uint32_t ordinal = 0, length = 0, count = 0, rolling = 0;
+  uint64_t total = 0, prior = 0;
+  bool partial = false, committed = false;
+  const auto ref = data_->payload_.ref_;
+  for (size_t i = 0; i < data_->positions_.size(); ++i) {
+    const auto *raw =
+        reinterpret_cast<const std::byte *>(data_->batch_->Buffer(data_->pieces_[i].first) + data_->pieces_[i].second);
+    std::vector<std::byte> unit(raw, raw + data_->unit_);
+    CheckUnitChecksum(unit);
+    ByteReader h(unit);
+    auto magic = h.ReadBytes(8);
+    Require(std::memcmp(magic.data(), UNIT_MAGIC, 8) == 0 && h.ReadU32() == data_->format_,
+            "payload unit format mismatch");
+    const auto used = h.ReadU32();
+    auto identity = h.ReadBytes(16);
+    const auto position = data_->positions_[i];
+    Require(std::memcmp(identity.data(), data_->identity_.data(), 16) == 0 &&
+                h.ReadU64() == position / data_->segment_ && h.ReadU64() == position % data_->segment_ &&
+                h.ReadU64() == ref.batch_,
+            "payload identity or batch mismatch");
+    const auto predecessor = h.ReadU64();
+    if (i == 0) prior = predecessor;
+    Require(
+        predecessor == prior && prior < ref.batch_ && used >= FRAGMENT_HEADER && used <= data_->unit_ - UNIT_HEADER - 4,
+        "payload unit boundary mismatch");
+    Require(AllZero(raw + UNIT_HEADER + used, data_->unit_ - UNIT_HEADER - used - 4), "payload padding corrupt");
+    ByteReader r(raw + UNIT_HEADER, used);
+    while (!r.Empty()) {
+      const auto start = r.Offset();
+      auto type = r.ReadU32(), take = r.ReadU32(), number = r.ReadU32(), full = r.ReadU32();
+      Require(!committed && take <= r.Remaining(), "payload fragment boundary corrupt");
+      if (type == COMMIT) {
+        Require(!partial && number == ordinal && full == 0 && take == COMMIT_BYTES && r.Remaining() == COMMIT_BYTES &&
+                    i + 1 == data_->positions_.size() && r.ReadU64() == ref.batch_ && r.ReadU64() == total &&
+                    r.ReadU32() == rolling && r.ReadU32() == 0,
+                "payload batch commit corrupt");
+        committed = true;
+        continue;
+      }
+      Require(take != 0, "empty payload fragment");
+      if (type == FULL || type == FIRST) {
+        Require(!partial && number == ordinal && full != 0, "payload record start corrupt");
+        length = full;
+        count = 0;
+      } else {
+        Require((type == MIDDLE || type == LAST) && partial && number == ordinal && full == length,
+                "payload continuation corrupt");
+      }
+      Require(take <= length - count, "payload length corrupt");
+      auto bytes = r.ReadBytes(take);
+      if (number == ref.record_) result.insert(result.end(), bytes.begin(), bytes.end());
+      total += take;
+      count += take;
+      rolling = Crc32cExtend(rolling, raw + UNIT_HEADER + start, FRAGMENT_HEADER + take);
+      partial = type == FIRST || type == MIDDLE;
+      Require(partial ? count < length : count == length, "payload final fragment corrupt");
+      if (!partial) ++ordinal;
+    }
+  }
+  Require(committed && result.size() == ref.bytes_ && ref.record_ < ordinal, "required payload is missing");
+  return result;
 }
 
 struct JournalService::Impl {
@@ -482,6 +580,7 @@ struct JournalService::Impl {
     bool in_batch = false;
     bool tail = false;
     JournalRecords records;
+    std::vector<uint64_t> batch_positions;
     std::vector<std::pair<uint64_t, uint64_t>> ranges;
     if (format_ == 1) {
       ranges.emplace_back(begin, capacity_);
@@ -541,6 +640,7 @@ struct JournalService::Impl {
           begin = position;
           in_batch = true;
         }
+        batch_positions.push_back(position);
         const auto batch_begin = header.ReadU64();
         const auto prior = header.ReadU64();
         if (position == start && anchored) {
@@ -567,6 +667,8 @@ struct JournalService::Impl {
                         payload.ReadU32() == 0,
                     "Journal batch commit checksum or identity mismatch");
             cursor = position + options_.unit_bytes_;
+            batches_[begin] = std::move(batch_positions);
+            batch_positions.clear();
             if (replay) {
               replay(begin, records);
             }
@@ -662,10 +764,21 @@ struct JournalService::Impl {
                   std::binary_search(segments_.begin(), segments_.end(), begin / options_.segment_bytes_),
               "Journal recovery entry segment is missing");
     }
-    const auto recovered = Scan(begin, inspect, anchored);
+    const auto scan_begin = format_ == 2 ? retain_from_ : options_.segment_bytes_;
+    const auto recovered = Scan(
+        scan_begin,
+        [&](uint64_t lsn, const JournalRecords &records) {
+          if (lsn >= begin && inspect) inspect(lsn, records);
+        },
+        scan_begin != options_.segment_bytes_);
     Flush();
     if (replay) {
-      const auto replayed = Scan(begin, replay, anchored);
+      const auto replayed = Scan(
+          scan_begin,
+          [&](uint64_t lsn, const JournalRecords &records) {
+            if (lsn >= begin) replay(lsn, records);
+          },
+          scan_begin != options_.segment_bytes_);
       Require(replayed == recovered, "Journal changed during replay");
     }
     auto cursor = recovered.first;
@@ -728,7 +841,7 @@ struct JournalService::Impl {
     }
   }
 
-  auto Append(const JournalRecords &records, bool maintenance)
+  auto Append(const JournalRecords &records, bool maintenance, uint64_t extra_reserve = 0, bool completion = false)
       -> std::pair<JournalAdmission, std::shared_ptr<JournalTicketData>> {
     // Serializes cursor selection and preparation, never device IO. Completion
     // and Close use the short queue mutex instead of waiting on encoding.
@@ -743,11 +856,16 @@ struct JournalService::Impl {
       }
     }
     const auto units = Plan(records, options_);
-    if (maintenance && units.size() != 1) {
+    if (maintenance && !completion && units.size() != 1) {
       throw std::invalid_argument("checkpoint must fit its reserved Journal unit");
     }
-    if ((format_ == 1 && units.size() * options_.unit_bytes_ > capacity_ - cursor_) ||
-        (format_ == 2 && units.size() + (maintenance ? 0 : 1) > AvailableUnits())) {
+    if ((format_ == 1 &&
+         (units.size() + (maintenance ? (completion ? 1 : 0) : 1 + std::max(completion_reserve_, extra_reserve))) *
+                 options_.unit_bytes_ >
+             capacity_ - cursor_) ||
+        (format_ == 2 &&
+         units.size() + (maintenance ? (completion ? 1 : 0) : 1 + std::max(completion_reserve_, extra_reserve)) >
+             AvailableUnits())) {
       return {JournalAdmission::NoSpace, {}};
     }
     const auto plan = Layout(units.size());
@@ -789,6 +907,7 @@ struct JournalService::Impl {
       if (stopping_) {
         return {JournalAdmission::Stopped, {}};
       }
+      batches_.insert_or_assign(begin, plan.positions_);
       queue_.push_back(std::move(request));  // Allocate before publishing any reservation.
       {
         std::lock_guard<std::mutex> budget_lock(budget_->mutex_);
@@ -894,6 +1013,10 @@ struct JournalService::Impl {
     if (faulted_ || stopping_ || !ready_) {
       throw JournalError(JournalErrorCode::ExecutorStopped, "Journal retirement requires a healthy writer");
     }
+    {
+      std::lock_guard<std::mutex> pins(retention_->mutex_);
+      if (!retention_->pins_.empty()) checkpoint = std::min(checkpoint, retention_->pins_.begin()->first);
+    }
     Require(checkpoint <= previous_ && checkpoint >= retain_from_, "invalid checkpoint retirement boundary");
     if (checkpoint == retain_from_) {
       return;
@@ -904,6 +1027,7 @@ struct JournalService::Impl {
     retain_from_ = checkpoint;
     try {
       ReserveSequences();
+      batches_.erase(batches_.begin(), batches_.lower_bound(retain_from_));
     } catch (...) {
       ObserveFailure(std::current_exception());
       throw;
@@ -926,6 +1050,9 @@ struct JournalService::Impl {
     });
   }
 
+  uint64_t completion_reserve_{0};
+  std::shared_ptr<PayloadRetention> retention_{std::make_shared<PayloadRetention>()};
+  std::map<uint64_t, std::vector<uint64_t>> batches_;  // Bounded unit positions, including restart gaps; no body cache.
   IOExecutor &executor_;
   RegionManager regions_;
   JournalBackend backend_;
@@ -994,6 +1121,76 @@ auto JournalService::CheckpointRef(uint64_t lsn) const -> MetadataCheckpointRef 
   return {impl_->identity_, lsn, impl_->format_ == 2};
 }
 void JournalService::RetireBefore(uint64_t checkpoint_lsn) { impl_->RetireBefore(checkpoint_lsn); }
+void JournalService::SetCompletionReserve(uint64_t units) {
+  std::lock_guard<std::mutex> lock(impl_->admission_mutex_);
+  impl_->completion_reserve_ = units;
+}
+auto JournalService::AppendPayload(const JournalRecords &records, uint64_t reserve_units, bool completion)
+    -> JournalSubmission {
+  auto [admission, data] = impl_->Append(records, completion, reserve_units, completion);
+  if (!data) return {admission, std::nullopt};
+  return {admission, JournalTicket(std::move(data))};
+}
+auto JournalService::NextAppendPosition() const -> uint64_t {
+  std::lock_guard<std::mutex> lock(impl_->admission_mutex_);
+  if ((impl_->format_ == 2 && impl_->AvailableUnits() == 0) ||
+      (impl_->format_ == 1 && impl_->cursor_ == impl_->capacity_))
+    throw JournalError(JournalErrorCode::ResourceUnavailable, "Journal has no append space");
+  return impl_->Layout(1).positions_.front();
+}
+auto JournalService::RetainPayload(JournalPayloadRef ref) -> JournalPayload {
+  // Only B's serialized commit/recovery calls this. No concurrent retirement.
+  return {ref, std::make_shared<JournalPayloadPin>(impl_->retention_, ref.batch_)};
+}
+auto JournalService::ReadPayload(const JournalPayload &payload, IOReadBudget &budget,
+                                 std::function<void(const IOBatchResult &)> complete, std::function<void()> ready)
+    -> JournalPayloadRead {
+  auto &s = *impl_;
+  if (!payload.retention_ || payload.retention_->owner_ != s.retention_)
+    throw std::invalid_argument("payload belongs to a different Journal lifetime");
+  auto data = std::make_shared<JournalPayloadReadData>();
+  data->payload_ = payload;
+  data->identity_ = s.identity_;
+  data->format_ = s.format_;
+  data->unit_ = s.options_.unit_bytes_;
+  data->segment_ = s.options_.segment_bytes_;
+  std::vector<JournalIORequest> requests;
+  {
+    std::lock_guard<std::mutex> lock(s.admission_mutex_);
+    const auto it = s.batches_.find(payload.ref_.batch_);
+    Require(it != s.batches_.end() && payload.ref_.batch_ >= s.retain_from_,
+            "required Journal payload batch is missing");
+    for (auto pos : it->second) {
+      const auto physical = s.Physical(pos);
+      const auto slot = physical / s.options_.segment_bytes_, offset = physical % s.options_.segment_bytes_;
+      if (requests.empty() || requests.back().segment_slot_ != slot ||
+          requests.back().offset_ + requests.back().size_ != offset) {
+        requests.push_back({slot, IOOperation::Read, offset, 0});
+      }
+      data->pieces_.emplace_back(requests.size() - 1, requests.back().size_);
+      requests.back().size_ += s.options_.unit_bytes_;
+      data->positions_.push_back(pos);
+    }
+  }
+  auto planned = budget;
+  for (const auto &request : requests) {
+    if (!s.executor_.AccumulateReadBudget(
+            &planned, 1, request.size_ + s.executor_.DeviceInfo().memory_alignment_ - 1)) {
+      throw JournalError(JournalErrorCode::RequestTooLarge, "payload read exceeds total executor capacity");
+    }
+  }
+  auto prepared = s.backend_.TryPrepare(requests, false);
+  CheckAdmission(prepared.admission_);
+  data->batch_ = std::move(prepared.batch_);
+  data->batch_->RetainUntilComplete(
+      [owner = payload.retention_, complete = std::move(complete)](const IOBatchResult &result) {
+        if (complete) complete(result);
+      },
+      std::move(ready));
+  CheckAdmission(s.executor_.TrySubmit(*data->batch_));
+  budget = planned;
+  return JournalPayloadRead(std::move(data));
+}
 void JournalService::Close() { impl_->Close(); }
 
 }  // namespace bustub

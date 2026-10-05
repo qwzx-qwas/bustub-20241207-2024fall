@@ -60,6 +60,7 @@ struct ObjectTransactionData {
       std::vector<std::byte>().swap(op.bytes_);
     }
     bytes_.clear();
+    payloads_.clear();
     result_ = std::move(result);
     done_.notify_all();
   }
@@ -81,6 +82,7 @@ struct ObjectTransactionData {
   std::vector<std::array<bool, 2>> read_done_;
   std::vector<bool> assembled_;
   CommonDataWrite write_;
+  std::vector<std::vector<std::byte>> payloads_;
 };
 ObjectTransactionTicket::ObjectTransactionTicket(std::shared_ptr<ObjectTransactionData> data)
     : data_(std::move(data)) {}
@@ -106,6 +108,7 @@ struct ObjectTransactionPipeline::Impl {
     std::condition_variable changed_;
     std::list<std::shared_ptr<ObjectTransactionData>> pending_;
     std::shared_ptr<ObjectTransactionData> commit_;
+    bool deferred_notified_{true};
     bool accepting_{true}, coordinator_done_{false}, notified_{false};
     std::exception_ptr error_;
     void Notify() {
@@ -124,9 +127,16 @@ struct ObjectTransactionPipeline::Impl {
         options.max_pending_bytes_ == 0 || options.retry_interval_.count() <= 0 || options.gc_interval_.count() <= 0) {
       throw std::invalid_argument("object transactions require positive explicit budgets");
     }
+    if (options.deferred_max_bytes_ != 0 && !ObjectMappingAccess::SupportsDeferred(mapping_))
+      throw std::invalid_argument(
+          "Deferred requires a v3 object store; existing v2 stores remain Common without migration");
+    if (options.deferred_max_bytes_ != 0 &&
+        (options.deferred_pending_bytes_ < options.deferred_max_bytes_ || options.deferred_pending_tasks_ == 0))
+      throw std::invalid_argument("Deferred requires explicit backlog budgets");
     metadata_ = std::thread([this] { CommitLoop(); });
     try {
       coordinator_ = std::thread([this] { Drive(); });
+      deferred_ = std::thread([this] { DeferredLoop(); });
     } catch (...) {
       {
         std::lock_guard<std::mutex> lock(state_->mutex_);
@@ -134,6 +144,8 @@ struct ObjectTransactionPipeline::Impl {
         state_->coordinator_done_ = true;
       }
       state_->changed_.notify_all();
+      state_->Notify();
+      if (coordinator_.joinable()) coordinator_.join();
       metadata_.join();
       throw;
     }
@@ -278,6 +290,27 @@ struct ObjectTransactionPipeline::Impl {
       task.changes_.push_back(std::move(change));
       task.bytes_.push_back(std::move(bytes));
     }
+    task.payloads_.resize(task.changes_.size());
+    // Select using assembled byte ranges, never SQL's changed-field count.
+    uint64_t pending_bytes = 0;
+    size_t pending_tasks = 0;
+    if (options_.deferred_max_bytes_ != 0) {
+      const auto pending = ObjectMappingAccess::Pending(*task.view_, options_.deferred_pending_tasks_ + 1);
+      pending_tasks = pending.size();
+      for (const auto &p : pending) pending_bytes += p.payload_.ref_.bytes_ - 4;
+    }
+    for (size_t i = 0; i < task.changes_.size(); ++i) {
+      auto &change = task.changes_[i];
+      const auto &op = task.input_.objects_[i];
+      if (!op.common_only_ && (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append) &&
+          change.length_ <= options_.deferred_max_bytes_ && pending_tasks < options_.deferred_pending_tasks_ &&
+          pending_bytes <= options_.deferred_pending_bytes_ &&
+          change.length_ <= options_.deferred_pending_bytes_ - pending_bytes) {
+        change.deferred_ = true;
+        pending_bytes += change.length_;
+        ++pending_tasks;
+      }
+    }
     task.reads_.resize(task.changes_.size());
     task.read_done_.assign(task.changes_.size(), {false, false});
     task.assembled_.assign(task.changes_.size(), false);
@@ -309,7 +342,7 @@ struct ObjectTransactionPipeline::Impl {
         if (preserved_end > written_end) {
           edges[1] = {written_end, preserved_end - written_end};
         }
-        // One small RMW reads its unit once. A large COW reads only the two
+        // Small partial COW reads its unit once. A large COW reads only the two
         // surviving edges, never the overwritten middle of the old object.
         if (change.length_ <= unit_ && (edges[0].second != 0 || edges[1].second != 0)) {
           edges[0] = {change.offset_, preserved_end - change.offset_};
@@ -390,7 +423,19 @@ struct ObjectTransactionPipeline::Impl {
             Plan(task);
           }
           if (task.step_ == Step::Reading && Assemble(task)) {
+            for (size_t i = 0; i < task.changes_.size(); ++i) {
+              if (task.changes_[i].deferred_ && task.bytes_[i].source_) {
+                const auto *bytes = static_cast<const std::byte *>(task.bytes_[i].Data());
+                task.payloads_[i].assign(bytes, bytes + task.bytes_[i].Size());
+              }
+            }
             task.write_ = io_.WriteCommon(&task.changes_, task.bytes_, Notify());
+            // Transfer assembled ownership; do not keep a second uncharged body.
+            // Borrowed frames were copied before any Common IO was accepted.
+            for (size_t i = 0; i < task.changes_.size(); ++i) {
+              if (task.changes_[i].deferred_ && !task.bytes_[i].source_)
+                task.payloads_[i] = std::move(task.bytes_[i].owned_);
+            }
             task.bytes_.clear();
             task.reads_.clear();
             task.step_ = Step::Writing;
@@ -457,9 +502,23 @@ struct ObjectTransactionPipeline::Impl {
           for (;;) {
             try {
               const auto base = mapping_.Read();
+              if (std::any_of(task->changes_.begin(), task->changes_.end(),
+                              [](const auto &c) { return c.deferred_; })) {
+                auto pending = ObjectMappingAccess::Pending(base, options_.deferred_pending_tasks_ + 1);
+                uint64_t bytes = 0;
+                size_t count = pending.size();
+                for (const auto &p : pending) bytes += p.payload_.ref_.bytes_ - 4;
+                for (const auto &c : task->changes_)
+                  if (c.deferred_) {
+                    count += c.extents_.size();
+                    bytes += c.length_;
+                  }
+                if (count > options_.deferred_pending_tasks_ || bytes > options_.deferred_pending_bytes_)
+                  throw MetadataError(MetadataErrorCode::ResourceUnavailable, "Deferred backlog admission exceeded");
+              }
               result = ObjectMappingAccess::Apply(mapping_, base, task->changes_,
                                                   task->write_.reservation_ ? &*task->write_.reservation_ : nullptr,
-                                                  task->input_.controls_);
+                                                  task->input_.controls_, task->payloads_);
               break;
             } catch (const MetadataViewConflict &) {
               // Rebuild mapping/allocation mutations, rechecking every object
@@ -479,6 +538,7 @@ struct ObjectTransactionPipeline::Impl {
         task->Finish(std::move(result));
         {
           std::lock_guard<std::mutex> lock(state_->mutex_);
+          state_->deferred_notified_ = true;
           state_->commit_.reset();
           state_->notified_ = true;
           state_->changed_.notify_all();
@@ -511,6 +571,71 @@ struct ObjectTransactionPipeline::Impl {
       }
     }
   }
+  void DeferredLoop() {
+    for (;;) {
+      {
+        std::unique_lock<std::mutex> lock(state_->mutex_);
+        state_->changed_.wait(lock, [&] { return state_->deferred_notified_ || !state_->accepting_; });
+        if (!state_->accepting_ || state_->error_) return;
+        state_->deferred_notified_ = false;
+      }
+      try {
+        for (;;) {
+          {
+            std::lock_guard<std::mutex> lock(state_->mutex_);
+            if (!state_->accepting_) return;
+          }
+          const auto tasks = ObjectMappingAccess::Pending(mapping_.Read(), 1);
+          if (tasks.empty()) break;
+          const auto &task = tasks.front();
+          std::vector<std::byte> body;
+          {
+            IOReadBudget budget;
+            auto read = ObjectMappingAccess::ReadPayload(mapping_, task.payload_, budget, {}, {});
+            read.Wait();
+            body = DecodeMetadataPayload(read);
+          }
+          // Release Journal read buffers before acquiring the Data batch.
+          auto batch = io_.WriteDeferred(task, body);
+          batch.Wait();
+          CommonDataWrite done;
+          done.batch_.emplace(std::move(batch));
+          io_.FinishCommon(&done);
+          for (;;) {
+            try {
+              const auto result = ObjectMappingAccess::Complete(mapping_, mapping_.Read(), task);
+              if (result.outcome_ != JournalOutcome::Durable) std::rethrow_exception(result.error_);
+              break;
+            } catch (const MetadataViewConflict &) {
+              continue;  // Rebuild only completion metadata; never repeat accepted device IO.
+            } catch (const MetadataCommitBusy &) {
+              RetryDeferred();
+              std::lock_guard<std::mutex> lock(state_->mutex_);
+              if (!state_->accepting_) return;
+            }
+          }
+        }
+      } catch (const JournalError &e) {
+        if (e.Code() != JournalErrorCode::ResourceUnavailable) {
+          RecordError(std::current_exception());
+          return;
+        }
+        RetryDeferred();
+      } catch (const ObjectIOBusy &) {
+        RetryDeferred();
+      } catch (const MetadataCommitBusy &) {
+        RetryDeferred();
+      } catch (...) {
+        RecordError(std::current_exception());
+        return;
+      }
+    }
+  }
+  void RetryDeferred() {
+    std::unique_lock<std::mutex> lock(state_->mutex_);
+    state_->changed_.wait_for(lock, options_.retry_interval_, [&] { return !state_->accepting_; });
+    state_->deferred_notified_ = true;
+  }
   void RecordError(std::exception_ptr error) {
     std::lock_guard<std::mutex> lock(state_->mutex_);
     if (!state_->error_) {
@@ -529,6 +654,7 @@ struct ObjectTransactionPipeline::Impl {
       state_->changed_.notify_all();
       coordinator_.join();
       metadata_.join();
+      deferred_.join();
     });
   }
   ObjectIO &io_;
@@ -538,7 +664,7 @@ struct ObjectTransactionPipeline::Impl {
   uint64_t unit_;
   std::shared_ptr<State> state_{std::make_shared<State>()};
   std::shared_ptr<RequestBudget> budget_{std::make_shared<RequestBudget>()};
-  std::thread metadata_, coordinator_;
+  std::thread metadata_, coordinator_, deferred_;
   std::once_flag close_;
 };
 ObjectTransactionPipeline::ObjectTransactionPipeline(ObjectIO &io, ObjectMappingStore &mapping,
