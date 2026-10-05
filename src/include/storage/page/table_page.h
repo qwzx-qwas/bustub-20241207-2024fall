@@ -76,6 +76,14 @@ class TablePage {
 
   /** Physically occupied slots include MVCC tombstones, but exclude reclaimed slots. */
   auto IsOccupied(uint32_t slot) const -> bool;
+  auto IsEmpty() const -> bool {
+    for (uint32_t slot = 0; slot < GetNumTuples(); ++slot) {
+      if (IsOccupied(slot)) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   /** Bytes available for one new tuple, including its slot overhead. */
   auto GetFreeSpace() const -> uint16_t;

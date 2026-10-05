@@ -1,6 +1,5 @@
 #pragma once
 #include <condition_variable>
-#include <list>
 #include <mutex>
 #include <vector>
 #include "buffer/buffer_pool_manager.h"
@@ -58,7 +57,7 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
   TranslationDirectory directory_;
   LRUKReplacer replacer_;
   std::vector<std::unique_ptr<FrameHeader>> frames_;
-  std::list<frame_id_t> free_;
+  std::vector<frame_id_t> free_;  // Reserved once; retiring a frame cannot allocate.
   struct Slot {
     explicit Slot(BufferPoolState &s, bool prefetch) : state_(s), prefetch_(prefetch) {}
     ~Slot();

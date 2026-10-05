@@ -393,6 +393,8 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
     d.info_.version_ = Advance(d.info_.version_);
     if (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append) {
       ReplaceChanges(base.base_, key, op.offset_, op.length_, op.extents_, *s.context_, d, changes);
+    } else if (op.operation_ == ObjectOperation::Unmap) {
+      Cut(base.base_, key, op.offset_, End(op.offset_, op.length_), d, changes);
     } else {
       const bool remove = op.operation_ == ObjectOperation::Remove;
       if (!remove && d.info_.mode_ == ObjectSizeMode::Fixed && op.length_ != d.info_.size_) {

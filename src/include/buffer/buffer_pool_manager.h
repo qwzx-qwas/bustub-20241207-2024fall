@@ -46,6 +46,13 @@ class BufferPoolManager {
   auto NewPage() -> page_id_t;
   void SetNextPageIdForRecovery(page_id_t next_page_id);
   auto DeletePage(page_id_t page_id) -> bool;
+  auto SupportsPageRetirement() const -> bool;
+  /** Caller has removed record/index/undo references. False means another pin
+   * or IO still owns the page. On success consumes victim and publishes the
+   * durable replacement image into link. Failure fences this cache until reopen. */
+  auto RetirePage(ReadPageGuard &victim, WritePageGuard &link, const std::array<char, BUSTUB_PAGE_SIZE> &replacement)
+      -> bool;
+  void ReclaimRetiredPages();
   auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
       -> std::optional<WritePageGuard>;
   auto CheckedReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> std::optional<ReadPageGuard>;

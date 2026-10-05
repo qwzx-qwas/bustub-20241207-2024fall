@@ -155,6 +155,21 @@ void BusTubStateMachine::ApplyBatch(const ReplicatedLogEntry &entry, const Trans
   for (const auto &command : batch.commands_) {
     ApplyCommand(entry, command);
   }
+  // Keep tuple reuse available throughout the batch, especially delete+insert
+  // updates. Retire empty pages only after all old RIDs have left the indexes.
+  std::set<table_oid_t> maintained;
+  for (const auto &command : batch.commands_) {
+    std::visit(
+        [&](const auto &value) {
+          using T = std::decay_t<decltype(value)>;
+          if constexpr (std::is_same_v<T, UpdateRowCommand> || std::is_same_v<T, DeleteRowCommand>) {
+            if (maintained.insert(value.table_oid_).second) {
+              catalog_->GetTable(value.table_oid_)->table_->ReclaimEmptyPages();
+            }
+          }
+        },
+        command);
+  }
   const auto response =
       WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, batch.request_id_, entry.term_, entry.index_});
   sessions_->RecordCommitted(batch.client_id_, batch.request_id_, batch.request_fingerprint_, response);

@@ -12,7 +12,7 @@
 #include "storage/disk/object_mapping.h"
 
 namespace bustub {
-enum class ObjectOperation { Create, Write, Append, Resize, Remove };
+enum class ObjectOperation { Create, Write, Append, Resize, Remove, Unmap };
 /** Stable immutable source. Owner retains both memory and permission to read it
  * through Common publication. The caller must not mutate the bytes meanwhile. */
 struct ObjectWriteSource {
@@ -28,6 +28,7 @@ struct ObjectMutation {
   ObjectSizeMode mode_;           // Used only by Create.
   std::vector<std::byte> bytes_;  // Nonempty only for Write/Append.
   std::optional<ObjectWriteSource> source_{std::nullopt};  // Alternative to owned input.
+  uint64_t length_{0};  // Unmap only: remove a range without changing object length or erasing bytes.
   auto Size() const -> size_t { return source_ ? source_->size_ : bytes_.size(); }
   auto Data() const -> const void * { return source_ ? source_->data_ : bytes_.data(); }
 };

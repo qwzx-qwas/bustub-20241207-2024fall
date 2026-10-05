@@ -1,0 +1,22 @@
+{
+  "stage": "S9.3",
+  "baseline_commit": "991ced7fd98f0e1251dd71056948f437eb8f9a35",
+  "normal_passed": 66,
+  "mutations_detected": 19,
+  "source_archive": "test/archives/F36-table-space.tar.gz",
+  "source_sha256": "8ef48b5b7dfefdba0fff34845d406f576cb42104c960618529f0845f314e5550",
+  "source_bytes": 16761,
+  "result_archive": "test-results/storage-f36-s93-20261005/F36-results.tar.gz",
+  "result_sha256": "0f6682185ab7f5e286f0d005810f84261f0914e94093b0da5adbbfedd72d4345",
+  "result_bytes": 203353,
+  "result_ignored_by_existing_rule": true,
+  "superseded_s92_result_removed": true,
+  "scratch_removed": "/tmp/f36-s93-20261005",
+  "scratch_bytes_removed": 3888665647,
+  "source_and_result_integrity_verified": true,
+  "changed_markdown_file_links_verified": true,
+  "f26_global_hash_index_corrected_from_s9e_evidence": true,
+  "dependency_archives_modified": false,
+  "permanent_stage_tests_added": false,
+  "commit_created": false
+}

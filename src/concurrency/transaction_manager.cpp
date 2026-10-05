@@ -610,6 +610,7 @@ void TransactionManager::ReclaimDeletedTuples() {
       }
     }  // Release the physical scan before retiring its RIDs.
     if (rows.empty()) {
+      table->table_->ReclaimEmptyPages();
       continue;
     }
     for (const auto &index : catalog_->GetTableIndexes(name)) {
@@ -627,6 +628,7 @@ void TransactionManager::ReclaimDeletedTuples() {
       rids.push_back(rid);
     }
     table->table_->ReclaimTuples(rids);
+    table->table_->ReclaimEmptyPages();
   }
 }
 

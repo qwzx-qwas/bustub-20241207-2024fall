@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstring>
 #include <mutex>
+#include <set>
 #include <thread>
 #include "common/byte_codec.h"
 #include "storage/disk/disk_manager.h"
@@ -53,6 +54,7 @@ struct ObjectPageStorage::Impl {
   std::mutex allocation_;
   uint64_t objects_{0};
   bool retired_{false};
+  std::set<page_id_t> pending_pages_;
   Impl(std::shared_ptr<NodeStorage> storage, uint64_t space, ObjectPageOptions options)
       : storage_(std::move(storage)), space_(space), options_(options), caps_(storage_->PageIO()) {
     if (options.registry_.space_ == 0 || options.pages_per_object_ == 0 || caps_.max_batch_pages_ == 0 ||
@@ -65,6 +67,26 @@ struct ObjectPageStorage::Impl {
   }
   auto Offset(page_id_t page) const -> uint64_t {
     return (page % options_.pages_per_object_) * uint64_t{BUSTUB_PAGE_SIZE};
+  }
+  void CheckPage(page_id_t page) const {
+    if (storage_->Objects().Control({space_, 0}, uint64_t{static_cast<uint32_t>(page)} + 1)) {
+      throw std::runtime_error("database page identity is retired");
+    }
+  }
+  // allocation_ serializes workspace growth/retirement, never BufferPool's
+  // residency or content locks. F14's ordinary background GC handles the bytes.
+  void Reclaim(size_t limit) {
+    while (limit-- != 0 && !pending_pages_.empty()) {
+      const auto page = *pending_pages_.begin();
+      ObjectTransaction tx;
+      ObjectMutation unmap{ObjectOperation::Unmap, Key(page), Offset(page), ObjectSizeMode::Fixed, {}};
+      unmap.length_ = BUSTUB_PAGE_SIZE;
+      tx.objects_.push_back(std::move(unmap));
+      tx.controls_.push_back(
+          {{space_, 0}, uint64_t{static_cast<uint32_t>(page)} + 1, std::vector<std::byte>{std::byte{1}, std::byte{2}}});
+      Submit(*storage_, tx);
+      pending_pages_.erase(page);
+    }
   }
 };
 ObjectPageStorage::ObjectPageStorage(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -108,6 +130,25 @@ auto ObjectPageStorage::Open(std::shared_ptr<NodeStorage> storage, uint64_t spac
   if (!r.Empty()) {
     throw std::runtime_error("trailing workspace descriptor bytes");
   }
+  uint64_t cursor = 1;
+  for (;;) {
+    const auto records = storage->Objects().Controls({space, 0}, cursor, 1);
+    if (records.empty()) {
+      break;
+    }
+    const auto &entry = records.front();
+    if (entry.item_ > uint64_t{INT32_MAX} + 1 || entry.value_.size() != 2 || entry.value_[0] != std::byte{1} ||
+        (entry.value_[1] != std::byte{1} && entry.value_[1] != std::byte{2})) {
+      throw std::runtime_error("invalid retired page record");
+    }
+    if (entry.value_[1] == std::byte{1}) {
+      impl->pending_pages_.insert(static_cast<page_id_t>(entry.item_ - 1));
+    }
+    cursor = entry.item_ + 1;
+  }
+  while (!impl->pending_pages_.empty()) {
+    impl->Reclaim(4);
+  }
   return std::shared_ptr<ObjectPageStorage>(new ObjectPageStorage(std::move(impl)));
 }
 void ObjectPageStorage::RetireAbandoned(std::shared_ptr<NodeStorage> storage, ObjectPageOptions options) {
@@ -144,6 +185,7 @@ void ObjectPageStorage::EnsurePages(uint64_t count) {
   }
 }
 void ObjectPageStorage::Read(const PageBuffer &b) {
+  impl_->CheckPage(b.page_);
   for (;;) {
     try {
       auto read =
@@ -160,12 +202,14 @@ void ObjectPageStorage::Read(const PageBuffer &b) {
   }
 }
 auto ObjectPageStorage::Prefetch(const PageBuffer &b, std::function<void(std::exception_ptr)> complete) -> bool {
+  impl_->CheckPage(b.page_);
   return impl_->storage_->PrefetchObjectInto(impl_->storage_->Objects(), impl_->Key(b.page_), impl_->Offset(b.page_),
                                              BUSTUB_PAGE_SIZE, {b.data_, b.capacity_, b.owner_}, std::move(complete));
 }
 void ObjectPageStorage::Write(const std::vector<PageBuffer> &buffers) {
   ObjectTransaction tx;
   for (const auto &b : buffers) {
+    impl_->CheckPage(b.page_);
     ObjectMutation op{ObjectOperation::Write, impl_->Key(b.page_), impl_->Offset(b.page_), ObjectSizeMode::Fixed, {}};
     op.source_ = ObjectWriteSource{b.data_, BUSTUB_PAGE_SIZE, b.capacity_, b.owner_};
     tx.objects_.push_back(std::move(op));
@@ -173,14 +217,42 @@ void ObjectPageStorage::Write(const std::vector<PageBuffer> &buffers) {
   Submit(*impl_->storage_, tx);
 }
 void ObjectPageStorage::Delete(page_id_t page) {
-  // No page-id reuse or partial-object reclamation before F36. Database deletion
-  // removes residency; whole abandoned workspaces have explicit retirement below.
+  // Legacy index/cache deletion has no durable parent-change proof. It must not
+  // release storage. F36 uses the explicit retirement protocol instead.
   (void)page;
+}
+void ObjectPageStorage::RetirePage(page_id_t page, page_id_t link,
+                                   const std::array<char, BUSTUB_PAGE_SIZE> &replacement) {
+  std::lock_guard<std::mutex> lock(impl_->allocation_);
+  impl_->CheckPage(page);
+  impl_->CheckPage(link);
+  ObjectMutation write{ObjectOperation::Write, impl_->Key(link), impl_->Offset(link), ObjectSizeMode::Fixed, {}};
+  write.bytes_.resize(BUSTUB_PAGE_SIZE);
+  std::memcpy(write.bytes_.data(), replacement.data(), replacement.size());
+  ObjectTransaction tx;
+  tx.objects_.push_back(std::move(write));
+  tx.controls_.push_back({{impl_->space_, 0},
+                          uint64_t{static_cast<uint32_t>(page)} + 1,
+                          std::vector<std::byte>{std::byte{1}, std::byte{1}}});
+  impl_->pending_pages_.insert(page);  // Reserve publication memory before durable work.
+  try {
+    Submit(*impl_->storage_, tx);  // A: link replacement and pending retirement are one commit.
+  } catch (...) {
+    impl_->pending_pages_.erase(page);
+    throw;  // Caller fences the cache; reopening resolves an indeterminate result.
+  }
+}
+void ObjectPageStorage::ReclaimRetiredPages() {
+  std::lock_guard<std::mutex> lock(impl_->allocation_);
+  impl_->Reclaim(4);  // B: hole + persistent old-ID rejection, bounded per maintenance call.
 }
 void ObjectPageStorage::Retire() {
   std::lock_guard<std::mutex> lock(impl_->allocation_);
   if (impl_->retired_) {
     return;
+  }
+  while (!impl_->pending_pages_.empty()) {
+    impl_->Reclaim(4);
   }
   while (impl_->objects_ != 0) {
     const auto last = impl_->objects_;
@@ -200,6 +272,14 @@ void ObjectPageStorage::Retire() {
     tx.controls_.push_back({{impl_->space_, 0}, 0, Descriptor(impl_->options_, last - 1)});
     Submit(*impl_->storage_, tx);
     --impl_->objects_;
+  }
+  for (;;) {
+    const auto records = impl_->storage_->Objects().Controls({impl_->space_, 0}, 1, 1);
+    if (records.empty()) {
+      break;
+    }
+    ObjectTransaction erase{{}, {{{impl_->space_, 0}, records.front().item_, std::nullopt}}};
+    Submit(*impl_->storage_, erase);
   }
   ObjectTransaction tx{
       {}, {{{impl_->space_, 0}, 0, std::nullopt}, {impl_->options_.registry_, impl_->space_, std::nullopt}}};

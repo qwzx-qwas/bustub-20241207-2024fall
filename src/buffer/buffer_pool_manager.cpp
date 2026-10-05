@@ -12,6 +12,7 @@
 
 #include "buffer/buffer_pool_manager.h"
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include "buffer_pool_internal.h"
@@ -68,9 +69,10 @@ BufferPoolState::BufferPoolState(size_t count, std::shared_ptr<PageStorage> stor
     throw std::invalid_argument("no page task capacity");
   }
   frames_.reserve(count);
+  free_.reserve(count);
   for (size_t i = 0; i < count; ++i) {
     frames_.push_back(std::make_unique<FrameHeader>(static_cast<frame_id_t>(i), arena_.Frame(i)));
-    free_.push_back(i);
+    free_.push_back(count - i - 1);
   }
 }
 void BufferPoolState::Unpin(FrameHeader &f) {
@@ -118,8 +120,8 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (!free_.empty()) {
-        selected = free_.front();
-        free_.pop_front();
+        selected = free_.back();
+        free_.pop_back();
       }
     }
     bool victim = false;
@@ -426,6 +428,74 @@ auto BufferPoolManager::DeletePage(page_id_t page) -> bool {
   }
   state_->storage_->Delete(page);
   return true;
+}
+auto BufferPoolManager::SupportsPageRetirement() const -> bool { return state_->storage_->SupportsRetirement(); }
+auto BufferPoolManager::RetirePage(ReadPageGuard &victim, WritePageGuard &link,
+                                   const std::array<char, BUSTUB_PAGE_SIZE> &replacement) -> bool {
+  Call call(*state_);
+  if (!SupportsPageRetirement() || victim.state_ != state_ || link.state_ != state_ || !victim.frame_ || !link.frame_ ||
+      victim.frame_ == link.frame_) {
+    throw std::invalid_argument("retirement requires two distinct owned pages and a supported backend");
+  }
+  auto &f = *victim.frame_;
+  const auto page = f.page_;
+  auto task = std::make_shared<PageTask>();
+  {
+    auto entry = state_->directory_.Access(page);
+    std::lock_guard<std::mutex> lock(f.mutex_);
+    if (f.pins_ != 1 || f.io_ || f.phase_ != FramePhase::Resident) {
+      return false;
+    }
+    f.phase_ = FramePhase::Evicting;
+    f.task_ = task;  // Later lookups join; no entry/frame mutex spans the commit.
+  }
+  try {
+    state_->storage_->RetirePage(page, link.GetPageId(), replacement);
+  } catch (...) {
+    const auto error = std::current_exception();
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      state_->closed_ = true;
+    }
+    {
+      std::lock_guard<std::mutex> lock(f.mutex_);
+      f.phase_ = FramePhase::Failed;
+      f.changed_.notify_all();
+    }
+    task->Finish(error);
+    std::rethrow_exception(error);
+  }
+  // No throwing allocation after the durable handoff. Link's write permission
+  // excludes readers/writers/flush; victim's entry excludes a new pin.
+  std::memcpy(link.GetDataMut(), replacement.data(), replacement.size());
+  {
+    std::lock_guard<std::mutex> lock(link.frame_->mutex_);
+    link.frame_->clean_version_ = link.frame_->dirty_version_;
+    link.mutated_ = false;
+  }
+  {
+    auto entry = state_->directory_.Access(page);
+    std::lock_guard<std::mutex> lock(f.mutex_);
+    state_->replacer_.SetEvictable(f.id_, true);
+    state_->replacer_.Remove(f.id_);
+    entry.SetFrame(std::nullopt);
+    f.pins_ = f.readers_ = 0;
+    f.page_ = INVALID_PAGE_ID;
+    f.phase_ = FramePhase::Free;
+    f.task_.reset();
+    f.changed_.notify_all();
+    victim.frame_ = nullptr;
+    victim.state_.reset();
+  }
+  state_->Free(f.id_);
+  // Flush snapshots can now skip the vanished frame; demand readers recheck
+  // residency and the backend rejects this durably retired identity.
+  task->Finish();
+  return true;
+}
+void BufferPoolManager::ReclaimRetiredPages() {
+  Call call(*state_);
+  state_->storage_->ReclaimRetiredPages();
 }
 void BufferPoolState::Flush(const std::vector<std::pair<page_id_t, uint64_t>> &pages) {
   size_t cursor = 0;

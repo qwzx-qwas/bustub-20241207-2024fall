@@ -2,10 +2,12 @@
 // F26: page backend contracts used by the array BufferPool.
 //===----------------------------------------------------------------------===//
 #pragma once
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 #include "common/config.h"
 #include "storage/disk/object_mapping.h"
@@ -41,6 +43,14 @@ class PageStorage {
   }
   virtual void Write(const std::vector<PageBuffer> &buffers) = 0;
   virtual void Delete(page_id_t page) = 0;
+  /** Explicit durable retirement, separate from cache/index Delete. File backends
+   * cannot atomically publish the replacement link and a recoverable retirement. */
+  virtual auto SupportsRetirement() const -> bool { return false; }
+  // Synchronous copy-in of a complete replacement page, not a borrowed frame lease.
+  virtual void RetirePage(page_id_t page, page_id_t link, const std::array<char, BUSTUB_PAGE_SIZE> &replacement) {
+    throw std::logic_error("page backend does not support durable retirement");
+  }
+  virtual void ReclaimRetiredPages() {}
 };
 auto FilePageStorage(DiskManager *disk) -> std::shared_ptr<PageStorage>;
 
@@ -68,6 +78,9 @@ class ObjectPageStorage : public PageStorage {
   auto Prefetch(const PageBuffer &buffer, std::function<void(std::exception_ptr)> complete) -> bool override;
   void Write(const std::vector<PageBuffer> &buffers) override;
   void Delete(page_id_t page) override;
+  auto SupportsRetirement() const -> bool override { return true; }
+  void RetirePage(page_id_t page, page_id_t link, const std::array<char, BUSTUB_PAGE_SIZE> &replacement) override;
+  void ReclaimRetiredPages() override;
   /** Explicitly retire an abandoned working space after guards/calls drain. */
   void Retire();
 

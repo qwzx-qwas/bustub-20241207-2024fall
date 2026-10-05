@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <array>
 #include <cassert>
 #include <map>
 #include <mutex>  // NOLINT
@@ -67,6 +68,9 @@ auto TableHeap::Open(BufferPoolManager *bpm, page_id_t first_page_id) -> std::un
       throw Exception("corrupt table heap: table page cannot be read");
     }
     heap->free_pages_.emplace(page->GetFreeSpace(), page_id);
+    if (page_id != first_page_id && page->IsEmpty()) {
+      heap->empty_pages_.insert(page_id);
+    }
     const auto next_page_id = page->GetNextPageId();
     if (next_page_id == INVALID_PAGE_ID) {
       heap->last_page_id_ = page_id;
@@ -75,6 +79,7 @@ auto TableHeap::Open(BufferPoolManager *bpm, page_id_t first_page_id) -> std::un
     if (next_page_id < 0) {
       throw Exception("corrupt table heap: invalid next page id");
     }
+    heap->predecessors_.emplace(next_page_id, page_id);
     page_id = next_page_id;
   }
 }
@@ -99,6 +104,7 @@ auto TableHeap::InsertTuple(const TupleMeta &meta, const Tuple &tuple, LockManag
     free_pages_.erase({hint.value_or(old_space), id});
     free_pages_.emplace(page->GetFreeSpace(), id);
     if (slot) {
+      empty_pages_.erase(id);
       result = RID(id, *slot);
     }
   };
@@ -118,6 +124,7 @@ auto TableHeap::InsertTuple(const TupleMeta &meta, const Tuple &tuple, LockManag
   }
   if (!result) {
     const auto next_id = bpm_->NewPage();
+    predecessors_.emplace(next_id, last_page_id_);
     {
       auto next_guard = bpm_->WritePage(next_id);
       next_guard.AsMut<TablePage>()->Init();
@@ -158,7 +165,55 @@ void TableHeap::ReclaimTuples(const std::vector<RID> &rids) {
     page->ReclaimTuples(slots);
     free_pages_.erase({old_space, id});
     free_pages_.emplace(page->GetFreeSpace(), id);
+    if (id != first_page_id_ && page->IsEmpty()) {
+      empty_pages_.insert(id);
+    }
   }
+}
+
+void TableHeap::ReclaimEmptyPages() {
+  if (!bpm_->SupportsPageRetirement()) {
+    return;  // Legacy file storage keeps page-local reuse without false durability.
+  }
+  std::unique_lock<std::mutex> lock(latch_);
+  if (active_iterators_ != 0) {
+    return;
+  }
+  bpm_->ReclaimRetiredPages();
+  const auto attempts = std::min<size_t>(4, empty_pages_.size());
+  for (size_t i = 0; i < attempts; ++i) {
+    auto candidate = empty_pages_.lower_bound(empty_cursor_);
+    if (candidate == empty_pages_.end()) {
+      candidate = empty_pages_.begin();
+    }
+    const auto id = *candidate;
+    empty_cursor_ = id == INT32_MAX ? 0 : id + 1;
+    auto victim = bpm_->ReadPage(id);
+    const auto *page = victim.As<TablePage>();
+    if (!page->IsEmpty()) {
+      empty_pages_.erase(candidate);
+      continue;
+    }
+    const auto previous = predecessors_.at(id);
+    const auto next = page->GetNextPageId();
+    const auto free = page->GetFreeSpace();
+    auto link = bpm_->WritePage(previous);
+    alignas(TablePage) std::array<char, BUSTUB_PAGE_SIZE> replacement;
+    std::memcpy(replacement.data(), link.GetData(), replacement.size());
+    reinterpret_cast<TablePage *>(replacement.data())->SetNextPageId(next);
+    if (!bpm_->RetirePage(victim, link, replacement)) {
+      continue;
+    }
+    if (next == INVALID_PAGE_ID) {
+      last_page_id_ = previous;
+    } else {
+      predecessors_.at(next) = previous;
+    }
+    free_pages_.erase({free, id});
+    predecessors_.erase(id);
+    empty_pages_.erase(candidate);
+  }
+  bpm_->ReclaimRetiredPages();
 }
 
 void TableHeap::UpdateTupleMeta(const TupleMeta &meta, RID rid) {

@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <map>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <optional>
@@ -80,6 +81,9 @@ class TableHeap {
    * Caller owns the transaction/visibility exclusion boundary. Does not unlink pages.
    */
   void ReclaimTuples(const std::vector<RID> &rids);
+  /** Same visibility boundary as ReclaimTuples. Retire up to four empty non-anchor
+   * pages; active scans/pins defer work. Does not wipe or reuse page identities. */
+  void ReclaimEmptyPages();
 
   /**
    * Read a tuple from the table.
@@ -161,6 +165,9 @@ class TableHeap {
   page_id_t last_page_id_{INVALID_PAGE_ID}; /* protected by latch_ */
   // Rebuildable hints. Only InsertTuple/ReclaimTuples change tuple space, under latch_.
   std::set<std::pair<uint16_t, page_id_t>> free_pages_;
+  std::map<page_id_t, page_id_t> predecessors_;
+  std::set<page_id_t> empty_pages_;
+  page_id_t empty_cursor_{0};
   size_t active_iterators_{0};
 };
 

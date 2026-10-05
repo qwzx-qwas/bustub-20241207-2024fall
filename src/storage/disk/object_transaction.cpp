@@ -173,7 +173,10 @@ struct ObjectTransactionPipeline::Impl {
           (op.operation_ == ObjectOperation::Remove && op.offset_ != 0)) {
         throw std::invalid_argument("object operation has incompatible input");
       }
-      if (op.operation_ < ObjectOperation::Create || op.operation_ > ObjectOperation::Remove) {
+      if ((op.operation_ == ObjectOperation::Unmap) != (op.length_ != 0)) {
+        throw std::invalid_argument("only unmap specifies a nonempty range");
+      }
+      if (op.operation_ < ObjectOperation::Create || op.operation_ > ObjectOperation::Unmap) {
         throw std::invalid_argument("unknown object operation");
       }
       if (op.source_ && (!op.bytes_.empty() || !op.source_->data_ || !op.source_->owner_ ||
@@ -243,6 +246,12 @@ struct ObjectTransactionPipeline::Impl {
       if (op.operation_ != ObjectOperation::Create) {
         const auto info = task.view_->Describe(op.object_);
         change.version_ = info.version_;
+        if (op.operation_ == ObjectOperation::Unmap) {
+          if (End(op.offset_, op.length_) > info.size_) {
+            throw std::invalid_argument("unmap exceeds object length");
+          }
+          change.length_ = op.length_;
+        }
         if (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append) {
           change.offset_ = op.operation_ == ObjectOperation::Append ? info.size_ : op.offset_;
           const auto end = End(change.offset_, op.Size());
