@@ -417,6 +417,25 @@ void TranslationDirectory::Maintain() {
   }
 }
 
+void TranslationDirectory::Prefetch(const page_id_t *pages, size_t count) const {
+  auto owner = state_;
+  for (size_t i = 0; i < count; ++i) {
+    if (pages[i] < 0) {
+      throw std::invalid_argument("negative translation page id");
+    }
+    const auto prefix = static_cast<uint32_t>(pages[i]) >> 16;
+    auto *middle = owner->roots_[prefix >> 7].published_.load(std::memory_order_acquire);
+    if (!middle) {
+      continue;
+    }
+    __builtin_prefetch(&middle->leaves_[prefix & 0x7fU], 0, 1);
+    auto *leaf = middle->leaves_[prefix & 0x7fU].published_.load(std::memory_order_acquire);
+    if (leaf) {
+      __builtin_prefetch(leaf->memory_.Data() + (pages[i] & 0xffffU) * sizeof(TranslationEntry), 0, 1);
+    }
+  }
+}
+
 auto TranslationDirectory::Access(page_id_t page) -> TranslationAccess {
   if (page < 0) {
     throw std::invalid_argument("negative translation page id");

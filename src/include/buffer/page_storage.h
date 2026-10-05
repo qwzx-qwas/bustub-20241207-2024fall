@@ -4,6 +4,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 #include "common/config.h"
@@ -19,9 +20,10 @@ struct PageBuffer {
   // Retains the caller's frame and logical content permission through completion.
   std::shared_ptr<void> owner_;
 };
-/** Synchronous facade over the existing bounded storage execution. Methods may
+/** Page facade over the existing bounded storage execution. Read/Write are
+ * synchronous; optional Prefetch transfers completion instead. Operations may
  * overlap on independent pages. The caller holds pin/content rights; backends
- * retain child IO permissions and never return before their operation completes.
+ * retain child IO permissions through completion.
  * File compatibility completion is still file flush, not device durability.
  */
 class PageStorage {
@@ -32,6 +34,11 @@ class PageStorage {
   virtual auto WriteDomain(page_id_t page) const -> uint64_t = 0;
   virtual void EnsurePages(uint64_t count) = 0;
   virtual void Read(const PageBuffer &buffer) = 0;
+  /** Optional non-waiting read. True transfers the completion responsibility;
+   * false means no IO. File compatibility has no async executor. */
+  virtual auto Prefetch(const PageBuffer &buffer, std::function<void(std::exception_ptr)> complete) -> bool {
+    return false;
+  }
   virtual void Write(const std::vector<PageBuffer> &buffers) = 0;
   virtual void Delete(page_id_t page) = 0;
 };
@@ -58,6 +65,7 @@ class ObjectPageStorage : public PageStorage {
   auto WriteDomain(page_id_t page) const -> uint64_t override;
   void EnsurePages(uint64_t count) override;
   void Read(const PageBuffer &buffer) override;
+  auto Prefetch(const PageBuffer &buffer, std::function<void(std::exception_ptr)> complete) -> bool override;
   void Write(const std::vector<PageBuffer> &buffers) override;
   void Delete(page_id_t page) override;
   /** Explicitly retire an abandoned working space after guards/calls drain. */

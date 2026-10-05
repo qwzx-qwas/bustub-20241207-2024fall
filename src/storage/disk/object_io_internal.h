@@ -37,6 +37,8 @@ class ObjectIO {
             std::function<void()> ready) -> ObjectRead;
   auto ReadInto(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
                 ObjectReadTarget target) -> ObjectRead;
+  auto PrefetchInto(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
+                    ObjectReadTarget target, std::function<void(std::exception_ptr)> complete) -> bool;
   auto Write(const void *source, size_t size) -> ObjectWrite;
   auto Publish(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, ObjectWrite &write) -> JournalResult;
   auto Error() const -> std::exception_ptr;
@@ -46,6 +48,9 @@ class ObjectIO {
   void Close();
 
  private:
+  auto ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
+                    ObjectReadTarget target, std::function<void(std::exception_ptr)> complete)
+      -> std::optional<ObjectRead>;
   void CheckBatchBudget(const std::vector<RegionIORequest> &requests) const;
   void CheckExternalBudget(const std::vector<RegionIORequest> &requests, size_t capacity) const;
   RegionManager &regions_;

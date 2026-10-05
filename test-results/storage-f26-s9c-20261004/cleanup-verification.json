@@ -31,5 +31,7 @@
   "result_archive_files": 180,
   "commit_status_source": "Git history; this file records verification before the requested commit",
   "precommit_production_and_test_hashes_verified": true,
-  "precommit_runtime_rerun": false
+  "precommit_runtime_rerun": false,
+  "superseded_by": "storage-f26-s9e-20261005",
+  "old_result_removed": true
 }

@@ -115,6 +115,10 @@ class NodeStorage {
   auto ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length) -> ObjectRead;
   auto ReadObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
                       ObjectReadTarget target) -> ObjectRead;
+  /** Optional direct read-ahead; true transfers completion, false does no IO.
+   * Completion may run inline; it must only update state/notify, never throw or wait. */
+  auto PrefetchObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
+                          ObjectReadTarget target, std::function<void(std::exception_ptr)> complete) -> bool;
   auto PageIO() const -> PageIOCapabilities;
   auto WriteObjectData(const void *source, size_t size) -> ObjectWrite;
   auto PublishObjectData(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, ObjectWrite &write)

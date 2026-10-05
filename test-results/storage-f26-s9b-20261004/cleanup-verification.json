@@ -4,5 +4,7 @@
   "old_result_archive_removed": true,
   "current_result": "test-results/storage-f26-s9c-20261004/F26-results.tar.gz",
   "current_source": "test/archives/F26-array-buffer-pool.tar.gz",
-  "no_old_f26_backup": true
+  "no_old_f26_backup": true,
+  "superseded_by": "storage-f26-s9e-20261005",
+  "old_result_removed": true
 }

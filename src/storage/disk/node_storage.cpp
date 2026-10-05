@@ -633,6 +633,13 @@ auto NodeStorage::ReadObjectInto(const ObjectMappingSnapshot &base, ObjectKey ke
   return impl_->ObjectCall(
       [&](ObjectContext &c, uint64_t) { return c.io_->ReadInto(base, key, offset, length, std::move(target)); });
 }
+auto NodeStorage::PrefetchObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
+                                     ObjectReadTarget target, std::function<void(std::exception_ptr)> complete)
+    -> bool {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t) {
+    return c.io_->PrefetchInto(base, key, offset, length, std::move(target), std::move(complete));
+  });
+}
 auto NodeStorage::PageIO() const -> PageIOCapabilities {
   const auto &o = impl_->options_;
   return impl_->ObjectCall([&](ObjectContext &c, uint64_t) {

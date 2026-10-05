@@ -232,6 +232,18 @@ void ObjectIO::CheckExternalBudget(const std::vector<RegionIORequest> &requests,
 }
 auto ObjectIO::ReadInto(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
                         ObjectReadTarget target) -> ObjectRead {
+  return std::move(*ReadIntoImpl(view, key, offset, length, std::move(target), {}));
+}
+auto ObjectIO::PrefetchInto(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
+                            ObjectReadTarget target, std::function<void(std::exception_ptr)> complete) -> bool {
+  if (!complete) {
+    throw std::invalid_argument("prefetch requires completion owner");
+  }
+  return ReadIntoImpl(view, key, offset, length, std::move(target), std::move(complete)).has_value();
+}
+auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t offset, uint64_t length,
+                            ObjectReadTarget target, std::function<void(std::exception_ptr)> complete)
+    -> std::optional<ObjectRead> {
   if (!target.owner_ || !target.data_ || length > target.capacity_ || length > max_read_bytes_) {
     throw std::invalid_argument("invalid object read target or request budget");
   }
@@ -263,6 +275,9 @@ auto ObjectIO::ReadInto(const ObjectMappingSnapshot &view, ObjectKey key, uint64
     cursor += span.size_;
   }
   if (!direct) {
+    if (complete) {
+      return std::nullopt;
+    }
     // Physical edge alignment genuinely requires a working buffer. The caller
     // completes the copy before releasing its parent page content permission.
     auto read = Read(view, key, offset, length);
@@ -287,11 +302,38 @@ auto ObjectIO::ReadInto(const ObjectMappingSnapshot &view, ObjectKey key, uint64
       leases.clear();
       leases.push_back(IOBufferLease::ForRead(target.data_, target.capacity_, [owner = target.owner_] {}));
     }
-    auto prepared = regions_.TryPrepareExternal(requests, leases, false);
+    auto prepared = complete ? regions_.TryPrepareReadAhead(requests, leases)
+                             : regions_.TryPrepareExternal(requests, leases, false);
+    if (complete && prepared.admission_ == IOAdmission::Full) {
+      return std::nullopt;
+    }
     Accepted(prepared.admission_);
     data->batch_ = std::move(prepared.batch_);
-    data->batch_->RetainUntilComplete([activity](const IOBatchResult &r) { activity->Complete(r); });
+    data->batch_->RetainUntilComplete(
+        [activity, complete = std::move(complete), cursor, length](const IOBatchResult &r) {
+          activity->Complete(r);
+          if (complete) {
+            std::exception_ptr error;
+            try {
+              Successful(r);
+              if (cursor != length) {
+                throw std::runtime_error("short prefetched page");
+              }
+            } catch (...) {
+              error = std::current_exception();
+            }
+            complete(error);
+          }
+        });
     Accepted(executor_.TrySubmit(*data->batch_));
+  }
+  if (requests.empty() && complete) {
+    // No device members: an all-hole read completes during admission.
+    std::exception_ptr error;
+    if (cursor != length) {
+      error = std::make_exception_ptr(std::runtime_error("short prefetched page"));
+    }
+    complete(error);
   }
   return ObjectRead(std::move(data));
 }

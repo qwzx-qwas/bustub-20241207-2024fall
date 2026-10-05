@@ -1,9 +1,5 @@
-> 当前 F26 已由 [S9.1d 结果/恢复入口](../storage-f26-s9d-20261004/README.md) 接续；本目录旧结果压缩包已删除。以下为历史记录，不能按旧路径或旧哈希恢复当前测试。
+# F26 / S9.1b 历史入口（已由 e 接续）
 
-# F26 / S9.1b 历史记录（已由 c 接续）
+原阶段的实现/验证历史见 [当时审查](../../docs/storage_redesign/s9b_execution_20261004.md)。本目录旧结果包已经被替代，不保留备份。
 
-b 阶段历史结果为 5 项 RAM 场景、11 个定向变异，见 [当时审查](../../docs/storage_redesign/s9b_execution_20261004.md)。这些计数不代表当前源码包。
-
-2026-10-04 的 S9.1c 将人工身份拼装场景替换为真实 BufferPool 页路径。旧 `F26-results.tar.gz` 已删除，不保留备份；同名模块源码包也已替换。当前只有 [c 结果包与恢复说明](../storage-f26-s9c-20261004/README.md)，[源码包](../../test/archives/F26-array-buffer-pool.tar.gz) 保存四项基础和五项真实页测试。
-
-本目录 SHA256SUMS 改为校验 c 的当前结果包；旧 b 的测试/结果不可通过旧哈希恢复。其他模块有效归档仍保留。
+当前唯一 [e 结果与恢复入口](../storage-f26-s9e-20261005/README.md)；唯一 [F26 源码包](../../test/archives/F26-array-buffer-pool.tar.gz)。当前为 4 项基础＋9 项页/SQL、原课程/S8 19 项、25 个定向变异。旧计数只描述当时，不能用旧源码/结果哈希恢复当前实现。SHA256SUMS 校验 e 当前包。

@@ -186,6 +186,9 @@ class IOExecutor {
    */
   auto TryPrepareExternal(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases, bool flush_after_writes)
       -> IOPreparation;
+  /** Read-ahead admission preserves room for another equal-sized foreground
+   * request. Uses the same executor, leases and terminal protocol. */
+  auto TryPrepareReadAhead(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases) -> IOPreparation;
   /**
    * Accepted transfers buffer access to workers. All capacity was reserved in
    * TryPrepare; no wait for queue space. Stopped leaves the batch Prepared.
@@ -196,6 +199,8 @@ class IOExecutor {
   void Shutdown();
 
  private:
+  auto PrepareExternal(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases, bool flush_after_writes,
+                       bool read_ahead) -> IOPreparation;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

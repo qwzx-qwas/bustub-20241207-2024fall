@@ -26,7 +26,7 @@ struct PageTask {
     }
   }
 };
-enum class FramePhase { Free, Loading, Resident, Evicting };
+enum class FramePhase { Free, Loading, Resident, Evicting, Failed };
 struct FrameHeader {
   FrameHeader(frame_id_t id, FrameMemory memory) : id_(id), memory_(memory) {}
   std::mutex mutex_;
@@ -51,6 +51,8 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
   size_t calls_{0}, tasks_{0};
   uint64_t next_page_{0};
   const size_t max_tasks_;
+  const size_t max_prefetch_;
+  size_t prefetch_{0};
   std::shared_ptr<PageStorage> storage_;
   FrameArena arena_;
   TranslationDirectory directory_;
@@ -58,11 +60,16 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
   std::vector<std::unique_ptr<FrameHeader>> frames_;
   std::list<frame_id_t> free_;
   struct Slot {
-    explicit Slot(BufferPoolState &s) : state_(s) {}
+    explicit Slot(BufferPoolState &s, bool prefetch) : state_(s), prefetch_(prefetch) {}
     ~Slot();
     BufferPoolState &state_;
+    bool prefetch_;
   };
-  auto TrySlot() -> std::unique_ptr<Slot>;
+  auto TrySlot(bool prefetch) -> std::unique_ptr<Slot>;
+  auto PrepareFrame(page_id_t page, AccessType type, bool prefetch, const std::shared_ptr<PageTask> &loading)
+      -> FrameHeader *;
+  void CompletePrefetch(FrameHeader &frame, const std::shared_ptr<PageTask> &task, std::exception_ptr error);
+  void AbandonPrefetch(FrameHeader &frame, const std::shared_ptr<PageTask> &task);
   void Free(frame_id_t frame);
   void Unpin(FrameHeader &f);
   auto Buffer(FrameHeader &f) -> PageBuffer;

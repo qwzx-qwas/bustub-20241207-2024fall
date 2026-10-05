@@ -72,5 +72,9 @@ auto RegionManager::TryPrepareExternal(const std::vector<RegionIORequest> &reque
                                        bool flush_after_writes) const -> IOPreparation {
   return context_->executor_->TryPrepareExternal(Resolve(requests), leases, flush_after_writes);
 }
+auto RegionManager::TryPrepareReadAhead(const std::vector<RegionIORequest> &requests,
+                                        std::vector<IOBufferLease> &leases) -> IOPreparation {
+  return context_->executor_->TryPrepareReadAhead(Resolve(requests), leases);
+}
 
 }  // namespace bustub

@@ -32,10 +32,11 @@ struct IOBudget {
   IOBudget(const IOExecutorOptions &options, size_t external_limit)
       : options_(options), external_limit_(external_limit) {}
 
-  auto Reserve(size_t operations, size_t bytes, size_t external_bytes) -> bool {
+  auto Reserve(size_t operations, size_t bytes, size_t external_bytes, bool read_ahead) -> bool {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (operations > options_.max_operations_ - operations_ || bytes > options_.max_buffer_bytes_ - bytes_ ||
-        external_bytes > external_limit_ - external_bytes_) {
+    const size_t share = read_ahead ? 2 : 1;
+    if (operations > (options_.max_operations_ - operations_) / share || bytes > options_.max_buffer_bytes_ - bytes_ ||
+        external_bytes > (external_limit_ - external_bytes_) / share) {
       return false;
     }
     operations_ += operations;
@@ -476,7 +477,7 @@ auto IOExecutor::TryPrepare(std::vector<IORequest> requests, bool flush_after_wr
     if (!core->accepting_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
-    if (!core->budget_->Reserve(count, bytes, 0)) {
+    if (!core->budget_->Reserve(count, bytes, 0, false)) {
       return {IOAdmission::Full, std::nullopt};
     }
   }
@@ -497,7 +498,7 @@ auto IOExecutor::TryPrepareFlush() -> IOPreparation {
     if (!core->accepting_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
-    if (!core->budget_->Reserve(1, 0, 0)) {
+    if (!core->budget_->Reserve(1, 0, 0, false)) {
       return {IOAdmission::Full, std::nullopt};
     }
   }
@@ -513,6 +514,19 @@ auto IOExecutor::TryPrepareFlush() -> IOPreparation {
 
 auto IOExecutor::TryPrepareExternal(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases,
                                     bool flush_after_writes) -> IOPreparation {
+  return PrepareExternal(std::move(requests), leases, flush_after_writes, false);
+}
+auto IOExecutor::TryPrepareReadAhead(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases)
+    -> IOPreparation {
+  for (const auto &r : requests) {
+    if (r.operation_ != IOOperation::Read) {
+      throw std::invalid_argument("read-ahead only accepts reads");
+    }
+  }
+  return PrepareExternal(std::move(requests), leases, false, true);
+}
+auto IOExecutor::PrepareExternal(std::vector<IORequest> requests, std::vector<IOBufferLease> &leases,
+                                 bool flush_after_writes, bool read_ahead) -> IOPreparation {
   const auto &core = impl_->core_;
   if (requests.size() > core->budget_->options_.max_operations_) {
     return {IOAdmission::Full, std::nullopt};
@@ -559,7 +573,7 @@ auto IOExecutor::TryPrepareExternal(std::vector<IORequest> requests, std::vector
     if (!core->accepting_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
-    if (!core->budget_->Reserve(count, 0, bytes)) {
+    if (!core->budget_->Reserve(count, 0, bytes, read_ahead)) {
       return {IOAdmission::Full, std::nullopt};
     }
   }

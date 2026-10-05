@@ -76,6 +76,8 @@ class RegionManager {
   auto TryPrepare(const std::vector<RegionIORequest> &requests, bool flush_after_writes) const -> IOPreparation;
   auto TryPrepareExternal(const std::vector<RegionIORequest> &requests, std::vector<IOBufferLease> &leases,
                           bool flush_after_writes) const -> IOPreparation;
+  auto TryPrepareReadAhead(const std::vector<RegionIORequest> &requests, std::vector<IOBufferLease> &leases)
+      -> IOPreparation;
 
  private:
   auto ResolveRegion(const RegionHandle &region) const -> const StorageByteRange &;

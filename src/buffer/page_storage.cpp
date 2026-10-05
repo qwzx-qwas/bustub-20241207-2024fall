@@ -159,6 +159,10 @@ void ObjectPageStorage::Read(const PageBuffer &b) {
     }
   }
 }
+auto ObjectPageStorage::Prefetch(const PageBuffer &b, std::function<void(std::exception_ptr)> complete) -> bool {
+  return impl_->storage_->PrefetchObjectInto(impl_->storage_->Objects(), impl_->Key(b.page_), impl_->Offset(b.page_),
+                                             BUSTUB_PAGE_SIZE, {b.data_, b.capacity_, b.owner_}, std::move(complete));
+}
 void ObjectPageStorage::Write(const std::vector<PageBuffer> &buffers) {
   ObjectTransaction tx;
   for (const auto &b : buffers) {

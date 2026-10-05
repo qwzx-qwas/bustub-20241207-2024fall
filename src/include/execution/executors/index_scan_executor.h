@@ -46,6 +46,8 @@ class IndexScanExecutor : public AbstractExecutor {
  private:
   /** Populate the generic point-lookup RID bucket for the current predicate key. */
   void LoadPointLookupRids();
+  void PrefetchWindow();
+  size_t prefetched_end_{0};
 
   /** The index scan plan node to be executed. */
   const IndexScanPlanNode *plan_;

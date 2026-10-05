@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 #include "execution/executors/index_scan_executor.h"
 
+#include <algorithm>
 #include <cstring>
 #include "concurrency/transaction_manager.h"
 #include "execution/execution_common.h"
@@ -26,6 +27,7 @@ void IndexScanExecutor::Init() {
   point_lookup_rid_idx_ = 0;
   full_scan_entry_idx_ = 0;
   emitted_rids_.clear();
+  prefetched_end_ = 0;
 
   // 查看上面优化器传来的pred_keys_（之前收集的常量值），决定是点查找模式还是全表扫描模式
   if (!plan_->pred_keys_.empty()) {
@@ -53,74 +55,28 @@ void IndexScanExecutor::LoadPointLookupRids() {
   point_lookup_rids_.clear();
   index_info_->index_->ScanKey(key_tuple, &point_lookup_rids_, exec_ctx_->GetTransaction());
   point_lookup_rid_idx_ = 0;
+  prefetched_end_ = 0;
 }
-/*auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
-  if (!iter_.has_value()) {
-    return false;
+void IndexScanExecutor::PrefetchWindow() {
+  auto *bpm = exec_ctx_->GetBufferPoolManager();
+  const auto window = bpm->PrefetchWindow();
+  const bool point = !plan_->pred_keys_.empty();
+  const auto current = point ? point_lookup_rid_idx_ : full_scan_entry_idx_;
+  const auto size = point ? point_lookup_rids_.size() : full_scan_entries_.size();
+  if (window == 0 || current < prefetched_end_) {
+    return;
   }
-  while (true) {
-    // 检查是否到达当前扫描的末尾
-    if (*iter_ == *end_) {
-      // 若处于点查找模式且还有更多 key 需要检查
-      // 判断是否还有未处理的 key（OR 子句中的下一个 key）
-      if (!plan_->pred_keys_.empty() && current_key_idx_ + 1 < plan_->pred_keys_.size()) {
-        current_key_idx_++;
-        std::vector<Value> values;
-        values.push_back(plan_->pred_keys_[current_key_idx_]->Evaluate(nullptr, plan_->OutputSchema()));
-        Tuple key_tuple(values, index_info_->index_->GetKeySchema());
-        // 定位迭代器到下一个目标Key
-        IntegerKeyType_BTree index_key;
-        index_key.SetFromKey(key_tuple);
-        iter_.emplace(tree_->GetBeginIterator(index_key));
-        continue;
-      }
-      iter_ = std::nullopt;
-      return false;
-    }
-
-    *rid = (**iter_).second;
-    auto table_info = exec_ctx_->GetCatalog()->GetTable(index_info_->table_name_);
-    auto [meta, real_tuple] = table_info->table_->GetTuple(*rid);
-
-    // 检查点查找的谓词
-    if (!plan_->pred_keys_.empty()) {
-      // 期望的键值
-      auto expected_val = plan_->pred_keys_[current_key_idx_]->Evaluate(nullptr, plan_->OutputSchema());
-
-      // 按索引键的 schema 从元组中获取实际键值
-      // 注意：为简化实现，假设索引为单列索引（满足项目要求）
-      // auto key_schema = index_info_->index_->GetKeySchema();
-      auto key_attrs = index_info_->index_->GetKeyAttrs();
-      // 实际的值是多少
-      auto actual_val = real_tuple.GetValue(&table_info->schema_, key_attrs[0]);
-
-      // 如果当前元组的索引键不等于目标值，说明索引迭代器已经越过目标键
-      // 防止 ++iter_ 后读到的 tuple 不是目标键对应的元组
-      if (actual_val.CompareEquals(expected_val) != CmpBool::CmpTrue) {
-        // 如果还有下一个目标 key，则切换到下一个 key 的起始迭代器
-        if (current_key_idx_ + 1 < plan_->pred_keys_.size()) {
-          current_key_idx_++;
-          std::vector<Value> values;
-          values.push_back(plan_->pred_keys_[current_key_idx_]->Evaluate(nullptr, plan_->OutputSchema()));
-          Tuple key_tuple(values, index_info_->index_->GetKeySchema());
-          IntegerKeyType_BTree index_key;
-          index_key.SetFromKey(key_tuple);
-          iter_.emplace(tree_->GetBeginIterator(index_key));
-          continue;
-        }
-        iter_ = std::nullopt;
-        return false;
-      }
-    }
-
-    ++(*iter_);
-
-    if (!meta.is_deleted_) {
-      *tuple = real_tuple;
-      return true;
+  prefetched_end_ = current + std::min(window, size - current);
+  std::vector<page_id_t> pages;
+  pages.reserve(prefetched_end_ - current);
+  for (auto i = current; i < prefetched_end_; ++i) {
+    const auto page = (point ? point_lookup_rids_[i] : full_scan_entries_[i].second).GetPageId();
+    if (std::find(pages.begin(), pages.end(), page) == pages.end()) {
+      pages.push_back(page);
     }
   }
-}*/
+  bpm->PrefetchPages(pages);
+}
 // MVCC版本
 auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (!plan_->pred_keys_.empty()) {
@@ -136,6 +92,7 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
         LoadPointLookupRids();
       }
 
+      PrefetchWindow();
       *rid = point_lookup_rids_[point_lookup_rid_idx_++];
       auto [base_meta, base_tuple, undo_link] = GetTupleAndUndoLink(txn_mgr, table_info->table_.get(), *rid);
       auto undo_logs = CollectUndoLogs(*rid, base_meta, base_tuple, undo_link, txn, txn_mgr);
@@ -171,6 +128,7 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   auto *txn_mgr = exec_ctx_->GetTransactionManager();
   auto table_info = exec_ctx_->GetCatalog()->GetTable(index_info_->table_name_);
   while (full_scan_entry_idx_ < full_scan_entries_.size()) {
+    PrefetchWindow();
     const auto &[entry_key, entry_rid] = full_scan_entries_[full_scan_entry_idx_++];
     *rid = entry_rid;
 

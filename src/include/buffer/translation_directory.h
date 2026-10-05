@@ -67,6 +67,7 @@ class TranslationDirectory {
   /** Bounded maintenance at a BufferPool call boundary, before taking entry or
    * frame rights. Busy groups are skipped; actual OS reclaim errors propagate. */
   void Maintain();
+  void Prefetch(const page_id_t *pages, size_t count) const;
 
  private:
   std::shared_ptr<TranslationDirectoryState> state_;

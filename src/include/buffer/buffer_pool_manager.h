@@ -31,6 +31,7 @@ struct BufferPoolOptions {
   size_t arena_bytes_;
   size_t max_inflight_pages_;
   bool advise_huge_pages_;
+  size_t prefetch_pages_;  // Explicit quota/window; zero disables speculative IO.
 };
 class BufferPoolManager {
  public:
@@ -52,6 +53,9 @@ class BufferPoolManager {
   auto ReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> ReadPageGuard;
   auto FlushPage(page_id_t page_id) -> bool;
   void FlushAllPages();
+  /** Bounded hints from an existing query RID window. Never waits for device IO. */
+  void PrefetchPages(const std::vector<page_id_t> &pages);
+  auto PrefetchWindow() const -> size_t;
   auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
   /** Stop new calls and drain accepted work. Existing guards retain the old
    * arena; no automatic flush/checkpoint. Owner must not destroy during a call. */

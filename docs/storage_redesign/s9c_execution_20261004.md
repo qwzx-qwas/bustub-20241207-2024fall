@@ -1,6 +1,6 @@
 # S9.1c / F26：真实页生命周期与对象 IO
 
-> 当前 F26 源码/结果已由 [S9.1d](s9d_execution_20261004.md) 原位接续；本文件保留当轮历史记录，旧结果包已删除。恢复使用 [d 入口](../../test-results/storage-f26-s9d-20261004/README.md)。
+> 当前 F26 源码/结果由 [S9.1e](s9e_execution_20261005.md) 接续；下文是当轮历史，旧结果包已删除。恢复使用 [e 入口](../../test-results/storage-f26-s9e-20261005/README.md)。
 
 日期：2026-10-04。依据 [冻结协议](s9_buffer_pool_protocol.md)、[F26](modules/page-storage-adapter.md)；用户已授权实现及测试。本轮先审生产逻辑，再写/运行测试；编译失败、启动失败、超时和未发现变异均不计为通过。
 
