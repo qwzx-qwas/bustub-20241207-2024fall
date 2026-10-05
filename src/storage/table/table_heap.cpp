@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
+#include <map>
 #include <mutex>  // NOLINT
 #include <unordered_set>
 #include <utility>
@@ -38,6 +39,7 @@ TableHeap::TableHeap(BufferPoolManager *bpm) : bpm_(bpm) {
                 "Couldn't create a page for the table heap. Have you completed the buffer pool manager project?");
 
   first_page->Init();
+  free_pages_.emplace(first_page->GetFreeSpace(), first_page_id_);
 }
 
 TableHeap::TableHeap(BufferPoolManager *bpm, page_id_t first_page_id, page_id_t last_page_id)
@@ -52,6 +54,7 @@ auto TableHeap::Open(BufferPoolManager *bpm, page_id_t first_page_id) -> std::un
   }
 
   std::unordered_set<page_id_t> visited;
+  auto heap = std::unique_ptr<TableHeap>(new TableHeap(bpm, first_page_id, INVALID_PAGE_ID));
   auto page_id = first_page_id;
   while (true) {
     if (!visited.emplace(page_id).second) {
@@ -63,9 +66,11 @@ auto TableHeap::Open(BufferPoolManager *bpm, page_id_t first_page_id) -> std::un
     if (page == nullptr) {
       throw Exception("corrupt table heap: table page cannot be read");
     }
+    heap->free_pages_.emplace(page->GetFreeSpace(), page_id);
     const auto next_page_id = page->GetNextPageId();
     if (next_page_id == INVALID_PAGE_ID) {
-      return std::unique_ptr<TableHeap>(new TableHeap(bpm, first_page_id, page_id));
+      heap->last_page_id_ = page_id;
+      return heap;
     }
     if (next_page_id < 0) {
       throw Exception("corrupt table heap: invalid next page id");
@@ -78,48 +83,82 @@ TableHeap::TableHeap(bool create_table_heap) : bpm_(nullptr) {}
 
 auto TableHeap::InsertTuple(const TupleMeta &meta, const Tuple &tuple, LockManager *lock_mgr, Transaction *txn,
                             table_oid_t oid) -> std::optional<RID> {
-  std::unique_lock<std::mutex> guard(latch_);
-  auto page_guard = bpm_->WritePage(last_page_id_);
-
-  while (true) {
-    auto page = page_guard.AsMut<TablePage>();
-    if (page->GetNextTupleOffset(meta, tuple) != std::nullopt) {
-      break;
-    }
-
-    // if there's no tuple in the page, and we can't insert the tuple, then this tuple is too large.
-    BUSTUB_ENSURE(page->GetNumTuples() != 0, "tuple is too large, cannot insert");
-
-    page_id_t next_page_id = bpm_->NewPage();
-    page->SetNextPageId(next_page_id);
-
-    auto next_page_guard = bpm_->WritePage(next_page_id);
-    auto next_page = next_page_guard.AsMut<TablePage>();
-    next_page->Init();
-    last_page_id_ = next_page_id;
-
-    page_guard.Drop();
-    page_guard = std::move(next_page_guard);
+  // Reject impossible rows before linking a page or changing the space summary.
+  if (tuple.GetLength() > TABLE_PAGE_MAX_TUPLE_SIZE) {
+    return std::nullopt;
   }
-
-  auto last_page_id = last_page_id_;
-
-  auto page = page_guard.AsMut<TablePage>();
-  auto slot_id = *page->InsertTuple(meta, tuple);
-
-  // only allow one insertion at a time, otherwise it will deadlock.
+  std::unique_lock<std::mutex> guard(latch_);
+  const bool reuse = active_iterators_ == 0;
+  std::optional<RID> result;
+  auto insert = [&](page_id_t id, std::optional<uint16_t> hint) {
+    auto page_guard = bpm_->WritePage(id);
+    auto *page = page_guard.AsMut<TablePage>();
+    const auto old_space = page->GetFreeSpace();
+    auto slot = page->InsertTuple(meta, tuple, reuse);
+    // Update the existing hint even if this candidate was stale.
+    free_pages_.erase({hint.value_or(old_space), id});
+    free_pages_.emplace(page->GetFreeSpace(), id);
+    if (slot) {
+      result = RID(id, *slot);
+    }
+  };
+  if (reuse) {
+    for (size_t attempt = 0; attempt < 2 && !result; ++attempt) {
+      const auto candidate = free_pages_.lower_bound({tuple.GetLength(), 0});
+      if (candidate == free_pages_.end()) {
+        break;
+      }
+      const auto [space, id] = *candidate;
+      // Retain the hint if acquiring the page fails; replace it only after the page operation.
+      insert(id, space);
+    }
+  }
+  if (!result) {
+    insert(last_page_id_, std::nullopt);
+  }
+  if (!result) {
+    const auto next_id = bpm_->NewPage();
+    {
+      auto next_guard = bpm_->WritePage(next_id);
+      next_guard.AsMut<TablePage>()->Init();
+    }
+    {
+      auto tail_guard = bpm_->WritePage(last_page_id_);
+      tail_guard.AsMut<TablePage>()->SetNextPageId(next_id);
+    }
+    last_page_id_ = next_id;
+    insert(next_id, std::nullopt);
+  }
   guard.unlock();
-
 #ifndef DISABLE_LOCK_MANAGER
   if (lock_mgr != nullptr) {
-    BUSTUB_ENSURE(lock_mgr->LockRow(txn, LockManager::LockMode::EXCLUSIVE, oid, RID{last_page_id, slot_id}),
+    BUSTUB_ENSURE(lock_mgr->LockRow(txn, LockManager::LockMode::EXCLUSIVE, oid, *result),
                   "failed to lock when inserting new tuple");
   }
 #endif
+  return result;
+}
 
-  page_guard.Drop();
-
-  return RID(last_page_id, slot_id);
+void TableHeap::ReclaimTuples(const std::vector<RID> &rids) {
+  std::map<page_id_t, std::vector<uint16_t>> pages;
+  for (const auto &rid : rids) {
+    if (rid.GetSlotNum() > UINT16_MAX) {
+      throw Exception("invalid reclaimed slot");
+    }
+    pages[rid.GetPageId()].push_back(rid.GetSlotNum());
+  }
+  std::unique_lock<std::mutex> lock(latch_);
+  if (active_iterators_ != 0) {
+    throw Exception("cannot reclaim records while a table scan owns RIDs");
+  }
+  for (const auto &[id, slots] : pages) {
+    auto page_guard = bpm_->WritePage(id);
+    auto *page = page_guard.AsMut<TablePage>();
+    const auto old_space = page->GetFreeSpace();
+    page->ReclaimTuples(slots);
+    free_pages_.erase({old_space, id});
+    free_pages_.emplace(page->GetFreeSpace(), id);
+  }
 }
 
 void TableHeap::UpdateTupleMeta(const TupleMeta &meta, RID rid) {
@@ -142,19 +181,9 @@ auto TableHeap::GetTupleMeta(RID rid) -> TupleMeta {
   return page->GetTupleMeta(rid);
 }
 
-auto TableHeap::MakeIterator() -> TableIterator {
-  std::unique_lock<std::mutex> guard(latch_);
-  auto last_page_id = last_page_id_;
-  guard.unlock();
+auto TableHeap::MakeIterator() -> TableIterator { return TableIterator(this, false); }
 
-  auto page_guard = bpm_->ReadPage(last_page_id);
-  auto page = page_guard.As<TablePage>();
-  auto num_tuples = page->GetNumTuples();
-  page_guard.Drop();
-  return {this, {first_page_id_, 0}, {last_page_id, num_tuples}};
-}
-
-auto TableHeap::MakeEagerIterator() -> TableIterator { return {this, {first_page_id_, 0}, {INVALID_PAGE_ID, 0}}; }
+auto TableHeap::MakeEagerIterator() -> TableIterator { return TableIterator(this, true); }
 /*UpdateTupleInPlace：这个函数是用来覆盖（Overwrite）一个已经在页面上占了位置的 Tuple 的。在 Insert 时，
 由于你是调用 TableHeap::InsertTuple 来寻找空闲空间并插入新数据，
 InsertTuple 内部已经帮你完成了写入操作。你不需要“原地更新”一个不存在的东西。*/

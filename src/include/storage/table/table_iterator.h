@@ -34,10 +34,9 @@ class TableIterator {
  public:
   DISALLOW_COPY(TableIterator);
 
-  TableIterator(TableHeap *table_heap, RID rid, RID stop_at_rid);
-  TableIterator(TableIterator &&) = default;
+  TableIterator(TableIterator &&other) noexcept;
 
-  ~TableIterator() = default;
+  ~TableIterator();
 
   auto GetTuple() -> std::pair<TupleMeta, Tuple>;
 
@@ -48,6 +47,9 @@ class TableIterator {
   auto operator++() -> TableIterator &;
 
  private:
+  friend class TableHeap;
+  TableIterator(TableHeap *table_heap, bool eager);
+  void SkipVacant();
   TableHeap *table_heap_;
   RID rid_;
 

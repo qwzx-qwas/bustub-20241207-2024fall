@@ -50,7 +50,7 @@ void VectorIndexScanExecutor::Init() {
   // 作用：执行器只感知统一预算语义，不直接依赖 nprobe 这类索引私有术语。
   auto search_options = index_info_->index_->GetDefaultAnnSearchOptions(plan_->GetK())
                             .value_or(AnnSearchOptions{plan_->GetK(), std::max<std::size_t>(1, plan_->GetK()), 1});
-  const auto max_search_budget =
+  auto max_search_budget =
       std::max(search_options.search_budget_,
                index_info_->index_->GetMaxAnnSearchBudget().value_or(search_options.search_budget_));
   std::unordered_set<std::uint64_t> seen_candidate_ids;
@@ -94,6 +94,10 @@ void VectorIndexScanExecutor::Init() {
       break;
     }
 
+    // This round searched the old directory, but SearchVector may rebuild it before returning.
+    // Adopt larger limits without using a smaller new directory to declare the old search exhausted.
+    max_search_budget =
+        std::max(max_search_budget, index_info_->index_->GetMaxAnnSearchBudget().value_or(max_search_budget));
     const bool can_expand_search_budget = search_options.search_budget_ < max_search_budget;
     const bool can_expand_candidate_budget = round_candidates.size() >= search_options.candidate_budget_;
     if (!can_expand_search_budget && !can_expand_candidate_budget) {

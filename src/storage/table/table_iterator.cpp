@@ -20,54 +20,59 @@
 
 namespace bustub {
 
-TableIterator::TableIterator(TableHeap *table_heap, RID rid, RID stop_at_rid)
-    : table_heap_(table_heap), rid_(rid), stop_at_rid_(stop_at_rid) {
-  // If the rid doesn't correspond to a tuple (i.e., the table has just been initialized), then
-  // we set rid_ to invalid.
-  if (rid.GetPageId() == INVALID_PAGE_ID) {
-    rid_ = RID{INVALID_PAGE_ID, 0};
-  } else {
-    auto page_guard = table_heap_->bpm_->ReadPage(rid_.GetPageId());
-    auto page = page_guard.As<TablePage>();
-    if (rid_.GetSlotNum() >= page->GetNumTuples()) {
-      rid_ = RID{INVALID_PAGE_ID, 0};
+TableIterator::TableIterator(TableHeap *table_heap, bool eager)
+    : table_heap_(table_heap), rid_(table_heap->first_page_id_, 0), stop_at_rid_(INVALID_PAGE_ID, 0) {
+  std::unique_lock<std::mutex> lock(table_heap_->latch_);
+  if (!eager) {
+    auto tail = table_heap_->bpm_->ReadPage(table_heap_->last_page_id_);
+    stop_at_rid_ = RID(table_heap_->last_page_id_, tail.As<TablePage>()->GetNumTuples());
+  }
+  // Initialization may read multiple empty pages; publish the scan only after it succeeds.
+  SkipVacant();
+  ++table_heap_->active_iterators_;
+}
+
+TableIterator::TableIterator(TableIterator &&other) noexcept
+    : table_heap_(std::exchange(other.table_heap_, nullptr)), rid_(other.rid_), stop_at_rid_(other.stop_at_rid_) {}
+
+TableIterator::~TableIterator() {
+  if (table_heap_ != nullptr) {
+    std::unique_lock<std::mutex> lock(table_heap_->latch_);
+    --table_heap_->active_iterators_;
+  }
+}
+
+void TableIterator::SkipVacant() {
+  while (rid_.GetPageId() != INVALID_PAGE_ID) {
+    auto guard = table_heap_->bpm_->ReadPage(rid_.GetPageId());
+    const auto *page = guard.As<TablePage>();
+    auto slot = rid_.GetSlotNum();
+    while (slot < page->GetNumTuples()) {
+      if (RID(rid_.GetPageId(), slot) == stop_at_rid_) {
+        rid_ = RID(INVALID_PAGE_ID, 0);
+        return;
+      }
+      if (page->IsOccupied(slot)) {
+        rid_ = RID(rid_.GetPageId(), slot);
+        return;
+      }
+      ++slot;
     }
+    if (rid_.GetPageId() == stop_at_rid_.GetPageId()) {
+      rid_ = RID(INVALID_PAGE_ID, 0);
+      return;
+    }
+    rid_ = RID(page->GetNextPageId(), 0);
   }
 }
 
 auto TableIterator::GetTuple() -> std::pair<TupleMeta, Tuple> { return table_heap_->GetTuple(rid_); }
-
 auto TableIterator::GetRID() -> RID { return rid_; }
-
 auto TableIterator::IsEnd() -> bool { return rid_.GetPageId() == INVALID_PAGE_ID; }
 
 auto TableIterator::operator++() -> TableIterator & {
-  auto page_guard = table_heap_->bpm_->ReadPage(rid_.GetPageId());
-  auto page = page_guard.As<TablePage>();
-  auto next_tuple_id = rid_.GetSlotNum() + 1;
-
-  if (stop_at_rid_.GetPageId() != INVALID_PAGE_ID) {
-    BUSTUB_ASSERT(
-        /* case 1: cursor before the page of the stop tuple */ rid_.GetPageId() < stop_at_rid_.GetPageId() ||
-            /* case 2: cursor at the page before the tuple */
-            (rid_.GetPageId() == stop_at_rid_.GetPageId() && next_tuple_id <= stop_at_rid_.GetSlotNum()),
-        "iterate out of bound");
-  }
-
-  rid_ = RID{rid_.GetPageId(), next_tuple_id};
-
-  if (rid_ == stop_at_rid_) {
-    rid_ = RID{INVALID_PAGE_ID, 0};
-  } else if (next_tuple_id < page->GetNumTuples()) {
-    // that's fine
-  } else {
-    auto next_page_id = page->GetNextPageId();
-    // if next page is invalid, RID is set to invalid page; otherwise, it's the first tuple in that page.
-    rid_ = RID{next_page_id, 0};
-  }
-
-  page_guard.Drop();
-
+  rid_ = RID(rid_.GetPageId(), rid_.GetSlotNum() + 1);
+  SkipVacant();
   return *this;
 }
 

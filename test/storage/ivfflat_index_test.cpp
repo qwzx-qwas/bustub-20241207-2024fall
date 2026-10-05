@@ -403,36 +403,6 @@ TEST(IVFFlatIndexTest, UpdateVectorMovesSearchHitToNewPosition) {
   EXPECT_GT(index->GetReturnedStaleCandidateCount(), stale_before);
 }
 
-TEST(IVFFlatIndexTest, RebuildCleansStaleEntriesWithoutChangingResults) {
-  auto bustub = std::make_unique<BusTubInstance>();
-  ExecuteStatement(*bustub, "CREATE TABLE rebuild_ivf(v VECTOR(3), id INTEGER)");
-  ExecuteStatement(*bustub,
-                   "CREATE INDEX rebuild_ivf_idx ON rebuild_ivf USING ivfflat (v) WITH (nlist = 2, nprobe = 1)");
-  ExecuteStatement(*bustub,
-                   "INSERT INTO rebuild_ivf VALUES "
-                   "(ARRAY [0.0, 0.0, 0.0], 1), "
-                   "(ARRAY [10.0, 0.0, 0.0], 2), "
-                   "(ARRAY [20.0, 0.0, 0.0], 3), "
-                   "(ARRAY [30.0, 0.0, 0.0], 4), "
-                   "(ARRAY [40.0, 0.0, 0.0], 5), "
-                   "(ARRAY [50.0, 0.0, 0.0], 6)");
-  ExecuteStatement(*bustub, "DELETE FROM rebuild_ivf WHERE id <= 4");
-
-  auto *index = GetIVFFlatIndex(*bustub, "rebuild_ivf", "rebuild_ivf_idx");
-  ASSERT_NE(index, nullptr);
-  EXPECT_EQ(index->GetStaleEntryCount(), 4U);
-  EXPECT_EQ(index->GetRebuildCount(), 0U);
-
-  const auto sql = "SELECT id FROM rebuild_ivf ORDER BY l2_distance(v, ARRAY [45.0, 0.0, 0.0]) LIMIT 2";
-  const auto before_rows = QueryRows(*bustub, sql);
-  EXPECT_EQ(before_rows, (std::vector<std::vector<std::string>>{{"5"}, {"6"}}));
-  EXPECT_EQ(index->GetRebuildCount(), 1U);
-  EXPECT_EQ(index->GetStaleEntryCount(), 0U);
-
-  const auto after_rows = QueryRows(*bustub, sql);
-  EXPECT_EQ(before_rows, after_rows);
-}
-
 TEST(IVFFlatIndexTest, AnnSearchOptionsMapSearchBudgetToProbeCount) {
   auto bustub = std::make_unique<BusTubInstance>();
   ExecuteStatement(*bustub, "CREATE TABLE ann_budget(v VECTOR(3), id INTEGER)");

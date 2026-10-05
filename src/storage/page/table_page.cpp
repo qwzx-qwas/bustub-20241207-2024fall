@@ -12,6 +12,8 @@
 
 #include "storage/page/table_page.h"
 
+#include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstring>
 #include <optional>
@@ -28,55 +30,107 @@ void TablePage::Init() {
   num_deleted_tuples_ = 0;
 }
 
-auto TablePage::GetNextTupleOffset(const TupleMeta &meta, const Tuple &tuple) const -> std::optional<uint16_t> {
-  size_t slot_end_offset;
-  if (num_tuples_ > 0) {
-    const auto &[offset, size, tuple_meta] = TupleInfoAt(num_tuples_ - 1);
-    slot_end_offset = offset;
-  } else {
-    slot_end_offset = BUSTUB_PAGE_SIZE;
-  }
-  // Check before unsigned subtraction: a larger tuple must move to another
-  // page, not wrap the offset and allow InsertTuple to write past this page.
-  if (tuple.GetLength() > slot_end_offset) {
-    return std::nullopt;
-  }
-  auto tuple_offset = slot_end_offset - tuple.GetLength();
-  auto offset_size = TABLE_PAGE_HEADER_SIZE + TUPLE_INFO_SIZE * (num_tuples_ + 1);
-  if (tuple_offset < offset_size) {
-    return std::nullopt;
-  }
-  return tuple_offset;
+auto TablePage::IsOccupied(uint32_t slot) const -> bool {
+  return slot < num_tuples_ && std::get<0>(TupleInfoAt(slot)) != 0;
 }
 
-auto TablePage::InsertTuple(const TupleMeta &meta, const Tuple &tuple) -> std::optional<uint16_t> {
-  auto tuple_offset = GetNextTupleOffset(meta, tuple);
-  if (tuple_offset == std::nullopt) {
+void TablePage::RefreshDeletedCount() {
+  num_deleted_tuples_ = 0;
+  for (uint16_t i = 0; i < num_tuples_; ++i) {
+    if (IsOccupied(i) && std::get<2>(TupleInfoAt(i)).is_deleted_) {
+      ++num_deleted_tuples_;
+    }
+  }
+}
+
+auto TablePage::BodyStart() const -> uint16_t {
+  uint16_t begin = BUSTUB_PAGE_SIZE;
+  for (uint32_t i = 0; i < num_tuples_; ++i) {
+    if (IsOccupied(i)) {
+      begin = std::min(begin, std::get<0>(TupleInfoAt(i)));
+    }
+  }
+  return begin;
+}
+
+auto TablePage::GetFreeSpace() const -> uint16_t {
+  bool vacant = false;
+  for (uint32_t i = 0; i < num_tuples_; ++i) {
+    vacant |= !IsOccupied(i);
+  }
+  const auto directory_end = TABLE_PAGE_HEADER_SIZE + TUPLE_INFO_SIZE * (num_tuples_ + (vacant ? 0 : 1));
+  const auto begin = BodyStart();
+  return begin >= directory_end ? begin - directory_end : 0;
+}
+
+auto TablePage::InsertTuple(const TupleMeta &meta, const Tuple &tuple, bool reuse_slots) -> std::optional<uint16_t> {
+  uint16_t slot = num_tuples_;
+  if (reuse_slots) {
+    for (uint16_t i = 0; i < num_tuples_; ++i) {
+      if (!IsOccupied(i)) {
+        slot = i;
+        break;
+      }
+    }
+  }
+  const auto begin = BodyStart();
+  const auto end = TABLE_PAGE_HEADER_SIZE + TUPLE_INFO_SIZE * (num_tuples_ + (slot == num_tuples_ ? 1 : 0));
+  if (end > begin || tuple.GetLength() > begin - end) {
     return std::nullopt;
   }
-  auto tuple_id = num_tuples_;
-  TupleInfoAt(tuple_id) = std::make_tuple(*tuple_offset, tuple.GetLength(), meta);
-  num_tuples_++;
-  memcpy(PageData() + *tuple_offset, tuple.data_.data(), tuple.GetLength());
-  return tuple_id;
+  const auto offset = begin - tuple.GetLength();
+  TupleInfoAt(slot) = std::make_tuple(offset, tuple.GetLength(), meta);
+  if (slot == num_tuples_) {
+    ++num_tuples_;
+  }
+  RefreshDeletedCount();
+  memcpy(PageData() + offset, tuple.data_.data(), tuple.GetLength());
+  return slot;
+}
+
+void TablePage::ReclaimTuples(const std::vector<uint16_t> &slots) {
+  // Build the replacement before changing the guarded page. One page bounds all work and temporary memory.
+  alignas(8) std::array<char, BUSTUB_PAGE_SIZE> image;
+  memcpy(image.data(), PageData(), image.size());
+  auto *replacement = reinterpret_cast<TablePage *>(image.data());
+  for (const auto slot : slots) {
+    if (!replacement->IsOccupied(slot) || !std::get<2>(replacement->TupleInfoAt(slot)).is_deleted_) {
+      throw Exception("reclamation requires distinct, occupied deleted slots");
+    }
+    replacement->TupleInfoAt(slot) = std::make_tuple(0, 0, TupleMeta{0, true});
+  }
+  replacement->num_deleted_tuples_ = 0;
+  uint16_t end = BUSTUB_PAGE_SIZE;
+  for (uint16_t i = 0; i < num_tuples_; ++i) {
+    if (!replacement->IsOccupied(i)) {
+      continue;
+    }
+    const auto &[offset, size, meta] = TupleInfoAt(i);
+    replacement->num_deleted_tuples_ += meta.is_deleted_ ? 1 : 0;
+    end -= size;
+    memcpy(image.data() + end, PageData() + offset, size);
+    replacement->TupleInfoAt(i) = std::make_tuple(end, size, meta);
+  }
+  memcpy(PageData(), image.data(), image.size());
 }
 
 void TablePage::UpdateTupleMeta(const TupleMeta &meta, const RID &rid) {
   auto tuple_id = rid.GetSlotNum();
-  if (tuple_id >= num_tuples_) {
-    throw bustub::Exception("Tuple ID out of range");
+  if (!IsOccupied(tuple_id)) {
+    throw bustub::Exception("Tuple ID is out of range or reclaimed");
   }
   auto &[offset, size, old_meta] = TupleInfoAt(tuple_id);
-  if (!old_meta.is_deleted_ && meta.is_deleted_) {
-    num_deleted_tuples_++;
-  }
+  const bool changed = old_meta.is_deleted_ != meta.is_deleted_;
   TupleInfoAt(tuple_id) = std::make_tuple(offset, size, meta);
+  if (changed) {
+    RefreshDeletedCount();
+  }
 }
 
 auto TablePage::GetTuple(const RID &rid) const -> std::pair<TupleMeta, Tuple> {
   auto tuple_id = rid.GetSlotNum();
-  if (tuple_id >= num_tuples_) {
-    throw bustub::Exception("Tuple ID out of range");
+  if (!IsOccupied(tuple_id)) {
+    throw bustub::Exception("Tuple ID is out of range or reclaimed");
   }
   const auto &[offset, size, meta] = TupleInfoAt(tuple_id);
   Tuple tuple;
@@ -88,8 +142,8 @@ auto TablePage::GetTuple(const RID &rid) const -> std::pair<TupleMeta, Tuple> {
 
 auto TablePage::GetTupleMeta(const RID &rid) const -> TupleMeta {
   auto tuple_id = rid.GetSlotNum();
-  if (tuple_id >= num_tuples_) {
-    throw bustub::Exception("Tuple ID out of range");
+  if (!IsOccupied(tuple_id)) {
+    throw bustub::Exception("Tuple ID is out of range or reclaimed");
   }
   const auto &[_1, _2, meta] = TupleInfoAt(tuple_id);
   return meta;
@@ -97,17 +151,18 @@ auto TablePage::GetTupleMeta(const RID &rid) const -> TupleMeta {
 
 void TablePage::UpdateTupleInPlaceUnsafe(const TupleMeta &meta, const Tuple &tuple, RID rid) {
   auto tuple_id = rid.GetSlotNum();
-  if (tuple_id >= num_tuples_) {
-    throw bustub::Exception("Tuple ID out of range");
+  if (!IsOccupied(tuple_id)) {
+    throw bustub::Exception("Tuple ID is out of range or reclaimed");
   }
   auto &[offset, size, old_meta] = TupleInfoAt(tuple_id);
   if (size != tuple.GetLength()) {
     throw bustub::Exception("Tuple size mismatch");
   }
-  if (!old_meta.is_deleted_ && meta.is_deleted_) {
-    num_deleted_tuples_++;
-  }
+  const bool changed = old_meta.is_deleted_ != meta.is_deleted_;
   TupleInfoAt(tuple_id) = std::make_tuple(offset, size, meta);
+  if (changed) {
+    RefreshDeletedCount();
+  }
   memcpy(PageData() + offset, tuple.data_.data(), tuple.GetLength());
 }
 

@@ -28,6 +28,8 @@
 namespace bustub {
 
 static constexpr uint64_t TABLE_PAGE_HEADER_SIZE = 8;
+static constexpr uint64_t TABLE_PAGE_SLOT_SIZE = 24;
+static constexpr uint64_t TABLE_PAGE_MAX_TUPLE_SIZE = BUSTUB_PAGE_SIZE - TABLE_PAGE_HEADER_SIZE - TABLE_PAGE_SLOT_SIZE;
 
 /**
  * Slotted page format:
@@ -56,7 +58,7 @@ class TablePage {
    */
   void Init();
 
-  /** @return number of tuples in this page */
+  /** @return slot directory length, including reclaimed slots; iterators must check IsOccupied. */
   auto GetNumTuples() const -> uint32_t { return num_tuples_; }
 
   /** @return the page ID of the next table page */
@@ -65,15 +67,21 @@ class TablePage {
   /** Set the page id of the next page in the table. */
   void SetNextPageId(page_id_t next_page_id) { next_page_id_ = next_page_id; }
 
-  /** Get the next offset to insert, return nullopt if this tuple cannot fit in this page */
-  auto GetNextTupleOffset(const TupleMeta &meta, const Tuple &tuple) const -> std::optional<uint16_t>;
-
   /**
    * Insert a tuple into the table.
    * @param tuple tuple to insert
    * @return true if the insert is successful (i.e. there is enough space)
    */
-  auto InsertTuple(const TupleMeta &meta, const Tuple &tuple) -> std::optional<uint16_t>;
+  auto InsertTuple(const TupleMeta &meta, const Tuple &tuple, bool reuse_slots) -> std::optional<uint16_t>;
+
+  /** Physically occupied slots include MVCC tombstones, but exclude reclaimed slots. */
+  auto IsOccupied(uint32_t slot) const -> bool;
+
+  /** Bytes available for one new tuple, including its slot overhead. */
+  auto GetFreeSpace() const -> uint16_t;
+
+  /** Caller must have retired every external reference to these deleted slots. Keeps all surviving RIDs stable. */
+  void ReclaimTuples(const std::vector<uint16_t> &slots);
 
   /**
    * Update a tuple.
@@ -98,12 +106,14 @@ class TablePage {
   static_assert(sizeof(page_id_t) == 4);
 
  private:
+  auto BodyStart() const -> uint16_t;
+  void RefreshDeletedCount();
   using TupleInfo = std::tuple<uint16_t, uint16_t, TupleMeta>;
   page_id_t next_page_id_;
   uint16_t num_tuples_;
   uint16_t num_deleted_tuples_;
 
-  static constexpr size_t TUPLE_INFO_SIZE = 24;
+  static constexpr size_t TUPLE_INFO_SIZE = TABLE_PAGE_SLOT_SIZE;
   static_assert(sizeof(TupleInfo) == TUPLE_INFO_SIZE);
 
   auto PageData() -> char * { return reinterpret_cast<char *>(this); }

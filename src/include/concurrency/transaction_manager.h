@@ -165,6 +165,8 @@ class TransactionManager {
   std::atomic<txn_id_t> next_txn_id_{TXN_START_ID};
 
  private:
+  void ReclaimDeletedTuples();
+
   /** @brief Verify if a txn satisfies serializability. We will not test this function and you can change / remove it as
    *         验证事务是否满足可串行化。我们不会测试此功能，您可以根据需要更改/删除它。
    * you want. */

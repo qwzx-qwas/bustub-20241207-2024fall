@@ -52,6 +52,27 @@ class IVFFlatIndex : public Index {
 
   void DeleteEntry(const Tuple &key, VT rid, Transaction *transaction) override;
 
+  void DeleteObsoleteEntries(const std::vector<std::pair<Tuple, RID>> &entries) override {
+    std::scoped_lock<std::mutex> lock(lock_);
+    std::unordered_set<RID> dead;
+    for (const auto &entry : entries) {
+      dead.insert(entry.second);
+      const auto it = active_entries_.find(entry.second);
+      if (it != active_entries_.end()) {
+        active_entries_.erase(it);
+        ++stale_entry_count_;
+      }
+    }
+    for (auto &list : lists_) {
+      for (auto &entry : list) {
+        if (!entry.is_retired_ && dead.count(entry.rid_) != 0) {
+          entry.is_retired_ = true;
+          ++retired_entry_count_;
+        }
+      }
+    }
+  }
+
   void ScanKey(const Tuple &key, std::vector<RID> *result, Transaction *transaction) override;
 
   auto SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result, Transaction *transaction) -> void override;
@@ -66,6 +87,7 @@ class IVFFlatIndex : public Index {
   }
 
   auto GetMaxAnnSearchBudget() const -> std::optional<std::size_t> override {
+    std::scoped_lock<std::mutex> lck(lock_);
     return centroids_.empty() ? nlist_ : centroids_.size();
   }
 
@@ -77,18 +99,6 @@ class IVFFlatIndex : public Index {
   auto GetStaleEntryCount() const -> std::size_t {
     std::scoped_lock<std::mutex> lck(lock_);
     return stale_entry_count_;
-  }
-
-  /** 作用：向测试暴露当前有效条目数，便于验证 rebuild 前后状态。 */
-  auto GetLiveEntryCount() const -> std::size_t {
-    std::scoped_lock<std::mutex> lck(lock_);
-    return active_entries_.size();
-  }
-
-  /** 作用：向测试暴露 rebuild 次数，确认阈值触发逻辑真正执行。 */
-  auto GetRebuildCount() const -> std::size_t {
-    std::scoped_lock<std::mutex> lck(lock_);
-    return rebuild_count_;
   }
 
   /** 作用：统计一次 ANN 搜索中返回给执行器的 stale 候选数量。 */
@@ -107,6 +117,7 @@ class IVFFlatIndex : public Index {
     Tuple key_;
     RID rid_;
     std::uint64_t entry_id_;
+    bool is_retired_{false};
   };
 
   /** 作用：记录某个 RID 当前“活跃版本”所在的位置，用于判断 list 里的条目是否 stale。 */
@@ -174,7 +185,7 @@ class IVFFlatIndex : public Index {
   std::vector<std::vector<IndexedEntry>> lists_;
   std::unordered_map<RID, EntryLocator> active_entries_;
   std::size_t stale_entry_count_{0};
-  std::size_t rebuild_count_{0};
+  std::size_t retired_entry_count_{0};
   std::size_t returned_stale_candidate_count_{0};
   std::uint64_t next_entry_id_{1};
   std::size_t nlist_{10};
@@ -190,7 +201,7 @@ void IVFFlatIndex<KT, VT, Cmp>::ResetBuildStateUnlocked() {
   lists_.clear();
   active_entries_.clear();
   stale_entry_count_ = 0;
-  next_entry_id_ = 1;
+  retired_entry_count_ = 0;
 }
 
 template <typename KT, typename VT, typename Cmp>
@@ -285,6 +296,9 @@ template <typename KT, typename VT, typename Cmp>
 auto IVFFlatIndex<KT, VT, Cmp>::BuildArtifactsFromEntriesUnlocked(
     const std::vector<std::pair<Tuple, RID>> &entries) const -> BuildArtifacts {
   BuildArtifacts artifacts;
+  // A query can retain candidate IDs across search rounds while a rebuild runs.
+  // Reusing an ID for another entry would make that query silently skip a row.
+  artifacts.next_entry_id_ = next_entry_id_;
   if (entries.empty()) {
     return artifacts;
   }
@@ -329,7 +343,9 @@ template <typename KT, typename VT, typename Cmp>
 auto IVFFlatIndex<KT, VT, Cmp>::ShouldTriggerRebuildUnlocked() const -> bool {
   const auto live_entry_count = active_entries_.size();
   const auto total_entry_count = live_entry_count + stale_entry_count_;
-  if (stale_entry_count_ == 0 || total_entry_count == 0) {
+  // Rebuilding from active entries discards history. Only quiescent physical
+  // retirement authorizes that; a stale ratio alone says nothing about MVCC readers.
+  if (stale_entry_count_ == 0 || retired_entry_count_ != stale_entry_count_) {
     return false;
   }
 
@@ -346,7 +362,6 @@ void IVFFlatIndex<KT, VT, Cmp>::MaybeRebuildUnlocked() {
   try {
     auto artifacts = BuildArtifactsFromEntriesUnlocked(CollectActiveEntriesUnlocked());
     InstallBuildArtifactsUnlocked(std::move(artifacts));
-    rebuild_count_ += 1;
   } catch (...) {
     // rebuild 失败时保持旧索引仍然可读。
   }
@@ -468,6 +483,9 @@ auto IVFFlatIndex<KT, VT, Cmp>::SearchVector(const Tuple &query, const AnnSearch
     ranked_candidates.reserve(ranked_candidates.size() + lists_[list_idx].size());
     for (std::size_t slot_idx = 0; slot_idx < lists_[list_idx].size(); slot_idx++) {
       const auto &entry = lists_[list_idx][slot_idx];
+      if (entry.is_retired_) {
+        continue;
+      }
       ranked_candidates.push_back({Distance(entry.key_, query),
                                    VectorIndexCandidate{entry.rid_, entry.key_, entry.entry_id_},
                                    !IsActiveEntryUnlocked(entry.rid_, list_idx, slot_idx, entry.entry_id_)});

@@ -12,10 +12,12 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -201,6 +203,22 @@ class Index {
    * @param transaction The transaction context
    */
   virtual void ScanKey(const Tuple &key, std::vector<RID> *result, Transaction *transaction) = 0;
+
+  /** Quiescent maintenance: retire every key for the supplied dead RIDs, including historical secondary keys.
+   * Entries carry each row's last key for primary lookup. Callers must exclude transactions and RID consumers.
+   */
+  virtual void DeleteObsoleteEntries(const std::vector<std::pair<Tuple, RID>> &entries) {
+    if (!metadata_->IsPrimaryKey()) {
+      throw NotImplementedException("this index does not support historical RID retirement");
+    }
+    for (const auto &[key, rid] : entries) {
+      std::vector<RID> found;
+      ScanKey(key, &found, nullptr);
+      if (std::find(found.begin(), found.end(), rid) != found.end()) {
+        DeleteEntry(key, rid, nullptr);
+      }
+    }
+  }
 
   // 用query区别于key,强调这是“查询向量”，而不是“索引键”，虽然它们的类型都是Tuple
   virtual auto SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result, Transaction *transaction) -> void {

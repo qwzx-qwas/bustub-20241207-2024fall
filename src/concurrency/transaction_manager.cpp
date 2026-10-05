@@ -560,18 +560,73 @@ void TransactionManager::GarbageCollection() {
     }
   }
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
+  timestamp_t oldest_serializable = TXN_START_ID;
+  for (const auto &[id, txn] : txn_map_) {
+    if ((txn->state_ == TransactionState::RUNNING || txn->state_ == TransactionState::TAINTED) &&
+        txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+      oldest_serializable = std::min(oldest_serializable, txn->GetReadTs());
+    }
+  }
   // 遍历事务映射表，找出不活跃的事务
   for (auto it = txn_map_.begin(); it != txn_map_.end();) {
     auto txn_id = it->first;
     auto &txn = it->second;
     // 如果这个事务已经commit或abort，并且不在活跃事务列表中
     if ((txn->state_ == TransactionState::COMMITTED || txn->state_ == TransactionState::ABORTED) &&
-        alive_txns.find(txn_id) == alive_txns.end()) {
+        alive_txns.find(txn_id) == alive_txns.end() &&
+        (txn->state_ == TransactionState::ABORTED || txn->GetWriteSets().empty() ||
+         txn->commit_ts_ <= oldest_serializable)) {
       // 该事务不活跃，可以删除
       it = txn_map_.erase(it);
     } else {
       ++it;
     }
+  }
+  lck.unlock();
+  ReclaimDeletedTuples();
+}
+
+void TransactionManager::ReclaimDeletedTuples() {
+  // Existing GC is an explicit stop-the-world operation. Also exclude Begin and a commit finishing its metadata.
+  std::unique_lock<std::mutex> commit_lock(commit_mutex_);
+  std::unique_lock<std::shared_mutex> transactions_lock(txn_map_mutex_);
+  for (const auto &[id, txn] : txn_map_) {
+    if (txn->state_ == TransactionState::RUNNING || txn->state_ == TransactionState::TAINTED) {
+      return;
+    }
+  }
+  constexpr size_t kBatchRows = 128;
+  for (const auto &name : catalog_->GetTableNames()) {
+    const auto table = catalog_->GetTable(name);
+    std::vector<std::pair<Tuple, RID>> rows;
+    {
+      auto iter = table->table_->MakeIterator();
+      while (!iter.IsEnd() && rows.size() < kBatchRows) {
+        auto [meta, tuple] = iter.GetTuple();
+        if (meta.is_deleted_ && meta.ts_ < TXN_START_ID) {
+          rows.emplace_back(std::move(tuple), iter.GetRID());
+        }
+        ++iter;
+      }
+    }  // Release the physical scan before retiring its RIDs.
+    if (rows.empty()) {
+      continue;
+    }
+    for (const auto &index : catalog_->GetTableIndexes(name)) {
+      std::vector<std::pair<Tuple, RID>> keys;
+      keys.reserve(rows.size());
+      for (const auto &[tuple, rid] : rows) {
+        keys.emplace_back(tuple.KeyFromTuple(table->schema_, index->key_schema_, index->key_attrs_), rid);
+      }
+      index->index_->DeleteObsoleteEntries(keys);
+    }
+    std::vector<RID> rids;
+    rids.reserve(rows.size());
+    for (const auto &[tuple, rid] : rows) {
+      UpdateUndoLink(rid, std::nullopt);
+      rids.push_back(rid);
+    }
+    table->table_->ReclaimTuples(rids);
   }
 }
 

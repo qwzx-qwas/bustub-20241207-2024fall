@@ -53,6 +53,27 @@ class HNSWIndex : public Index {
 
   void DeleteEntry(const Tuple &key, VT rid, Transaction *transaction) override;
 
+  void DeleteObsoleteEntries(const std::vector<std::pair<Tuple, RID>> &entries) override {
+    std::scoped_lock<std::mutex> lock(lock_);
+    std::unordered_set<RID> dead;
+    for (const auto &entry : entries) {
+      dead.insert(entry.second);
+      const auto it = active_entries_.find(entry.second);
+      if (it != active_entries_.end()) {
+        nodes_[it->second].is_active_ = false;
+        active_entries_.erase(it);
+        ++stale_entry_count_;
+      }
+    }
+    // Logical deletion keeps historical candidates for MVCC. Physical retirement
+    // removes every version of this RID from query results, but keeps graph links.
+    for (auto &node : nodes_) {
+      if (dead.count(node.rid_) != 0) {
+        node.is_retired_ = true;
+      }
+    }
+  }
+
   void ScanKey(const Tuple &key, std::vector<RID> *result, Transaction *transaction) override;
 
   auto SearchKnn(const Tuple &query, size_t k, std::vector<RID> *result, Transaction *transaction) -> void override;
@@ -112,6 +133,7 @@ class HNSWIndex : public Index {
     int level_{0};
     bool is_active_{true};
     std::vector<std::vector<std::uint32_t>> neighbors_;
+    bool is_retired_{false};
   };
 
   /** 作用：统一保存图搜索过程中的候选节点与距离。 */
@@ -138,7 +160,7 @@ class HNSWIndex : public Index {
 
   /** 作用：在指定层执行 bounded best-first search，`ef` 对应 HNSW 的搜索预算。 */
   auto SearchLayerUnlocked(const Tuple &query, const std::vector<std::uint32_t> &entry_points, std::size_t ef,
-                           int layer) -> std::vector<SearchCandidate>;
+                           int layer, bool include_retired) -> std::vector<SearchCandidate>;
 
   /** 作用：用可解释的启发式裁剪候选邻居，避免简单全连接导致图退化。 */
   auto SelectNeighborsUnlocked(const std::vector<SearchCandidate> &candidates, std::size_t limit) const
@@ -287,7 +309,8 @@ auto HNSWIndex<KT, VT, Cmp>::GreedySearchLayerUnlocked(const Tuple &query, std::
 
 template <typename KT, typename VT, typename Cmp>
 auto HNSWIndex<KT, VT, Cmp>::SearchLayerUnlocked(const Tuple &query, const std::vector<std::uint32_t> &entry_points,
-                                                 std::size_t ef, int layer) -> std::vector<SearchCandidate> {
+                                                 std::size_t ef, int layer, bool include_retired)
+    -> std::vector<SearchCandidate> {
   if (entry_points.empty()) {
     return {};
   }
@@ -322,7 +345,9 @@ auto HNSWIndex<KT, VT, Cmp>::SearchLayerUnlocked(const Tuple &query, const std::
     visit_tokens_[node_idx] = token;
     const auto distance = Distance(query, nodes_[node_idx].key_);
     candidate_queue.push({distance, node_idx});
-    top_candidates.push({distance, node_idx});
+    if (include_retired || !nodes_[node_idx].is_retired_) {
+      top_candidates.push({distance, node_idx});
+    }
   }
 
   while (!candidate_queue.empty()) {
@@ -340,7 +365,9 @@ auto HNSWIndex<KT, VT, Cmp>::SearchLayerUnlocked(const Tuple &query, const std::
       const auto distance = Distance(query, nodes_[neighbor_idx].key_);
       if (top_candidates.size() < ef || distance < top_candidates.top().distance_) {
         candidate_queue.push({distance, neighbor_idx});
-        top_candidates.push({distance, neighbor_idx});
+        if (include_retired || !nodes_[neighbor_idx].is_retired_) {
+          top_candidates.push({distance, neighbor_idx});
+        }
         if (top_candidates.size() > ef) {
           top_candidates.pop();
         }
@@ -474,7 +501,7 @@ auto HNSWIndex<KT, VT, Cmp>::InsertEntryUnlocked(const Tuple &key, RID rid) -> b
 
   const auto connect_from_level = std::min(level, max_level_);
   for (int layer = connect_from_level; layer >= 0; layer--) {
-    const auto candidates = SearchLayerUnlocked(key, {current}, ef_construction_, layer);
+    const auto candidates = SearchLayerUnlocked(key, {current}, ef_construction_, layer, true);
     const auto selected = SelectNeighborsUnlocked(candidates, GetMaxNeighborsForLevelUnlocked(layer));
     ConnectNodeUnlocked(node_idx, selected, layer);
     if (!candidates.empty()) {
@@ -567,7 +594,7 @@ auto HNSWIndex<KT, VT, Cmp>::SearchVector(const Tuple &query, const AnnSearchOpt
     current_distance = best.distance_;
   }
 
-  const auto ranked = SearchLayerUnlocked(query, {current}, search_budget, 0);
+  const auto ranked = SearchLayerUnlocked(query, {current}, search_budget, 0, false);
   const auto keep = std::min(candidate_budget, ranked.size());
   result->reserve(keep);
   for (std::size_t i = 0; i < keep; i++) {

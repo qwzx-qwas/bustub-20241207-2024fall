@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-10-05（F36 / S9.2 四次审查）：[F36-table-space.tar.gz](F36-table-space.tar.gz) 原位更新，仍为 6 项生产集成测试及 runner。复用 F26 9 项、课程 20 项、既有向量索引 20 项、S8 8 项，共 63 个唯一正常场景通过，14 个定向变异检出；ASan/UBSan/LeakSanitizer 正常结束。本次补齐 IVF 搜索上限的锁保护与查询跨重建时的预算更新，强化原用例，不新增测试专用生产接口；见 [具体修改与审查](../../docs/storage_redesign/s92_execution_20261005.md#11-四次审查搜索上限与重建的交接2026-10-05) 和 [结果](../../test-results/storage-f36-s92-20261005/README.md)。旧 F36 源码/结果包原位替换，不保留备份；F26/S8/S5 有效依赖不变。TSan、S9.3、后台 GC、共同性能及真实掉电未完成。
+
 2026-10-05（F26 / S9.1e）：[F26-array-buffer-pool.tar.gz](F26-array-buffer-pool.tar.gz) 原位更新，4 项 RAM＋9 项真实页/SQL、25 个断言变异；复用课程 11 项和 S8 8 项。32 个不同场景通过，13 项通过 TSan。真实索引窗口接通有界预取；F36 未执行。仅压缩保存，不注册常驻阶段目标；旧 b/c/d 结果包删除，其他 19 个有效模块源码包不改。见 [八项审查](../../docs/storage_redesign/s9e_execution_20261005.md) 与 [结果/恢复](../../test-results/storage-f26-s9e-20261005/README.md)。
 
 2026-10-03（S8；2026-10-04 测试契约复验）：更新 [S8-raft-object-stores.tar.gz](S8-raft-object-stores.tar.gz)。F23/F24/F25 共用 8 个真实对象后端场景，含 SQL/会话恢复、TCP 三节点 InstallSnapshot/重启；58 个相邻回归、10 个定向变异通过。T2 已删除控制根观察，验证公开额度下的合法后继写入；T8 在受限 Data 容量内验证 Store 退役→真实后台回收→新数据写入与重开，不再仅依赖删除计数；T6 去掉重复的重启前查询。生产代码未为本轮测试改动。见 [八项审查](../../docs/storage_redesign/s8_execution_20261003.md) 与 [结果](../../test-results/storage-s8-20261003/README.md)。只保留最终 S8 压缩版本，不注册常驻目标，不保留旧包/备份；S5 fixture 和其他有效模块包保持原样。

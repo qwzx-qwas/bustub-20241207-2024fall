@@ -15,7 +15,9 @@
 #include <memory>
 #include <mutex>  // NOLINT
 #include <optional>
+#include <set>
 #include <utility>
+#include <vector>
 
 #include "buffer/buffer_pool_manager.h"
 #include "common/config.h"
@@ -33,7 +35,7 @@ class TablePage;
 
 /**
  * TableHeap represents a physical table on disk.
- * This is just a doubly-linked list of pages.
+ * Pages form a singly-linked chain; free-space hints select reusable pages.
  */
 class TableHeap {
   friend class TableIterator;
@@ -73,6 +75,11 @@ class TableHeap {
    * @param rid the rid of the inserted tuple
    */
   void UpdateTupleMeta(const TupleMeta &meta, RID rid);
+
+  /** Retire deleted records after indexes, undo and readers have released their RIDs.
+   * Caller owns the transaction/visibility exclusion boundary. Does not unlink pages.
+   */
+  void ReclaimTuples(const std::vector<RID> &rids);
 
   /**
    * Read a tuple from the table.
@@ -152,6 +159,9 @@ class TableHeap {
 
   std::mutex latch_;
   page_id_t last_page_id_{INVALID_PAGE_ID}; /* protected by latch_ */
+  // Rebuildable hints. Only InsertTuple/ReclaimTuples change tuple space, under latch_.
+  std::set<std::pair<uint16_t, page_id_t>> free_pages_;
+  size_t active_iterators_{0};
 };
 
 }  // namespace bustub

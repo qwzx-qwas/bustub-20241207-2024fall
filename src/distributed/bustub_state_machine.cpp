@@ -332,7 +332,13 @@ void BusTubStateMachine::InsertAllIndexes(const std::shared_ptr<TableInfo> &tabl
 void BusTubStateMachine::DeleteAllIndexes(const std::shared_ptr<TableInfo> &table, const Tuple &tuple, RID rid) {
   for (const auto &index : SortedIndexes(table)) {
     const auto key = tuple.KeyFromTuple(table->schema_, index->key_schema_, index->key_attrs_);
-    index->index_->DeleteEntry(key, rid, nullptr);
+    if (index->index_->GetVectorDistanceMetric().has_value()) {
+      // Apply excludes readers and immediately reclaims the tuple. ANN's ordinary
+      // DeleteEntry only marks a historical candidate stale, which is insufficient.
+      index->index_->DeleteObsoleteEntries({{key, rid}});
+    } else {
+      index->index_->DeleteEntry(key, rid, nullptr);
+    }
   }
 }
 
@@ -361,6 +367,8 @@ void BusTubStateMachine::ApplyUpdate(const ReplicatedLogEntry &entry, const Upda
   ValidateTupleKey(row->table_, command.primary_key_, replacement);
   DeleteAllIndexes(row->table_, row->tuple_, row->rid_);
   row->table_->table_->UpdateTupleMeta({static_cast<timestamp_t>(entry.index_), true}, row->rid_);
+  // Apply owns the visibility latch; all derived indexes have retired the old RID.
+  row->table_->table_->ReclaimTuples({row->rid_});
   const auto new_rid = row->table_->table_->InsertTuple({static_cast<timestamp_t>(entry.index_), false}, replacement);
   if (!new_rid.has_value()) {
     throw std::runtime_error("committed UPDATE failed to allocate replacement tuple");
@@ -377,6 +385,8 @@ void BusTubStateMachine::ApplyDelete(const ReplicatedLogEntry &entry, const Dele
   }
   DeleteAllIndexes(row->table_, row->tuple_, row->rid_);
   row->table_->table_->UpdateTupleMeta({static_cast<timestamp_t>(entry.index_), true}, row->rid_);
+  // Apply owns the visibility latch; all derived indexes have retired the old RID.
+  row->table_->table_->ReclaimTuples({row->rid_});
 }
 
 auto BusTubStateMachine::GetRow(table_oid_t table_oid, const EncodedPrimaryKeyV1 &primary_key) const

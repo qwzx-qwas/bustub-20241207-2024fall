@@ -106,6 +106,29 @@ class STLOrderedIndex : public Index {
     }
   }
 
+  void DeleteObsoleteEntries(const std::vector<std::pair<Tuple, RID>> &entries) override {
+    if (is_primary_key_) {
+      Index::DeleteObsoleteEntries(entries);
+      return;
+    }
+    std::unordered_set<RID> dead;
+    for (const auto &entry : entries) {
+      dead.insert(entry.second);
+    }
+    std::scoped_lock<std::mutex> lock(lock_);
+    for (auto it = non_unique_entries_.begin(); it != non_unique_entries_.end();) {
+      auto &rids = it->second;
+      rids.erase(std::remove_if(rids.begin(), rids.end(), [&](RID rid) { return dead.count(rid) != 0; }), rids.end());
+      if (rids.empty()) {
+        data_.erase(it->first);
+        it = non_unique_entries_.erase(it);
+      } else {
+        data_[it->first] = rids.front();
+        ++it;
+      }
+    }
+  }
+
   void ScanKey(const Tuple &key, std::vector<RID> *result, Transaction *transaction) override {
     KT index_key;
     index_key.SetFromKey(key);
