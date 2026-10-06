@@ -17,7 +17,7 @@ namespace {
 // Remove only intersections. Unchanged left/right slices retain their original
 // allocation identity. The retired part is not automatically safe to free.
 void Cut(const MetadataSnapshot &base, ObjectKey key, uint64_t begin, uint64_t cut_end, Description &d,
-         Changes &changes) {
+         Changes &changes, uint64_t unit) {
   if (begin >= cut_end) {
     return;
   }
@@ -40,14 +40,19 @@ void Cut(const MetadataSnapshot &base, ObjectKey key, uint64_t begin, uint64_t c
     const auto span = ReadSpan(entry);
     const auto stop = span.offset_ + span.size_;
     changes.Put(entry.key_, std::nullopt);
+    changes.Share(base, span, unit, false);
     if (span.offset_ < begin) {
       changes.Map(key, Slice(span, span.offset_, begin));
+      changes.Share(base, Slice(span, span.offset_, begin), unit, true);
     }
     if (stop > cut_end) {
       // The surviving right slice starts at the END of the removed interval.
       changes.Map(key, Slice(span, cut_end, stop));  // NOLINT: the right slice starts at cut_end and ends at stop.
+      changes.Share(base, Slice(span, cut_end, stop), unit, true);
     }
-    changes.Retire(key, d, Slice(span, std::max(begin, span.offset_), std::min(cut_end, stop)));
+    if (!span.data_->owner_) {
+      changes.Retire(key, d, Slice(span, std::max(begin, span.offset_), std::min(cut_end, stop)));
+    }
   }
 }
 
@@ -61,7 +66,7 @@ void ReplaceChanges(const MetadataSnapshot &base, ObjectKey key, uint64_t begin,
   if (d.info_.mode_ == ObjectSizeMode::Fixed && end > d.info_.size_) {
     throw std::invalid_argument("replacement exceeds fixed object length");
   }
-  Cut(base, key, begin, end, d, changes);
+  Cut(base, key, begin, end, d, changes, context.unit_);
   uint64_t remaining = length;
   uint64_t cursor = begin;
   for (const auto &range : ranges) {
@@ -121,10 +126,11 @@ auto ObjectMappingSnapshot::Resolve(ObjectKey key, uint64_t offset, uint64_t len
     }
     result.next_offset_ = span.offset_ + span.size_;
     if (span.data_) {
-      const auto task = base_.Get(Key(Deferred, key, span.data_->allocation_));
+      const auto owner = span.data_->owner_.value_or(key);
+      const auto task = base_.Get(Key(Deferred, owner, span.data_->allocation_));
       if (task) {
         const auto fields = Decode(*task, 2);
-        auto payload = base_.Payload({key.space_, key.number_, span.data_->allocation_});
+        auto payload = base_.Payload({owner.space_, owner.number_, span.data_->allocation_});
         Require(payload.has_value() && span.data_->offset_ >= fields[0] &&
                     End(span.data_->offset_, span.size_) <= End(fields[0], payload->ref_.bytes_ - 4),
                 "pending object source lacks its Journal body");
@@ -261,7 +267,7 @@ struct ObjectMappingStore::Impl {
         throw std::invalid_argument("fixed object cannot change length");
       }
       const auto size = remove ? 0 : length;
-      Cut(base.base_, key, size, d.info_.size_, d, changes);
+      Cut(base.base_, key, size, d.info_.size_, d, changes, context_->unit_);
       d.info_.size_ = size;
       d.alive_ = !remove;
     }
@@ -337,6 +343,34 @@ auto ObjectMappingStore::Resize(const ObjectMappingSnapshot &base, ObjectKey key
 auto ObjectMappingStore::Remove(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult {
   return impl_->Change(base, key, 0, 0, nullptr, true);
 }
+auto ObjectMappingStore::SupportsSharing() const -> bool { return impl_->context_->format_ >= 4; }
+auto ObjectMappingStore::Share(const ObjectMappingSnapshot &base, ObjectKey key, const std::vector<ObjectSpan> &spans)
+    -> JournalResult {
+  auto &s = *impl_;
+  Active active(*s.context_);
+  s.Check(base);
+  if (!SupportsSharing()) throw std::runtime_error("shared versions require object format v4; no implicit migration");
+  auto d = ReadDescription(base.base_, key);
+  d.info_.version_ = Advance(d.info_.version_);
+  Changes changes(s.context_->options_);
+  for (const auto &span : spans) {
+    if (span.size_ == 0 || End(span.offset_, span.size_) > d.info_.size_) {
+      throw std::invalid_argument("shared mapping exceeds destination");
+    }
+    const auto target = base.Resolve(key, span.offset_, span.size_);
+    if (!target.complete_ || std::any_of(target.spans_.begin(), target.spans_.end(),
+                                         [](const auto &part) { return part.data_.has_value(); })) {
+      throw std::invalid_argument("shared version construction requires an empty destination range");
+    }
+    if (span.data_) {
+      if (!span.data_->owner_) throw std::invalid_argument("shared mapping requires original content identity");
+      changes.Map(key, span);
+      changes.Share(base.base_, span, s.context_->unit_, true);
+    }
+  }
+  changes.Put(Key(Descriptor, key, 0), EncodeDescription(d));
+  return s.metadata_.Commit(base.base_, changes.Take());
+}
 auto ObjectMappingSnapshot::Control(ObjectKey owner, uint64_t item) const -> std::optional<std::vector<std::byte>> {
   return base_.Get(Key(object_mapping_detail::Control, owner, item));
 }
@@ -411,7 +445,7 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
       const auto first_allocation = d.next_allocation_;
       ReplaceChanges(base.base_, key, op.offset_, op.length_, op.extents_, *s.context_, d, changes);
       if (op.deferred_) {
-        if (s.context_->format_ != FORMAT || payload_index >= payloads.size() ||
+        if (s.context_->format_ < 3 || payload_index >= payloads.size() ||
             payloads[payload_index].size() != op.length_) {
           throw std::invalid_argument("Deferred requires current object format and complete initialized body");
         }
@@ -428,14 +462,14 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
         }
       }
     } else if (op.operation_ == ObjectOperation::Unmap) {
-      Cut(base.base_, key, op.offset_, End(op.offset_, op.length_), d, changes);
+      Cut(base.base_, key, op.offset_, End(op.offset_, op.length_), d, changes, s.context_->unit_);
     } else {
       const bool remove = op.operation_ == ObjectOperation::Remove;
       if (!remove && d.info_.mode_ == ObjectSizeMode::Fixed && op.length_ != d.info_.size_) {
         throw std::invalid_argument("fixed object cannot change length");
       }
       const auto size = remove ? 0 : op.length_;
-      Cut(base.base_, key, size, d.info_.size_, d, changes);
+      Cut(base.base_, key, size, d.info_.size_, d, changes, s.context_->unit_);
       d.info_.size_ = size;
       d.alive_ = !remove;
     }
@@ -454,9 +488,9 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
 auto ObjectMappingAccess::SupportsDeferred(ObjectMappingStore &store) -> bool {
   return store.impl_->context_->format_ >= 3;
 }
-auto ObjectMappingAccess::ReadPayload(ObjectMappingStore &store, const JournalPayload &payload,
-                                      IOReadBudget &budget, std::function<void(const IOBatchResult &)> complete,
-                                      std::function<void()> ready) -> JournalPayloadRead {
+auto ObjectMappingAccess::ReadPayload(ObjectMappingStore &store, const JournalPayload &payload, IOReadBudget &budget,
+                                      std::function<void(const IOBatchResult &)> complete, std::function<void()> ready)
+    -> JournalPayloadRead {
   try {
     return store.impl_->metadata_.ReadPayload(payload, budget, std::move(complete), std::move(ready));
   } catch (const JournalError &error) {

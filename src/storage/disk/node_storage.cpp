@@ -624,6 +624,27 @@ auto NodeStorage::ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key
     return result;
   });
 }
+auto NodeStorage::SupportsObjectSharing() -> bool {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t) { return c.mapping_->SupportsSharing(); });
+}
+auto NodeStorage::ProtectObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length)
+    -> ObjectReadLease {
+  return impl_->ObjectCall(
+      [&](ObjectContext &c, uint64_t) { return c.references_->ProtectRead(base, key, offset, length); });
+}
+auto NodeStorage::ShareObjectRange(const ObjectMappingSnapshot &source, ObjectKey key, ObjectKey destination,
+                                   uint64_t offset, uint64_t length) -> JournalResult {
+  return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
+    auto lease = c.references_->ProtectRead(source, key, offset, length);
+    auto spans = lease.Spans();
+    for (auto &span : spans) {
+      if (span.data_ && !span.data_->owner_) span.data_->owner_ = key;
+    }
+    auto result = c.mapping_->Share(c.mapping_->Read(), destination, spans);
+    impl_->Outcome(generation, result);
+    return result;
+  });
+}
 auto NodeStorage::ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length)
     -> ObjectRead {
   return impl_->ObjectCall([&](ObjectContext &c, uint64_t) { return c.io_->Read(base, key, offset, length); });

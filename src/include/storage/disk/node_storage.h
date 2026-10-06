@@ -111,6 +111,13 @@ class NodeStorage {
       -> JournalResult;
   auto ResizeObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length) -> JournalResult;
   auto RemoveObject(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult;
+  auto SupportsObjectSharing() -> bool;
+  /** In-memory capture protection; no device IO. Retain until the captured
+   * mappings have acquired their persistent shared references. */
+  auto ProtectObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length)
+      -> ObjectReadLease;
+  auto ShareObjectRange(const ObjectMappingSnapshot &source, ObjectKey key, ObjectKey destination, uint64_t offset,
+                        uint64_t length) -> JournalResult;
   auto ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t allocation) -> ObjectReclaimResult;
   auto ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length) -> ObjectRead;
   auto ReadObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,

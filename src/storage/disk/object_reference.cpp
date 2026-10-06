@@ -210,7 +210,8 @@ struct ObjectReferenceManager::Impl {
           const auto stop = End(first, span.size_);
           const auto unit = context_->unit_;
           const auto rounded_end = End(stop, (unit - stop % unit) % unit);
-          ranges.push_back({object, span.data_->allocation_, {first - first % unit, rounded_end}});
+          ranges.push_back(
+              {span.data_->owner_.value_or(object), span.data_->allocation_, {first - first % unit, rounded_end}});
         }
       }
       if (page.complete_) {
@@ -354,6 +355,19 @@ struct ObjectReferenceManager::Impl {
             pinned.push_back(range.range_);
           }
         }
+      }
+    }
+    // Persistent checkpoint/fork references outlive RAM readers and process restarts.
+    // Shared counts use the original allocation identity, never the latest logical map.
+    for (const auto range : candidates) {
+      const auto unit = context_->unit_;
+      const auto lower = Key(SharedUnit, object, range.begin_ / unit);
+      for (const auto &entry : base.Scan(lower, limit + 1)) {
+        if (!SamePrefix(entry.key_, lower) || entry.key_.item_ >= range.end_ / unit) break;
+        if (++examined > limit) Fail(ObjectMappingErrorCode::ResourceUnavailable, "shared reclaim scan exceeds budget");
+        const auto f = Decode(entry.value_, 2);
+        Require(f[0] != 0 && f[1] == allocation_id, "shared range has wrong allocation identity");
+        pinned.push_back({entry.key_.item_ * unit, (entry.key_.item_ + 1) * unit});
       }
     }
     pinned = Merge(std::move(pinned));

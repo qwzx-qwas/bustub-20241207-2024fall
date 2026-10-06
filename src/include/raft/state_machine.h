@@ -21,6 +21,9 @@
 #include "recovery/snapshot_stream.h"
 
 namespace bustub {
+struct StateMachineRecoveryPoint {
+  uint64_t index_, term_;
+};
 
 class RaftStateMachine {
  public:
@@ -29,6 +32,8 @@ class RaftStateMachine {
   virtual void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const = 0;
   virtual void Apply(const ReplicatedLogEntry &entry) = 0;
   virtual auto LastApplied() const -> uint64_t = 0;
+  /** Optional durable local base, validated against the committed Raft history. */
+  virtual auto LocalRecoveryPoint() const -> std::optional<StateMachineRecoveryPoint> { return std::nullopt; }
   virtual void WriteSnapshot(const SnapshotAppend &append) const = 0;
   virtual void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) = 0;
   virtual void LoadSnapshot(const SnapshotInput &payload, uint64_t index) = 0;

@@ -34,14 +34,16 @@ void Submit(NodeStorage &storage, ObjectTransaction &tx) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 }
-auto Descriptor(ObjectPageOptions options, uint64_t objects) -> std::vector<std::byte> {
+auto Descriptor(ObjectPageOptions options, uint64_t objects, std::optional<uint64_t> sealed = std::nullopt)
+    -> std::vector<std::byte> {
   ByteWriter w;
-  w.PutU32(1);
+  w.PutU32(sealed ? 2 : 1);
   w.PutU32(BUSTUB_PAGE_SIZE);
   w.PutU32(options.pages_per_object_);
   w.PutU64(objects);
   w.PutU64(options.registry_.space_);
   w.PutU64(options.registry_.number_);
+  if (sealed) w.PutU64(*sealed);
   return w.Data();
 }
 }  // namespace
@@ -54,6 +56,7 @@ struct ObjectPageStorage::Impl {
   std::mutex allocation_;
   uint64_t objects_{0};
   bool retired_{false};
+  std::optional<uint64_t> sealed_;
   std::set<page_id_t> pending_pages_;
   Impl(std::shared_ptr<NodeStorage> storage, uint64_t space, ObjectPageOptions options)
       : storage_(std::move(storage)), space_(space), options_(options), caps_(storage_->PageIO()) {
@@ -72,6 +75,9 @@ struct ObjectPageStorage::Impl {
     if (storage_->Objects().Control({space_, 0}, uint64_t{static_cast<uint32_t>(page)} + 1)) {
       throw std::runtime_error("database page identity is retired");
     }
+  }
+  void Writable() const {
+    if (sealed_ || retired_) throw std::runtime_error("page workspace is immutable or retired");
   }
   // allocation_ serializes workspace growth/retirement, never BufferPool's
   // residency or content locks. F14's ordinary background GC handles the bytes.
@@ -120,12 +126,20 @@ auto ObjectPageStorage::Open(std::shared_ptr<NodeStorage> storage, uint64_t spac
     throw std::runtime_error("missing page workspace descriptor");
   }
   ByteReader r(*record);
-  if (r.ReadU32() != 1 || r.ReadU32() != BUSTUB_PAGE_SIZE || r.ReadU32() != options.pages_per_object_) {
+  const auto format = r.ReadU32();
+  if ((format != 1 && format != 2) || r.ReadU32() != BUSTUB_PAGE_SIZE || r.ReadU32() != options.pages_per_object_) {
     throw std::runtime_error("page workspace geometry mismatch");
   }
   impl->objects_ = r.ReadU64();
   if (r.ReadU64() != options.registry_.space_ || r.ReadU64() != options.registry_.number_) {
     throw std::runtime_error("page workspace registry mismatch");
+  }
+  if (format == 2) {
+    impl->sealed_ = r.ReadU64();
+    if (*impl->sealed_ > uint64_t{INT32_MAX} + 1 ||
+        (*impl->sealed_ + options.pages_per_object_ - 1) / options.pages_per_object_ != impl->objects_) {
+      throw std::runtime_error("invalid checkpoint page allocation boundary");
+    }
   }
   if (!r.Empty()) {
     throw std::runtime_error("trailing workspace descriptor bytes");
@@ -147,19 +161,105 @@ auto ObjectPageStorage::Open(std::shared_ptr<NodeStorage> storage, uint64_t spac
     cursor = entry.item_ + 1;
   }
   while (!impl->pending_pages_.empty()) {
+    if (impl->sealed_) throw std::runtime_error("immutable page workspace contains unfinished retirement");
     impl->Reclaim(4);
   }
   return std::shared_ptr<ObjectPageStorage>(new ObjectPageStorage(std::move(impl)));
 }
 void ObjectPageStorage::RetireAbandoned(std::shared_ptr<NodeStorage> storage, ObjectPageOptions options) {
+  RetireAbandoned(std::move(storage), options, {});
+}
+void ObjectPageStorage::RetireAbandoned(std::shared_ptr<NodeStorage> storage, ObjectPageOptions options,
+                                        const std::vector<uint64_t> &retained) {
+  uint64_t cursor = 1;
   for (;;) {
-    const auto entries = storage->Objects().Controls(options.registry_, 0, 1);
+    const auto entries = storage->Objects().Controls(options.registry_, cursor, 1);
     if (entries.empty()) {
       return;
     }
-    auto workspace = Open(storage, entries.front().item_, options);
+    const auto id = entries.front().item_;
+    cursor = id + 1;
+    if (std::find(retained.begin(), retained.end(), id) != retained.end()) continue;
+    auto workspace = Open(storage, id, options);
     workspace->Retire();
   }
+}
+auto ObjectPageStorage::Capture(uint64_t next_page, std::optional<std::vector<page_id_t>> pages) -> ObjectPageCapture {
+  std::lock_guard<std::mutex> lock(impl_->allocation_);
+  if (pages) std::sort(pages->begin(), pages->end());
+  ObjectPageCapture capture(impl_->storage_->Objects(), impl_->space_, impl_->objects_, next_page, impl_->options_,
+                            std::move(pages));
+  for (uint64_t n = 1; n <= impl_->objects_; ++n) {
+    const auto begin = (n - 1) * impl_->options_.pages_per_object_;
+    if (capture.pages_) {
+      const auto found = std::lower_bound(capture.pages_->begin(), capture.pages_->end(), begin);
+      if (found == capture.pages_->end() ||
+          uint64_t{static_cast<uint32_t>(*found)} >= begin + impl_->options_.pages_per_object_)
+        continue;
+    }
+    const ObjectKey key{impl_->space_, n};
+    const auto size = capture.view_.Describe(key).size_;
+    const auto ranges = capture.view_.Resolve(key, 0, size);
+    if (ranges.complete_ && std::none_of(ranges.spans_.begin(), ranges.spans_.end(),
+                                         [](const auto &span) { return span.data_.has_value(); }))
+      continue;
+    capture.leases_.push_back(impl_->storage_->ProtectObject(capture.view_, key, 0, size));
+  }
+  return capture;
+}
+auto ObjectPageStorage::Clone(std::shared_ptr<NodeStorage> storage, const ObjectPageCapture &capture)
+    -> std::shared_ptr<ObjectPageStorage> {
+  auto result = Create(storage, capture.options_);
+  result->EnsurePages(capture.next_);
+  // A page bounds each metadata publication. Captured leases keep source bytes
+  // alive while these durable shared references are established in batches.
+  for (uint64_t n = 1; n <= capture.objects_; ++n) {
+    const ObjectKey source{capture.space_, n}, destination{result->Space(), n};
+    const auto size = capture.view_.Describe(source).size_;
+    for (uint64_t offset = 0; offset < size; offset += BUSTUB_PAGE_SIZE) {
+      const auto page = (n - 1) * capture.options_.pages_per_object_ + offset / BUSTUB_PAGE_SIZE;
+      if (page >= capture.next_ ||
+          (capture.pages_ &&
+           !std::binary_search(capture.pages_->begin(), capture.pages_->end(), static_cast<page_id_t>(page))))
+        continue;
+      const auto length = std::min<uint64_t>(BUSTUB_PAGE_SIZE, size - offset);
+      const auto resolved = capture.view_.Resolve(source, offset, length);
+      if (resolved.complete_ && std::none_of(resolved.spans_.begin(), resolved.spans_.end(),
+                                             [](const auto &span) { return span.data_.has_value(); }))
+        continue;
+      for (;;) {
+        try {
+          Durable(storage->ShareObjectRange(capture.view_, source, destination, offset, length));
+          break;
+        } catch (const MetadataViewConflict &) {
+          continue;
+        } catch (const MetadataCommitBusy &) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+      }
+    }
+  }
+  uint64_t cursor = 1;
+  for (;;) {
+    const auto entries = capture.view_.Controls({capture.space_, 0}, cursor, 1);
+    if (entries.empty()) break;
+    const auto &e = entries.front();
+    ObjectTransaction tx{{}, {{{result->Space(), 0}, e.item_, std::vector<std::byte>{std::byte{1}, std::byte{2}}}}};
+    Submit(*storage, tx);
+    cursor = e.item_ + 1;
+  }
+  return result;
+}
+void ObjectPageStorage::Seal(uint64_t next_page) {
+  std::lock_guard<std::mutex> lock(impl_->allocation_);
+  impl_->Writable();
+  ObjectTransaction tx{{}, {{{impl_->space_, 0}, 0, Descriptor(impl_->options_, impl_->objects_, next_page)}}};
+  Submit(*impl_->storage_, tx);
+  impl_->sealed_ = next_page;
+}
+auto ObjectPageStorage::SealedPageCount() const -> uint64_t {
+  if (!impl_->sealed_) throw std::runtime_error("checkpoint does not name an immutable workspace");
+  return *impl_->sealed_;
 }
 auto ObjectPageStorage::Space() const -> uint64_t { return impl_->space_; }
 auto ObjectPageStorage::MemoryAlignment() const -> size_t { return impl_->caps_.memory_alignment_; }
@@ -167,9 +267,7 @@ auto ObjectPageStorage::MaxBatchPages() const -> size_t { return impl_->caps_.ma
 auto ObjectPageStorage::WriteDomain(page_id_t page) const -> uint64_t { return impl_->Key(page).number_; }
 void ObjectPageStorage::EnsurePages(uint64_t count) {
   std::lock_guard<std::mutex> lock(impl_->allocation_);
-  if (impl_->retired_) {
-    throw std::runtime_error("page workspace is retired");
-  }
+  impl_->Writable();
   const uint64_t needed = (count + impl_->options_.pages_per_object_ - 1) / impl_->options_.pages_per_object_;
   while (impl_->objects_ < needed) {
     const auto next = impl_->objects_ + 1;
@@ -207,6 +305,7 @@ auto ObjectPageStorage::Prefetch(const PageBuffer &b, std::function<void(std::ex
                                              BUSTUB_PAGE_SIZE, {b.data_, b.capacity_, b.owner_}, std::move(complete));
 }
 void ObjectPageStorage::Write(const std::vector<PageBuffer> &buffers) {
+  impl_->Writable();
   ObjectTransaction tx;
   for (const auto &b : buffers) {
     impl_->CheckPage(b.page_);
@@ -224,6 +323,7 @@ void ObjectPageStorage::Delete(page_id_t page) {
 void ObjectPageStorage::RetirePage(page_id_t page, page_id_t link,
                                    const std::array<char, BUSTUB_PAGE_SIZE> &replacement) {
   std::lock_guard<std::mutex> lock(impl_->allocation_);
+  impl_->Writable();
   impl_->CheckPage(page);
   impl_->CheckPage(link);
   ObjectMutation write{ObjectOperation::Write, impl_->Key(link), impl_->Offset(link), ObjectSizeMode::Fixed, {}};
@@ -250,6 +350,31 @@ void ObjectPageStorage::Retire() {
   std::lock_guard<std::mutex> lock(impl_->allocation_);
   if (impl_->retired_) {
     return;
+  }
+  // Object zero is the immutable business manifest, not a database page object.
+  // A crash before root publication leaves it in this registered candidate.
+  bool manifest = false;
+  try {
+    impl_->storage_->Objects().Describe({impl_->space_, 0});
+    manifest = true;
+  } catch (const ObjectMappingError &e) {
+    if (e.Code() != ObjectMappingErrorCode::NotFound) throw;
+  }
+  if (manifest) {
+    const ObjectKey key{impl_->space_, 0};
+    for (;;) {
+      const auto view = impl_->storage_->Objects();
+      if (view.Describe(key).size_ == 0) break;
+      ObjectTransaction trim{{{ObjectOperation::Resize,
+                               key,
+                               view.PlanTailTrim(key, impl_->caps_.max_write_bytes_),
+                               ObjectSizeMode::Variable,
+                               {}}},
+                             {}};
+      Submit(*impl_->storage_, trim);
+    }
+    ObjectTransaction remove{{{ObjectOperation::Remove, key, 0, ObjectSizeMode::Variable, {}}}, {}};
+    Submit(*impl_->storage_, remove);
   }
   while (!impl_->pending_pages_.empty()) {
     impl_->Reclaim(4);

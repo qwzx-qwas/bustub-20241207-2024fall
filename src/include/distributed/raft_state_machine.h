@@ -77,6 +77,7 @@ struct ObjectPageDeployment {
 };
 class BusTubRaftStateMachine : public RaftStateMachine {
  public:
+  ~BusTubRaftStateMachine() override;
   static auto Open(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage = nullptr,
                    size_t buffer_pool_size = 128) -> std::shared_ptr<BusTubRaftStateMachine>;
 
@@ -87,6 +88,12 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   void ValidateProposalPayload(EntryType type, const std::vector<std::byte> &payload) const override;
   void Apply(const ReplicatedLogEntry &entry) override;
   auto LastApplied() const -> uint64_t override;
+  auto LocalRecoveryPoint() const -> std::optional<StateMachineRecoveryPoint> override;
+  /** One background candidate; false means unsupported or already in progress.
+   * Request acceptance is not publication. Poll reports worker errors. */
+  auto RequestCheckpoint(uint64_t index, uint64_t term) -> bool;
+  auto PollCheckpoint() -> uint64_t;
+  void DrainCheckpoint();
   void WriteSnapshot(const SnapshotAppend &append) const override;
   void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) override;
   void LoadSnapshot(const SnapshotInput &payload, uint64_t index) override;
@@ -108,10 +115,13 @@ class BusTubRaftStateMachine : public RaftStateMachine {
 
  private:
   struct WorkingState;
+  struct CheckpointWorker;
 
   BusTubRaftStateMachine(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage,
                          size_t buffer_pool_size);
   void InitializeEmpty();
+  void OpenLocalCheckpoint();
+  void BuildLocalCheckpoint(uint64_t index, uint64_t term);
   auto BuildWorkingState(const BusTubSnapshotBundleView &bundle, const std::filesystem::path &directory)
       -> std::unique_ptr<WorkingState>;
   auto OpenWorkingState(uint64_t last_included_index, const std::vector<std::byte> &catalog_bytes,
@@ -127,8 +137,11 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   mutable std::mutex lifecycle_mutex_;
   mutable uint64_t next_generation_{0};
   std::filesystem::path active_directory_;
-  std::unique_ptr<WorkingState> state_;
+  std::shared_ptr<WorkingState> state_;
   std::unique_ptr<BusTubStateMachine> fsm_;
+  std::optional<StateMachineRecoveryPoint> recovered_point_;
+  uint64_t applied_term_{0};
+  std::unique_ptr<CheckpointWorker> checkpoint_;
 };
 
 }  // namespace bustub

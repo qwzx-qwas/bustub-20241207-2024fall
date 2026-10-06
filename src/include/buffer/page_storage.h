@@ -11,6 +11,7 @@
 #include <vector>
 #include "common/config.h"
 #include "storage/disk/object_mapping.h"
+#include "storage/disk/object_reference.h"
 
 namespace bustub {
 class DiskManager;
@@ -58,6 +59,27 @@ struct ObjectPageOptions {
   uint32_t pages_per_object_;
   ObjectKey registry_;  // A dedicated control owner in the node's provisioned space.
 };
+class ObjectPageCapture {
+ public:
+  ObjectPageCapture(ObjectPageCapture &&) noexcept = default;
+  auto operator=(ObjectPageCapture &&) noexcept -> ObjectPageCapture & = default;
+
+ private:
+  friend class ObjectPageStorage;
+  ObjectPageCapture(ObjectMappingSnapshot view, uint64_t space, uint64_t objects, uint64_t next,
+                    ObjectPageOptions options, std::optional<std::vector<page_id_t>> pages)
+      : view_(std::move(view)),
+        space_(space),
+        objects_(objects),
+        next_(next),
+        options_(options),
+        pages_(std::move(pages)) {}
+  ObjectMappingSnapshot view_;
+  uint64_t space_, objects_, next_;
+  ObjectPageOptions options_;
+  std::optional<std::vector<page_id_t>> pages_;
+  std::vector<ObjectReadLease> leases_;
+};
 /** A private A working space. Descriptor encoding v1 records page size and K in
  * B. No catalog/snapshot authority is implied by these working pages. Rebuilds
  * create a fresh space; Open only accepts its explicit persistent identity. */
@@ -69,6 +91,14 @@ class ObjectPageStorage : public PageStorage {
       -> std::shared_ptr<ObjectPageStorage>;
   /** Startup only, after proving no live workspace from the previous process. */
   static void RetireAbandoned(std::shared_ptr<NodeStorage> storage, ObjectPageOptions options);
+  static void RetireAbandoned(std::shared_ptr<NodeStorage> storage, ObjectPageOptions options,
+                              const std::vector<uint64_t> &retained);
+  auto Capture(uint64_t next_page, std::optional<std::vector<page_id_t>> pages) -> ObjectPageCapture;
+  static auto Clone(std::shared_ptr<NodeStorage> storage, const ObjectPageCapture &capture)
+      -> std::shared_ptr<ObjectPageStorage>;
+  /** Persist an immutable page-space boundary before publishing its manifest. */
+  void Seal(uint64_t next_page);
+  auto SealedPageCount() const -> uint64_t;
   auto Space() const -> uint64_t;
   auto MemoryAlignment() const -> size_t override;
   auto MaxBatchPages() const -> size_t override;

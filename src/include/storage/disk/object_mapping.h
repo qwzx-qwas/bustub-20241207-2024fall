@@ -43,8 +43,9 @@ class ObjectMappingError : public std::runtime_error {
   ObjectMappingErrorCode code_;
 };
 struct ObjectDataLocation {
-  uint64_t offset_;      // Data-region-relative bytes, not a device address.
-  uint64_t allocation_;  // Identity is (space, object number, allocation).
+  uint64_t offset_;                               // Data-region-relative bytes, not a device address.
+  uint64_t allocation_;                           // Identity is (space, object number, allocation).
+  std::optional<ObjectKey> owner_{std::nullopt};  // Shared immutable content retains its original owner.
 };
 struct ObjectJournalLocation {
   JournalPayload payload_;
@@ -115,7 +116,7 @@ struct ObjectSpaceCreation {
  * and durably write its data first, retaining F12 leases through actual IO.
  * This module publishes mapping facts, not a complete WritePlanner/StorageAPI.
  * Removed ranges are persisted here; F14 owns safe physical release. No data-cache, second
- * WAL, shared snapshots or NodeStorage integration are implied.
+ * WAL or data IO are implied. NodeStorage owns the protected sharing entry.
  * Only this store and its future F14 consumer may modify its B key namespaces.
  */
 class ObjectMappingStore {
@@ -134,8 +135,14 @@ class ObjectMappingStore {
                DataReservation &reservation) -> JournalResult;
   auto Resize(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length) -> JournalResult;
   auto Remove(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult;
+  auto SupportsSharing() const -> bool;
 
  private:
+  friend class NodeStorage;
+  /** Caller retains source range leases until publication. Destination must be
+   * privately owned and the target ranges empty; sharing copies no body. */
+  auto Share(const ObjectMappingSnapshot &base, ObjectKey destination, const std::vector<ObjectSpan> &spans)
+      -> JournalResult;
   friend class ObjectReferenceManager;
   friend struct ObjectMappingAccess;
   auto ReferenceContext() const -> std::shared_ptr<ObjectMappingContext>;

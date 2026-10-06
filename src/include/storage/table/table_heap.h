@@ -84,6 +84,9 @@ class TableHeap {
   /** Same visibility boundary as ReclaimTuples. Retire up to four empty non-anchor
    * pages; active scans/pins defer work. Does not wipe or reuse page identities. */
   void ReclaimEmptyPages();
+  /** Physical table membership for an owner-protected business checkpoint;
+   * derived index pages are rebuilt and are not retained as table content. */
+  auto CheckpointPages(size_t maximum_pages) -> std::vector<page_id_t>;
 
   /**
    * Read a tuple from the table.

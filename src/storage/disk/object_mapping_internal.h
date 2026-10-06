@@ -28,7 +28,7 @@ struct ObjectMappingContext {
 namespace object_mapping_detail {
 constexpr uint64_t CONTROL = 13;
 constexpr uint64_t MAGIC = 0x4253544f424a4d50ULL;  // BSTOBJMP
-constexpr uint64_t FORMAT = 3;                     // v3 readers understand Journal-backed mappings.
+constexpr uint64_t FORMAT = 4;                     // v4 adds durable shared content ownership.
 constexpr uint64_t SPACE_LIMIT = (uint64_t{1} << 56) - 1;
 enum Kind : uint64_t {
   Space = 1,
@@ -38,7 +38,8 @@ enum Kind : uint64_t {
   PendingRange = 5,
   OwnedRange = 6,
   Control = 7,
-  Deferred = 8
+  Deferred = 8,
+  SharedUnit = 9
 };
 using Bytes = std::vector<std::byte>;
 [[noreturn]] inline void Fail(ObjectMappingErrorCode code, const char *message) {
@@ -120,15 +121,17 @@ inline auto EncodeDescription(const Description &d) -> Bytes {
                  d.next_retired_, d.pending_});
 }
 inline auto ReadSpan(const MetadataEntry &entry) -> ObjectSpan {
-  const auto f = Decode(entry.value_, 3);
+  const auto f = Decode(entry.value_, entry.value_.size() == 40 ? 5 : 3);
   Require(f[0] != 0 && f[2] != 0 && StorageByteRange::Create(entry.key_.item_, f[0]).has_value() &&
               StorageByteRange::Create(f[1], f[0]).has_value(),
           "invalid object extent");
-  return {entry.key_.item_, f[0], ObjectDataLocation{f[1], f[2]}};
+  return {entry.key_.item_, f[0],
+          ObjectDataLocation{f[1], f[2], f.size() == 5 ? std::optional<ObjectKey>{{f[3], f[4]}} : std::nullopt}};
 }
 inline auto Slice(const ObjectSpan &span, uint64_t begin, uint64_t end) -> ObjectSpan {
-  return {begin, end - begin,
-          ObjectDataLocation{span.data_->offset_ + (begin - span.offset_), span.data_->allocation_}};
+  return {
+      begin, end - begin,
+      ObjectDataLocation{span.data_->offset_ + (begin - span.offset_), span.data_->allocation_, span.data_->owner_}};
 }
 struct KeyLess {
   auto operator()(const MetadataKey &a, const MetadataKey &b) const -> bool {
@@ -149,7 +152,33 @@ struct Changes {
     bytes_ = bytes_ - prior + added;
   }
   void Map(ObjectKey key, const ObjectSpan &span) {
-    Put(Key(Mapping, key, span.offset_), Encode({span.size_, span.data_->offset_, span.data_->allocation_}));
+    const auto &p = *span.data_;
+    Put(Key(Mapping, key, span.offset_),
+        p.owner_ ? Encode({span.size_, p.offset_, p.allocation_, p.owner_->space_, p.owner_->number_})
+                 : Encode({span.size_, p.offset_, p.allocation_}));
+  }
+  void Share(const MetadataSnapshot &base, const ObjectSpan &span, uint64_t unit, bool acquire) {
+    if (!span.data_ || !span.data_->owner_) return;
+    const auto &p = *span.data_;
+    const auto last = (End(p.offset_, span.size_) - 1) / unit;
+    for (auto u = p.offset_ / unit; u <= last; ++u) {
+      const auto key = Key(SharedUnit, *p.owner_, u);
+      const auto found = values_.find(key);
+      const auto value = found == values_.end() ? base.Get(key) : found->second;
+      uint64_t count = 0;
+      if (value) {
+        const auto fields = Decode(*value, 2);
+        Require(fields[0] != 0 && fields[1] == p.allocation_, "shared content identity changed");
+        count = fields[0];
+      }
+      if (acquire)
+        count = Advance(count);
+      else {
+        Require(count != 0, "shared content reference missing");
+        --count;
+      }
+      Put(key, count == 0 ? std::nullopt : std::optional<Bytes>{Encode({count, p.allocation_})});
+    }
   }
   void Retire(ObjectKey key, Description &d, const ObjectSpan &span) {
     if (d.pending_ >= options_.max_retired_records_) {
@@ -183,7 +212,7 @@ inline auto ReadControl(const MetadataSnapshot &base) -> ObjectControl {
     Fail(ObjectMappingErrorCode::NotInitialized, "object format missing; Open never creates");
   }
   const auto f = Decode(*value, 3);
-  Require(f[0] == MAGIC && (f[1] == 1 || f[1] == 2 || f[1] == FORMAT) && f[2] <= SPACE_LIMIT,
+  Require(f[0] == MAGIC && f[1] >= 1 && f[1] <= FORMAT && f[2] <= SPACE_LIMIT,
           "invalid object format or space sequence");
   return {f[1], f[2]};
 }

@@ -33,6 +33,14 @@ struct BufferPoolOptions {
   bool advise_huge_pages_;
   size_t prefetch_pages_;  // Explicit quota/window; zero disables speculative IO.
 };
+struct CapturedPage {
+  page_id_t page_;
+  std::array<char, BUSTUB_PAGE_SIZE> bytes_;
+};
+struct PageCapture {
+  uint64_t next_page_;
+  std::vector<CapturedPage> dirty_;
+};
 class BufferPoolManager {
  public:
   using ReadGuard = ReadPageGuard;
@@ -60,6 +68,11 @@ class BufferPoolManager {
   auto ReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> ReadPageGuard;
   auto FlushPage(page_id_t page_id) -> bool;
   void FlushAllPages();
+  /** Bounded background preflush; does not evict hot pages. */
+  void FlushDirtyPages(size_t max_pages);
+  /** Owner excludes business mutation/retirement while capturing its boundary.
+   * Copies only selected dirty resident pages, never waits for device IO. */
+  auto CapturePages(const std::vector<page_id_t> &pages, size_t max_bytes) -> PageCapture;
   /** Bounded hints from an existing query RID window. Never waits for device IO. */
   void PrefetchPages(const std::vector<page_id_t> &pages);
   auto PrefetchWindow() const -> size_t;

@@ -81,7 +81,11 @@ RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transpo
   const auto recovered_snapshot_index = snapshot_store_ != nullptr && snapshot_store_->Latest().has_value()
                                             ? snapshot_store_->Latest()->last_included_index_
                                             : log_store_->SnapshotBaseIndex();
-  if (state_machine_->LastApplied() != recovered_snapshot_index ||
+  const auto local = state_machine_->LocalRecoveryPoint();
+  const bool local_matches = local && local->index_ == state_machine_->LastApplied() &&
+                             local->index_ >= recovered_snapshot_index &&
+                             log_store_->TermAt(local->index_) == std::optional<uint64_t>{local->term_};
+  if ((local && !local_matches) || (!local_matches && state_machine_->LastApplied() != recovered_snapshot_index) ||
       state_machine_->LastApplied() > hard_state_.commit_index_) {
     throw std::runtime_error("Raft state machine does not match the recovered snapshot base");
   }

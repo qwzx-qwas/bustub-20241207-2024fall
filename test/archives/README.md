@@ -1,5 +1,9 @@
 # 阶段测试源码归档
 
+2026-10-06（F28 / S11，第三次复审）：同一源码包原位更新 runner/RESTORE/MANIFEST，要求 `--case` 与 `--checkpoint-only` 一起使用，防止静默漏跑目标。生产/C++场景/变异未改，实际只检查错误命令拒绝；最近16项/2个指定变异结果沿用第二次复审，见 [审查 §11](../../docs/storage_redesign/s11_execution_20261006.md#11-第三次复审定向测试命令不能漏跑目标2026-10-06)。
+
+2026-10-06（F28 / S11，第二次复审换代）：唯一 [F28-business-checkpoint.tar.gz](F28-business-checkpoint.tar.gz) 已原位替换，旧包不保留备份。F28 仍8项；T4 由手工保存改为真实 SQL/F28 worker/重启验证，生产未改。最新重跑 F28＋S8 共16项通过、2个指定变异检出（1个新增）；另48项沿用首轮，覆盖目录共64项，不冒称全部重跑。首轮63项/5变异、第一次复审16项/2新变异按轮保存。[逐项审查及具体修复](../../docs/storage_redesign/s11_execution_20261006.md)、[压缩结果](../../test-results/storage-f28-20261006/README.md)。共同C/P和有效依赖包不变。
+
 2026-10-05（F27 / S10，再次复审）：更新 [F27-deferred.tar.gz](F27-deferred.tar.gz)。12 项新目标 Deferred 集成场景，复用44项已有回归（F36内含F26只计一次），56项通过、8个定向变异检出；无常驻新阶段测试。旧F27源码及结果包原位替换，不保留旧包备份；依赖包原哈希不变。见 [八项审查与修正](../../docs/storage_redesign/s10_execution_20261005.md) 与 [结果及限制](../../test-results/storage-f27-s10-20261005/README.md)。
 
 2026-10-05（F36 / S9.3）：[F36-table-space.tar.gz](F36-table-space.tar.gz) 原位替换 S9.2 包。含 9 项 F36 集成场景和 runner：保留/适配原六项，新增空页/物理复用、扫描与在途访问、持久退役恢复三项；SQL 周转使用完整行模型。复用 F26 9、课程 20、向量索引 20、S8 8，最终 66 项正常场景通过，19 个定向变异检出。见 [八项测试设计审查](../../docs/storage_redesign/s93_execution_20261005.md) 和 [当前结果](../../test-results/storage-f36-s93-20261005/README.md)。旧 F36 包不保留，S5/F26/S8 有效依赖不改；没有常驻新增阶段测试。TSan、共同性能比较、真实裸设备和物理掉电不在本轮证据内。

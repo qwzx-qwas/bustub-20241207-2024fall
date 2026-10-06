@@ -702,4 +702,41 @@ void BufferPoolManager::FlushAllPages() {
   }
   state_->Flush(pages);
 }
+void BufferPoolManager::FlushDirtyPages(size_t limit) {
+  Call call(*state_);
+  std::vector<std::pair<page_id_t, uint64_t>> pages;
+  for (const auto &f : state_->frames_) {
+    if (pages.size() == limit) break;
+    std::lock_guard<std::mutex> lock(f->mutex_);
+    if (f->phase_ == FramePhase::Resident && !f->writer_ && !f->io_ && f->dirty_version_ != f->clean_version_) {
+      pages.emplace_back(f->page_, f->generation_);
+    }
+  }
+  state_->Flush(pages);
+}
+auto BufferPoolManager::CapturePages(const std::vector<page_id_t> &selected, size_t max_bytes) -> PageCapture {
+  Call call(*state_);
+  PageCapture capture;
+  {
+    std::lock_guard<std::mutex> lock(state_->mutex_);
+    capture.next_page_ = state_->next_page_;
+  }
+  auto pages = selected;
+  std::sort(pages.begin(), pages.end());
+  capture.dirty_.reserve(std::min({pages.size(), state_->frames_.size(), max_bytes / sizeof(CapturedPage)}));
+  for (const auto &f : state_->frames_) {
+    std::lock_guard<std::mutex> lock(f->mutex_);
+    if (!std::binary_search(pages.begin(), pages.end(), f->page_) || f->dirty_version_ == f->clean_version_) continue;
+    if (f->writer_ || f->phase_ != FramePhase::Resident) {
+      throw std::logic_error("page capture requires a complete business boundary");
+    }
+    if (capture.dirty_.size() >= max_bytes / sizeof(CapturedPage))
+      throw std::runtime_error("checkpoint page budget exceeded");
+    CapturedPage copy;
+    copy.page_ = f->page_;
+    std::memcpy(copy.bytes_.data(), f->memory_.data_, copy.bytes_.size());
+    capture.dirty_.push_back(std::move(copy));
+  }
+  return capture;
+}
 }  // namespace bustub

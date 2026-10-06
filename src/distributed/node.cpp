@@ -294,6 +294,12 @@ void DistributedNode::Stop() {
     }
   }
   client_workers_.clear();
+  try {
+    state_machine_->DrainCheckpoint();
+  } catch (...) {
+    std::lock_guard lock(mutex_);
+    fatal_error_ = std::current_exception();
+  }
 }
 
 void DistributedNode::StorageMaintenanceLoop() {
@@ -405,6 +411,11 @@ void DistributedNode::MaybeCreateSnapshot() {
   const auto published = raft_node_->PublishedAppliedIndex();
   const auto latest_snapshot = raft_node_->LatestSnapshot();
   const auto snapshot_index = latest_snapshot.has_value() ? latest_snapshot->last_included_index_ : 0;
+  const auto checkpoint_index = state_machine_->PollCheckpoint();
+  if (published > checkpoint_index && published - checkpoint_index >= config_.snapshot_threshold_entries_) {
+    const auto term = raft_node_->Log().TermAt(published);
+    if (term) state_machine_->RequestCheckpoint(published, *term);
+  }
   if (!active_write_.has_value() && commit == applied && applied == published &&
       raft_node_->Log().LastLogIndex() == commit && published > snapshot_index &&
       published - snapshot_index >= config_.snapshot_threshold_entries_) {

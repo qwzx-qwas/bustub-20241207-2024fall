@@ -10,11 +10,14 @@
 
 #include <algorithm>
 #include <array>
+#include <condition_variable>
 #include <iomanip>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 #include "binder/binder.h"
@@ -33,6 +36,7 @@
 #include "recovery/canonical_snapshot.h"
 #include "storage/byte_range.h"
 #include "storage/disk/disk_manager.h"
+#include "storage/disk/node_storage.h"
 
 namespace bustub {
 namespace {
@@ -134,6 +138,275 @@ struct BusTubRaftStateMachine::WorkingState {
     }
   }
 };
+
+struct BusTubRaftStateMachine::CheckpointWorker {
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  bool stop_{false}, busy_{false};
+  uint64_t index_{0}, term_{0}, published_{0};
+  std::exception_ptr error_;
+  std::thread thread_;
+  explicit CheckpointWorker(BusTubRaftStateMachine *owner, uint64_t published) : published_(published) {
+    thread_ = std::thread([this, owner] {
+      std::unique_lock lock(mutex_);
+      for (;;) {
+        changed_.wait(lock, [&] { return stop_ || busy_; });
+        if (stop_ && !busy_) return;
+        const auto index = index_, term = term_;
+        lock.unlock();
+        std::exception_ptr error;
+        try {
+          owner->BuildLocalCheckpoint(index, term);
+        } catch (...) {
+          error = std::current_exception();
+        }
+        lock.lock();
+        error_ = error;
+        busy_ = false;
+        changed_.notify_all();
+      }
+    });
+  }
+  ~CheckpointWorker() {
+    {
+      std::lock_guard lock(mutex_);
+      stop_ = true;
+      changed_.notify_all();
+    }
+    thread_.join();
+  }
+};
+
+namespace {
+constexpr std::array<std::byte, 8> CHECKPOINT_MAGIC{std::byte{'B'}, std::byte{'S'}, std::byte{'A'}, std::byte{'C'},
+                                                    std::byte{'K'}, std::byte{'P'}, std::byte{'0'}, std::byte{'1'}};
+constexpr size_t CHECKPOINT_LIMIT = 128U * 1024U * 1024U + 64;
+struct BusinessCheckpoint {
+  StateMachineRecoveryPoint point_;
+  std::vector<std::byte> catalog_, sessions_;
+};
+void SubmitCheckpoint(NodeStorage &storage, ObjectTransaction &tx) {
+  for (;;) {
+    auto submission = storage.SubmitObjects(tx);
+    if (submission.admission_ == IOAdmission::Full) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+    if (!submission.ticket_) throw std::runtime_error("checkpoint storage stopped");
+    submission.ticket_->Wait();
+    const auto &r = submission.ticket_->Result();
+    if (r.outcome_ != JournalOutcome::Durable) {
+      if (r.error_) std::rethrow_exception(r.error_);
+      throw std::runtime_error("checkpoint publication is not durable");
+    }
+    return;
+  }
+}
+auto CheckpointSpace(NodeStorage &storage, ObjectKey registry) -> uint64_t {
+  const auto root = storage.Objects().Control(registry, 0);
+  if (!root) return 0;
+  ByteReader r(*root);
+  const auto space = r.ReadU64();
+  if (space == 0 || !r.Empty()) throw std::runtime_error("invalid business checkpoint root");
+  return space;
+}
+auto ReadBusinessCheckpoint(NodeStorage &storage, uint64_t space) -> BusinessCheckpoint {
+  const ObjectKey key{space, 0};
+  const auto size = storage.Objects().Describe(key).size_;
+  if (size > CHECKPOINT_LIMIT) throw std::runtime_error("business checkpoint manifest exceeds limit");
+  std::vector<std::byte> bytes(size);
+  for (uint64_t offset = 0; offset < size;) {
+    const auto take = std::min<uint64_t>(storage.PageIO().max_read_bytes_, size - offset);
+    auto read = storage.ReadObject(storage.Objects(), key, offset, take);
+    read.Wait();
+    if (read.Size() != take) throw std::runtime_error("short business checkpoint manifest");
+    read.CopyTo(bytes.data() + offset, take);
+    offset += take;
+  }
+  const auto body = DecodeChecksummedFrame(CHECKPOINT_MAGIC.data(), CHECKPOINT_MAGIC.size(), bytes, CHECKPOINT_LIMIT,
+                                           "business checkpoint");
+  ByteReader r(body);
+  BusinessCheckpoint result{{r.ReadU64(), r.ReadU64()}, {}, {}};
+  const auto catalog_size = r.ReadU64();
+  result.catalog_ = r.ReadBytes(catalog_size);
+  const auto session_size = r.ReadU64();
+  result.sessions_ = r.ReadBytes(session_size);
+  if (!r.Empty() || result.point_.index_ == 0 || result.point_.index_ >= TXN_START_ID || result.point_.term_ == 0) {
+    throw std::runtime_error("invalid business checkpoint boundary");
+  }
+  return result;
+}
+}  // namespace
+
+BusTubRaftStateMachine::~BusTubRaftStateMachine() {
+  if (checkpoint_) {
+    std::unique_lock lock(checkpoint_->mutex_);
+    checkpoint_->changed_.wait(lock, [&] { return !checkpoint_->busy_; });
+  }
+  checkpoint_.reset();
+}
+auto BusTubRaftStateMachine::LocalRecoveryPoint() const -> std::optional<StateMachineRecoveryPoint> {
+  std::lock_guard lock(lifecycle_mutex_);
+  return recovered_point_;
+}
+auto BusTubRaftStateMachine::RequestCheckpoint(uint64_t index, uint64_t term) -> bool {
+  if (!checkpoint_ || index == 0) return false;
+  std::lock_guard lock(checkpoint_->mutex_);
+  if (checkpoint_->error_) std::rethrow_exception(checkpoint_->error_);
+  if (checkpoint_->busy_ || index <= checkpoint_->published_) return false;
+  checkpoint_->index_ = index;
+  checkpoint_->term_ = term;
+  checkpoint_->busy_ = true;
+  checkpoint_->changed_.notify_all();
+  return true;
+}
+auto BusTubRaftStateMachine::PollCheckpoint() -> uint64_t {
+  if (!checkpoint_) return 0;
+  std::lock_guard lock(checkpoint_->mutex_);
+  if (checkpoint_->error_) std::rethrow_exception(checkpoint_->error_);
+  return checkpoint_->published_;
+}
+void BusTubRaftStateMachine::DrainCheckpoint() {
+  if (!checkpoint_) return;
+  std::unique_lock lock(checkpoint_->mutex_);
+  checkpoint_->changed_.wait(lock, [&] { return !checkpoint_->busy_; });
+  if (checkpoint_->error_) std::rethrow_exception(checkpoint_->error_);
+}
+void BusTubRaftStateMachine::OpenLocalCheckpoint() {
+  auto &deployment = *page_deployment_;
+  const auto space = CheckpointSpace(*deployment.storage_, deployment.pages_.registry_);
+  if (space == 0) {
+    ObjectPageStorage::RetireAbandoned(deployment.storage_, deployment.pages_);
+    InitializeEmpty();
+    return;
+  }
+  storage_->RemoveTree(runtime_directory_);
+  storage_->CreateDirectories(runtime_directory_);
+  active_directory_ = runtime_directory_ / GenerationName(next_generation_++);
+  storage_->CreateDirectories(active_directory_);
+  const auto record = ReadBusinessCheckpoint(*deployment.storage_, space);
+  auto frozen = ObjectPageStorage::Open(deployment.storage_, space, deployment.pages_);
+  const auto count = frozen->SealedPageCount();
+  auto capture = frozen->Capture(count, std::nullopt);
+  auto state = std::make_shared<WorkingState>();
+  state->object_pages_ = ObjectPageStorage::Clone(deployment.storage_, capture);
+  state->buffer_pool_manager_ =
+      std::make_unique<BufferPoolManager>(buffer_pool_size_, state->object_pages_, deployment.cache_);
+  if (count > INT32_MAX) throw std::runtime_error("checkpoint has exhausted page identities");
+  state->buffer_pool_manager_->SetNextPageIdForRecovery(static_cast<page_id_t>(count));
+  const auto catalog = CatalogSnapshotCodec::Decode(record.catalog_);
+  ValidateReplicatedCatalogV1(catalog);
+  state->sessions_ = std::make_unique<SessionTable>();
+  SessionSnapshotCodec::DecodeInto(record.sessions_, state->sessions_.get());
+  state->sessions_->ValidateSnapshotBoundary(record.point_.index_);
+  state->catalog_ = std::make_unique<Catalog>(state->buffer_pool_manager_.get(), nullptr, nullptr);
+  CatalogSnapshotCodec::Restore(catalog, state->catalog_.get(), state->buffer_pool_manager_.get(), nullptr);
+  for (const auto &name : state->catalog_->GetTableNames()) {
+    for (auto it = state->catalog_->GetTable(name)->table_->MakeIterator(); !it.IsEnd(); ++it) {
+      const auto meta = it.GetTuple().first;
+      if (meta.ts_ < 0 || static_cast<uint64_t>(meta.ts_) > record.point_.index_)
+        throw std::runtime_error("checkpoint contains a row beyond its business boundary");
+    }
+  }
+  state->transaction_manager_ = std::make_unique<TransactionManager>();
+  state->transaction_manager_->catalog_ = state->catalog_.get();
+  state->execution_engine_ = std::make_unique<ExecutionEngine>(
+      state->buffer_pool_manager_.get(), state->transaction_manager_.get(), state->catalog_.get());
+  state_ = std::move(state);
+  fsm_ = std::make_unique<BusTubStateMachine>(state_->catalog_.get(), state_->sessions_.get(), &visibility_,
+                                              record.point_.index_);
+  recovered_point_ = record.point_;
+  applied_term_ = record.point_.term_;
+  ObjectPageStorage::RetireAbandoned(deployment.storage_, deployment.pages_, {space, state_->object_pages_->Space()});
+}
+void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint64_t requested_term) {
+  std::shared_ptr<WorkingState> state;
+  {
+    std::lock_guard lock(lifecycle_mutex_);
+    state = state_;
+  }
+  // WiredTiger-style preflush: this worker waits, the protocol/caller does not.
+  state->buffer_pool_manager_->FlushDirtyPages(state->object_pages_->MaxBatchPages());
+  BusinessCheckpoint record;
+  std::optional<PageCapture> pages;
+  std::optional<ObjectPageCapture> capture;
+  {
+    std::lock_guard lock(lifecycle_mutex_);
+    if (state != state_) return;  // An installed snapshot superseded this candidate.
+    auto exclusive = visibility_.LockExclusive();
+    const auto index = fsm_->LastApplied();
+    const auto term = index == requested_index ? requested_term : applied_term_;
+    if (index < requested_index || term == 0) throw std::runtime_error("checkpoint request lacks its applied term");
+    record.point_ = {index, term};
+    state->sessions_->ValidateSnapshotBoundary(index);
+    record.catalog_ = CatalogSnapshotCodec::Encode(CatalogSnapshotCodec::Capture(*state->catalog_));
+    record.sessions_ = SessionSnapshotCodec::Encode(*state->sessions_);
+    std::vector<page_id_t> selected;
+    for (const auto &name : state->catalog_->GetTableNames()) {
+      const auto limit = page_deployment_->cache_.arena_bytes_ / (2 * sizeof(page_id_t));
+      if (selected.size() > limit) throw std::runtime_error("checkpoint page directory budget exceeded");
+      const auto ids = state->catalog_->GetTable(name)->table_->CheckpointPages(limit - selected.size());
+      selected.insert(selected.end(), ids.begin(), ids.end());
+    }
+    pages.emplace(state->buffer_pool_manager_->CapturePages(selected, page_deployment_->cache_.arena_bytes_));
+    capture.emplace(state->object_pages_->Capture(pages->next_page_, std::move(selected)));
+  }
+  auto &deployment = *page_deployment_;
+  auto candidate = ObjectPageStorage::Clone(deployment.storage_, *capture);
+  capture.reset();  // Durable sharing now owns all captured persistent content.
+  ObjectTransaction tx;
+  std::set<uint64_t> domains;
+  auto flush = [&] {
+    if (!tx.objects_.empty()) SubmitCheckpoint(*deployment.storage_, tx);
+    tx = {};
+    domains.clear();
+  };
+  for (const auto &page : pages->dirty_) {
+    const auto object = 1 + static_cast<uint64_t>(page.page_) / deployment.pages_.pages_per_object_;
+    if (domains.count(object) || tx.objects_.size() == candidate->MaxBatchPages()) flush();
+    domains.insert(object);
+    ObjectMutation write{ObjectOperation::Write,
+                         {candidate->Space(), object},
+                         (page.page_ % deployment.pages_.pages_per_object_) * uint64_t{BUSTUB_PAGE_SIZE},
+                         ObjectSizeMode::Fixed,
+                         {}};
+    const auto *begin = reinterpret_cast<const std::byte *>(page.bytes_.data());
+    write.bytes_.assign(begin, begin + page.bytes_.size());
+    tx.objects_.push_back(std::move(write));
+  }
+  flush();
+  candidate->Seal(pages->next_page_);
+  pages.reset();
+  ByteWriter body;
+  body.PutU64(record.point_.index_);
+  body.PutU64(record.point_.term_);
+  PutBlob(&body, record.catalog_);
+  PutBlob(&body, record.sessions_);
+  const auto bytes = EncodeChecksummedFrame(CHECKPOINT_MAGIC.data(), CHECKPOINT_MAGIC.size(), body.Data(),
+                                            CHECKPOINT_LIMIT, "business checkpoint");
+  const ObjectKey manifest{candidate->Space(), 0};
+  tx.objects_.push_back({ObjectOperation::Create, manifest, 0, ObjectSizeMode::Variable, {}});
+  SubmitCheckpoint(*deployment.storage_, tx);
+  for (size_t cursor = 0; cursor < bytes.size();) {
+    const auto take = std::min<uint64_t>(deployment.storage_->PageIO().max_write_bytes_, bytes.size() - cursor);
+    tx = {};
+    ObjectMutation write{ObjectOperation::Append, manifest, 0, ObjectSizeMode::Variable, {}};
+    write.bytes_.assign(bytes.begin() + cursor, bytes.begin() + cursor + take);
+    tx.objects_.push_back(std::move(write));
+    SubmitCheckpoint(*deployment.storage_, tx);
+    cursor += take;
+  }
+  const auto previous = CheckpointSpace(*deployment.storage_, deployment.pages_.registry_);
+  ByteWriter root;
+  root.PutU64(candidate->Space());
+  tx = {{}, {{deployment.pages_.registry_, 0, root.Take()}}};
+  SubmitCheckpoint(*deployment.storage_, tx);
+  {
+    std::lock_guard lock(checkpoint_->mutex_);
+    checkpoint_->published_ = record.point_.index_;
+  }
+  if (previous != 0) ObjectPageStorage::Open(deployment.storage_, previous, deployment.pages_)->Retire();
+}
 
 auto BusTubSnapshotBundleCodec::Encode(const BusTubSnapshotBundleV1 &bundle) -> std::vector<std::byte> {
   ByteWriter body;
@@ -313,11 +586,17 @@ auto BusTubRaftStateMachine::OpenObjectPages(NodeDirectory *directory, std::shar
   if (!directory || !storage || frames == 0 || !deployment.storage_) {
     throw std::invalid_argument("invalid object page deployment");
   }
-  ObjectPageStorage::RetireAbandoned(deployment.storage_, deployment.pages_);
   auto result =
       std::shared_ptr<BusTubRaftStateMachine>(new BusTubRaftStateMachine(directory, std::move(storage), frames));
   result->page_deployment_ = std::move(deployment);
-  result->InitializeEmpty();
+  if (result->page_deployment_->storage_->SupportsObjectSharing()) {
+    result->OpenLocalCheckpoint();
+    result->checkpoint_ = std::make_unique<CheckpointWorker>(
+        result.get(), result->recovered_point_ ? result->recovered_point_->index_ : 0);
+  } else {
+    ObjectPageStorage::RetireAbandoned(result->page_deployment_->storage_, result->page_deployment_->pages_);
+    result->InitializeEmpty();
+  }
   return result;
 }
 
@@ -362,6 +641,7 @@ void BusTubRaftStateMachine::ValidateProposalPayload(EntryType type, const std::
 void BusTubRaftStateMachine::Apply(const ReplicatedLogEntry &entry) {
   std::lock_guard lifecycle(lifecycle_mutex_);
   fsm_->Apply(entry);
+  applied_term_ = entry.term_;
 }
 
 auto BusTubRaftStateMachine::LastApplied() const -> uint64_t {
@@ -513,7 +793,7 @@ void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t
                                                             &visibility_, last_included_index);
 
   std::unique_ptr<BusTubStateMachine> old_fsm;
-  std::unique_ptr<WorkingState> old_state;
+  std::shared_ptr<WorkingState> old_state;
   std::filesystem::path old_directory;
   {
     std::lock_guard lifecycle(lifecycle_mutex_);
@@ -523,6 +803,8 @@ void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t
     old_directory = active_directory_;
     fsm_ = std::move(candidate_fsm);
     state_ = std::move(candidate);
+    recovered_point_.reset();
+    applied_term_ = 0;
     active_directory_ = candidate_directory;
   }
   old_fsm.reset();

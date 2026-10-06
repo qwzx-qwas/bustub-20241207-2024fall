@@ -21,7 +21,7 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
              const std::shared_ptr<RaftStateMachine> &state_machine, const std::shared_ptr<RaftObjectStorage> &objects)
     -> RecoveredRaftPersistentState {
   if ((!objects && (raft_directory.empty() || storage == nullptr)) || state_machine == nullptr ||
-      state_machine->LastApplied() != 0) {
+      (state_machine->LastApplied() != 0 && !state_machine->LocalRecoveryPoint())) {
     throw std::runtime_error("invalid Raft persistent-state recovery configuration");
   }
 
@@ -34,12 +34,21 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
   const auto recovery_index = recovery_snapshot.has_value() ? recovery_snapshot->last_included_index_ : 0;
   const auto recovery_term = recovery_snapshot.has_value() ? recovery_snapshot->last_included_term_ : 0;
   const auto effective_commit = std::max(stable_store->State().commit_index_, latest_index);
+  const auto local = state_machine->LocalRecoveryPoint();
+  const bool use_local = local && local->index_ >= latest_index;
+  auto validate_local = [&](std::optional<uint64_t> term) {
+    if (use_local && (local->index_ != state_machine->LastApplied() || local->index_ > effective_commit ||
+                      term != std::optional<uint64_t>{local->term_})) {
+      throw std::runtime_error("local checkpoint does not match committed Raft history");
+    }
+  };
 
   std::optional<LogStoreRecoveryProbe> probe;
   try {
-    probe = objects ? LogStore::ProbeObjects(objects, effective_commit, recovery_index, latest_index)
+    const auto boundary = use_local && !latest_snapshot ? local->index_ : latest_index;
+    probe = objects ? LogStore::ProbeObjects(objects, effective_commit, recovery_index, boundary)
                     : LogStore::ProbeRecovery(raft_directory / "log", storage, effective_commit, recovery_index,
-                                              latest_index);
+                                              boundary);
   } catch (...) {
     if (!latest_snapshot.has_value() || effective_commit != latest_index) {
       throw;
@@ -68,10 +77,10 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
     if (!probe.has_value() || !recovery_boundary_matches) {
       throw std::runtime_error("Raft log has no matching state-machine recovery base");
     }
-    return {std::move(stable_store),
-            (objects ? LogStore::OpenObjects(objects, effective_commit, 0, 0)
-                     : LogStore::Open(raft_directory / "log", storage, effective_commit)),
-            std::move(snapshot_store)};
+    validate_local(probe->latest_boundary_term_);
+    auto log = objects ? LogStore::OpenObjects(objects, effective_commit, 0, 0)
+                       : LogStore::Open(raft_directory / "log", storage, effective_commit);
+    return {std::move(stable_store), std::move(log), std::move(snapshot_store)};
   }
 
   const bool latest_covers_commit = effective_commit == latest_index;
@@ -89,7 +98,23 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
   // Validate the complete FSM image before advancing H, cleaning the journal,
   // or pruning a recovery generation. This also keeps RaftNode construction
   // free of durable side effects before snapshot decoding can fail.
-  state_machine->LoadSnapshot(snapshot_store->Input(*latest_snapshot), latest_index);
+  if (use_local) {
+    if (local->index_ == latest_index) {
+      // Also covers rebuilding a damaged log wholly covered by this snapshot.
+      validate_local(latest_snapshot->last_included_term_);
+    } else {
+      // The existing probe has two boundary slots, already used by the retained
+      // portable snapshots. Read the third boundary before Open can rewrite the
+      // log base, HardState can advance, or an old snapshot can be retired.
+      const auto local_probe =
+          objects ? LogStore::ProbeObjects(objects, effective_commit, recovery_index, local->index_)
+                  : LogStore::ProbeRecovery(raft_directory / "log", storage, effective_commit, recovery_index,
+                                            local->index_);
+      validate_local(local_probe.latest_boundary_term_);
+    }
+  } else {
+    state_machine->LoadSnapshot(snapshot_store->Input(*latest_snapshot), latest_index);
+  }
   const auto hard_state = stable_store->State();
   if (hard_state.commit_index_ < latest_index) {
     stable_store->Update(hard_state.current_term_, hard_state.voted_for_, latest_index);

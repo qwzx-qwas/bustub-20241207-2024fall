@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <map>
@@ -214,6 +215,16 @@ void TableHeap::ReclaimEmptyPages() {
     empty_pages_.erase(candidate);
   }
   bpm_->ReclaimRetiredPages();
+}
+auto TableHeap::CheckpointPages(size_t maximum_pages) -> std::vector<page_id_t> {
+  std::lock_guard<std::mutex> lock(latch_);
+  if (maximum_pages == 0 || predecessors_.size() >= maximum_pages)
+    throw Exception("checkpoint table page budget exceeded");
+  std::vector<page_id_t> pages{first_page_id_};
+  pages.reserve(predecessors_.size() + 1);
+  for (const auto &[page, previous] : predecessors_) pages.push_back(page);
+  std::sort(pages.begin(), pages.end());
+  return pages;
 }
 
 void TableHeap::UpdateTupleMeta(const TupleMeta &meta, RID rid) {
