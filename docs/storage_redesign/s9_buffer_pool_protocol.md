@@ -237,6 +237,8 @@ b/c 是开发顺序，b 独立组件不能先替换正常生产目录而缺 c �
 
 共同 C1–C5/P1–P4 的内容、请求完成含义和统计口径保持；新的翻译诊断不冒充旧性能基线。相同总内存包含 OS 缓存影响、A/B/翻译/工作缓冲。F26、F36、F35 分别保留版本边界，避免把后续 SQL/流水线收益全归于数组。
 
+2026-10-06 补充按 [SS/RS/PL/GT 唯一评测方案](testing_translation_access.md)执行讨论：当前数组取页/PathCache/预取已接入，四模式性能证据未建立。原 P1 只覆盖业务点查，RS 需核实下界定位，GT 需真实页翻译消费者；CPU MLP、设备 IO 并行及端到端表现分别计量。新内容独立版本，参数和测试实现待审，不回填旧基线、不改变本阶段已完成的功能状态。
+
 资源场景按已有测试复用：F02 的 BudgetIncludesPreparedRunningAndRetainedResults、ExternalRoundTripReturnsPermissionsBeforePublishingCompletion，S7 的 RetainedResultsBoundAdmissionAndDroppedTicketStillDrains、UnsatisfiableRequestsFinishAndLeaveOldStateIntact 已覆盖底层相应合同。S9 新验证只增加真实 F26 提供者、外部来源预检和内部消费结果后的页级进展，优先复用输入/故障设施，不能复制旧矩阵再计一份覆盖。当前归档对照见 [审查 §10.3](s9_design_review_20261004.md#103-测试设计审查结论)。
 
 ## 12. 首轮实现协议及尚未编码的边界

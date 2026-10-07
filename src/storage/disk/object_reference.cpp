@@ -328,35 +328,7 @@ struct ObjectReferenceManager::Impl {
     if (candidates.empty()) {
       return {};
     }
-    Gate fence(*state_);
-    std::vector<ProtectedRange> gates;
-    for (const auto range : candidates) {
-      gates.push_back({object, allocation_id, range});
-    }
     std::vector<Interval> pinned;
-    {
-      std::lock_guard<std::mutex> lock(state_->mutex_);
-      for (const auto &[id, existing] : state_->gates_) {
-        for (const auto &a : existing) {
-          for (const auto &b : gates) {
-            if (Conflicts(a, b)) {
-              ReferenceFail(ObjectReferenceErrorCode::Busy, "allocation range already has a reclaimer");
-            }
-          }
-        }
-      }
-      const auto id = state_->next_id_;
-      state_->next_id_ = Advance(id);
-      state_->gates_.emplace(id, std::move(gates));
-      fence.id_ = id;
-      for (const auto &[pin_id, ranges] : state_->pins_) {
-        for (const auto &range : ranges) {
-          if (SameObject(range.object_, object) && range.allocation_ == allocation_id) {
-            pinned.push_back(range.range_);
-          }
-        }
-      }
-    }
     // Persistent checkpoint/fork references outlive RAM readers and process restarts.
     // Shared counts use the original allocation identity, never the latest logical map.
     for (const auto range : candidates) {
@@ -370,26 +342,51 @@ struct ObjectReferenceManager::Impl {
         pinned.push_back({entry.key_.item_ * unit, (entry.key_.item_ + 1) * unit});
       }
     }
-    pinned = Merge(std::move(pinned));
-    std::vector<Interval> eligible;
-    for (const auto range : candidates) {
-      const auto parts = Subtract(range, pinned);
-      eligible.insert(eligible.end(), parts.begin(), parts.end());
-    }
+    Gate fence(*state_);
     ObjectReclaimResult result;
-    result.pinned_bytes_ = BytesIn(candidates) - BytesIn(eligible);
     std::vector<Interval> released;
-    auto remaining_bytes = state_->options_.max_reclaim_bytes_;
-    for (const auto range : eligible) {
-      if (remaining_bytes == 0 || released.size() == state_->options_.max_reclaim_ranges_) {
-        break;
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      for (const auto &[pin_id, ranges] : state_->pins_) {
+        for (const auto &range : ranges) {
+          if (SameObject(range.object_, object) && range.allocation_ == allocation_id) {
+            pinned.push_back(range.range_);
+          }
+        }
       }
-      const auto size = std::min(range.end_ - range.begin_, remaining_bytes);
-      released.push_back({range.begin_, range.begin_ + size});
-      remaining_bytes -= size;
-    }
-    if (released.empty()) {
-      return result;
+      pinned = Merge(std::move(pinned));
+      std::vector<Interval> eligible;
+      for (const auto range : candidates) {
+        const auto parts = Subtract(range, pinned);
+        eligible.insert(eligible.end(), parts.begin(), parts.end());
+      }
+      result.pinned_bytes_ = BytesIn(candidates) - BytesIn(eligible);
+      auto remaining_bytes = state_->options_.max_reclaim_bytes_;
+      for (const auto range : eligible) {
+        if (remaining_bytes == 0 || released.size() == state_->options_.max_reclaim_ranges_) break;
+        const auto size = std::min(range.end_ - range.begin_, remaining_bytes);
+        released.push_back({range.begin_, range.begin_ + size});
+        remaining_bytes -= size;
+      }
+      if (released.empty()) return result;
+      // Gate only the ranges this transaction will actually release. Gating
+      // the original retirement candidates also fenced live shared snapshots,
+      // even when reclamation ultimately did no work.
+      std::vector<ProtectedRange> gates;
+      for (const auto range : released) gates.push_back({object, allocation_id, range});
+      for (const auto &[id, existing] : state_->gates_) {
+        for (const auto &a : existing) {
+          for (const auto &b : gates) {
+            if (Conflicts(a, b)) {
+              ReferenceFail(ObjectReferenceErrorCode::Busy, "allocation range already has a reclaimer");
+            }
+          }
+        }
+      }
+      const auto id = state_->next_id_;
+      state_->next_id_ = Advance(id);
+      state_->gates_.emplace(id, std::move(gates));
+      fence.id_ = id;
     }
     Changes changes(context_->options_);
     size_t remaining_owned = 0;

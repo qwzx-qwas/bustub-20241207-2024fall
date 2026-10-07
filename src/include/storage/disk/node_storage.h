@@ -117,7 +117,7 @@ class NodeStorage {
   auto ProtectObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length)
       -> ObjectReadLease;
   auto ShareObjectRange(const ObjectMappingSnapshot &source, ObjectKey key, ObjectKey destination, uint64_t offset,
-                        uint64_t length) -> JournalResult;
+                        uint64_t length, uint64_t destination_offset) -> JournalResult;
   auto ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t allocation) -> ObjectReclaimResult;
   auto ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length) -> ObjectRead;
   auto ReadObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,

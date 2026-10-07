@@ -95,6 +95,8 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   auto PollCheckpoint() -> uint64_t;
   void DrainCheckpoint();
   void WriteSnapshot(const SnapshotAppend &append) const override;
+  auto WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index, uint64_t term,
+                           uint64_t limit) -> std::optional<uint64_t> override;
   void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) override;
   void LoadSnapshot(const SnapshotInput &payload, uint64_t index) override;
   void CreateSnapshotFile(const std::filesystem::path &path) const override;
@@ -122,6 +124,10 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   void InitializeEmpty();
   void OpenLocalCheckpoint();
   void BuildLocalCheckpoint(uint64_t index, uint64_t term);
+  auto BuildSnapshotState(const SnapshotInput &payload, uint64_t index, const std::filesystem::path &directory)
+      -> std::unique_ptr<WorkingState>;
+  auto FinishWorkingState(std::unique_ptr<WorkingState> state, uint64_t index, const std::vector<std::byte> &catalog,
+                          const std::vector<std::byte> &sessions, bool canonical) -> std::unique_ptr<WorkingState>;
   auto BuildWorkingState(const BusTubSnapshotBundleView &bundle, const std::filesystem::path &directory)
       -> std::unique_ptr<WorkingState>;
   auto OpenWorkingState(uint64_t last_included_index, const std::vector<std::byte> &catalog_bytes,
@@ -135,6 +141,9 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   std::filesystem::path runtime_directory_;
   mutable StateVisibilityLatch visibility_;
   mutable std::mutex lifecycle_mutex_;
+  // Serializes checkpoint publication/retirement with acquisition of shared
+  // snapshot references. Business Apply does not take this mutex.
+  std::mutex checkpoint_build_mutex_;
   mutable uint64_t next_generation_{0};
   std::filesystem::path active_directory_;
   std::shared_ptr<WorkingState> state_;

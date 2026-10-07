@@ -1,6 +1,6 @@
 # 本地对象存储重构主方案：Raft / BusTub / FS / ObjectIO
 
-> **2026-10-06：S11 本地 checkpoint/最小共享已完成。** [本轮方案](s11_business_checkpoint.md) · [代码与测试审查](s11_execution_20261006.md)。S11 跨节点优化、S12/S13 未完成。
+> **2026-10-06：S11 本地 checkpoint、固定页共享快照及全量接收恢复已完成。** [F28 方案](s11_business_checkpoint.md) · [F25 接续](s11_shared_snapshot.md) · [本轮代码与八项测试审查](s11_shared_snapshot_execution_20261006.md)。增量/压缩、S12/S13 未完成。
 
 > **2026-10-05：S10 首轮新目标 Deferred 已实现。** [共同协议](s10_deferred_protocol.md) · [执行和八项测试审查](s10_execution_20261005.md)。正文与 B 同批持久化、按范围选 Journal/Data/Hole、后台落位及 checkpoint 引用保留已接通；原地 RMW/旧尾复用未启用。
 
@@ -8,7 +8,8 @@
 
 ## 0. 当前状态、文档入口与工作顺序
 
-- 2026-10-06（S11，当前）：F28 本地业务 checkpoint 与必需的持久共享保留已完成；[共同协议](s11_business_checkpoint.md)、[具体实施与八项审查](s11_execution_20261006.md)。有界预刷/一致脏页捕获、后台共享/保存、原子根发布、页高水位与索引重建、Raft 后缀恢复均已接入。首轮 63 项/5 个变异；第一次复审修正恢复核对顺序，16 项通过、2 个新变异检出。第二次复审不改生产代码，将手工保存候选的 T4 替换为真实 SQL/F28 worker/重启路径，16 项再次通过，2 个指定变异检出（其中 1 个新增）；其余 48 项依赖沿用首轮证据。跨节点共享/增量/压缩、S12/S13 及共同前后性能比较仍未完成。
+- 2026-10-06（S11/F25，当前）：固定 checkpoint 页共享至现有快照对象、独立持久保留、页流接收/恢复及旧 canonical 兼容已完成；同时修复 F14 对活共享范围的回收隔离过宽。共享快照测试再次复审已补足“接收端旧 checkpoint 与更新快照并存”的恢复分支；33 项生产路径及变异/清理证据见 [执行审查](s11_shared_snapshot_execution_20261006.md)，协议见 [共享快照](s11_shared_snapshot.md)。增量/压缩与 S12/S13 待后续。
+- 2026-10-06（S11/F28 已完成记录）：F28 本地业务 checkpoint 与必需的持久共享保留已完成；[共同协议](s11_business_checkpoint.md)、[具体实施与八项审查](s11_execution_20261006.md)。有界预刷/一致脏页捕获、后台共享/保存、原子根发布、页高水位与索引重建、Raft 后缀恢复均已接入。首轮 63 项/5 个变异；第一次复审修正恢复核对顺序，16 项通过、2 个新变异检出。第二次复审不改生产代码，将手工保存候选的 T4 替换为真实 SQL/F28 worker/重启路径，16 项再次通过，2 个指定变异检出（其中 1 个新增）；其余 48 项依赖沿用首轮证据。当时跨节点共享尚未接入；现接续状态见 F25 当前记录。增量/压缩、S12/S13 及共同前后性能比较仍未完成。
 - 同日第三次复审仅修正归档 runner 的定向用例参数检查，防止 `--case` 被忽略；生产和八项业务场景未改，本次未重跑生产测试。见 [具体核查与证据 §11](s11_execution_20261006.md#11-第三次复审定向测试命令不能漏跑目标2026-10-06)。
 
 - 2026-10-05（S10）：首轮新目标 Deferred 已完成；正文只作为独立 Journal record，与 B 恢复记录同批，B 普通页只存短引用。后台使用既有 F02 批次，Data durable 后原子切换来源，重启先重建引用再裁剪。见 [共同协议](s10_deferred_protocol.md) 和 [执行审查](s10_execution_20261005.md)。S11–S13 及共同 E2E/性能比较仍未完成；原地覆盖保障、后台最老优先/多任务合批与全节点预算另行接续。
@@ -37,6 +38,7 @@
 - 当前实现状态：S0/F00 已完成，见 [S0 执行记录](s0_execution_20260921.md)；S1/F01 当轮 Linux 文件后端与约定验证已完成，见 [F01 执行与测试审查](f01_execution_20260922.md)。S1/F02 有界执行器及约定验证已完成，见 [F02 执行与测试审查](f02_execution_20260922.md)。S2/F03 基础引导与异步修复、F04 固定区域寻址已完成，见 [F03](f03_execution_20260923.md) 和 [F04](f04_execution_20260923.md)。F05/S2 页后端已完成，见 [F05](f05_execution_20260923.md)；F06/S2 固定段后端已完成，见 [F06](f06_execution_20260924.md)。F02 普通对象 S6 接入已完成；A 对象页已由 S9.1c 接入；F01 裸设备实测、完整业务节点状态与后续阶段仍未完成；S3 见 [执行与八项审查](f07_execution_20260924.md)。S4 实际完成范围见 [F08 执行与八项审查](f08_execution_20260925.md)；F09 实际页写回已完成，见 [F09](f09_execution_20260926.md)，本轮 [F10/F11 B checkpoint 恢复](f10_execution_20260926.md) 已完成，S5 基础日志裁剪/复用及本地生命周期已完成。既有同名代码和历史 Raft 里程碑，不等于已满足本方案。
 - 本轮 T0 执行与归档已结束：C1–C5 的 10 个参数点通过；P1/P2/P4 已测量并核对业务结果，P2 的超时和重试如实保留；P3 一小时完成 8,421/200,000 次操作，未完成完整轮次，不能作为 GC 空间稳定性基线。见 [最新运行记录](testing_execution_20260921.md) 和 [归档入口](../../test-results/storage-performance-v2-20260920T143546Z/README.md)。历史资格失败保留为诊断证据，不代替后续正式观测。
 - 数组方案进度：Calico 核心机制已纳入 [F26 数组子方案](modules/array-buffer-pool.md)。[F02 外部缓冲许可](modules/object-io.md#f02-external-buffers)已获授权并完成独立组件实现与验证；真实 FrameArena/BufferPool 已由 S9.1c 接入；d 已完成路径缓存/回收，e 已接通真实预取及组合验证。P3 未覆盖的长期稳定性继续如实留项。
+- 2026-10-06 翻译性能补充：已收录 [SS/RS/PL/GT 评测方向与兼容规则](testing_translation_access.md)。原 P1 仅覆盖业务点查，SS/RS/GT 没有独立翻译性能基线；当前 HNSW 内存邻居访问不能充当页翻译 GT。新增场景未编写/运行，原 C/P 与结果不变，不自动推进生产阶段。
 - 第二轮评审方向已获用户“执行方案”授权；S0 当轮按 [F00 §6.13](modules/storage-contracts.md#613-s0-当轮实施范围用户授权后落定) 完成契约、最小范围类型和验证，其他阶段接口/格式仍逐个讨论。
 - 子模块入口见第 14 节。所有模块有独立 Markdown 文件，模板见 [module_template.md](module_template.md)。
 - 文档写入不授权自动实现代码、编写或运行未讨论的测试，也不授权自动推进后续模块。
@@ -108,6 +110,7 @@ F10/F11 第二次复审：生产实现未变；补足跨 checkpoint 同一页槽
 5. 比较必须固定内容版本、数据、完成语义、重试、计时及资源口径。更换机器后重新测旧版；总内存包含相关缓存与工作缓冲，不能只对齐 BufferPool。
 6. 进程终止、虚拟机重启和掉电模型分别记录。WSL/文件模拟、真实块设备和跨主机部署的结论分开；不以进程重启证明掉电安全，不以本机三个进程证明独立故障域。
 7. 当前共同负载配置、次数和观察时限以已审查的 T0 文档与运行记录为准；后续新增能力、故障模型或验收门槛仍需讨论。保留原始 `t+`、未知结果及 P3 未覆盖项；文档更新不表示生产模块已完成。
+8. SS/RS/PL/GT 按 [翻译访问补充方案](testing_translation_access.md)单独记录内容版本和证据；业务 E2E 与驻留 CPU 诊断分清目标，共用内容/驱动/Oracle。功能通过不证明性能提升，新模式不追认原基线覆盖；缺少真实消费者时记未覆盖，不为测试添加生产捷径。
 
 ### 1.5 每次新增或修改测试后的强制设计审查
 
@@ -753,6 +756,8 @@ F26 的最终正常驻留查找使用数组条目及局部同步，不依赖全�
 
 F32/F31 管策略与预算，F08 核对私有元数据页，F34 管目录关闭及新旧工作库，F36 管页可释放性。普通 PageGuard 安全语义保留；乐观短读在 S13 独立评审，不能用事后版本检查掩盖 C++ 数据竞争。具体风险和阶段测试接管见 §1.6 及子方案 §5。
 
+当前正式热路径已采用 PathCache/多级目录定位叶数组，再以 suffix 索引 TranslationEntry 和帧；组/条目/帧同步及替换器成本仍需测量。性能证据按 [SS/RS/PL/GT 补充方案](testing_translation_access.md)推进：分别观察局部性、依赖访问和已知候选的 CPU 内存并行，不能用 F02 设备 IO 并行替代 MLP 证据。F26 实现完成与新增性能评测未执行分别标记；不因此新开生产模块或改排 F25。
+
 BufferPool 未命中、OS 文件页缓存未命中、可执行代码页缺页是不同事件。绕过 OS 缓存后须在相同总内存预算下重分 A/B/工作缓冲，不能保留极小 A 缓存却假定读取必然更快。参考 [RocksDB Direct IO](https://github.com/facebook/rocksdb/wiki/Direct-IO) 的应用缓存/预读责任。二进制函数重排的局部性思路可借鉴，但 [LLVM temporal profiling](https://clang.llvm.org/docs/UsersManual.html#profiling-with-instrumentation) 主要减少启动代码页缺页；它不是本轮数据页缓存方案或已证实的 P2/P3 解法。
 
 ### 10.3 状态视图
@@ -824,7 +829,7 @@ F35 采用 event-loop 风格推进协议与请求状态，耗时 Prepare、持�
 | S8 | [F23 LogStore](modules/raft-log-store.md)<br>[F24 StableStore / HardState](modules/raft-stable-store.md)<br>[F25 SnapshotStore](modules/snapshot-store.md)<br>[F13 尾部回收规划](modules/object-mapping.md)<br>[F02 统一 ObjectIO](modules/object-io.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 接入 Raft 日志段、HardState 控制记录和快照引用发布，保留协议与恢复约束。 | 已完成（当轮对象三 Store、C++ 节点/TCP 接入）；[共同协议](s8_raft_object_stores.md)、[证据及限制](s8_execution_20261003.md)。CLI 默认、A 页、性能及掉电不在此完成范围 |
 | S9 | [F02 外部缓冲与 IO 执行](modules/object-io.md)<br>[F31 资源预算](modules/resource-budget.md)<br>[F26 BusTub 缓存管理、数组页翻译与页 IO 接入](modules/page-storage-adapter.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | S9.1a–e 完成数组 BufferPool、帧内存、F02 外部缓冲和页 IO；S9.2/S9.3 完成 F36 复用/安全释放。 | 已完成当轮范围：S9.1a–e、S9.2、S9.3；[S9.3 证据](s93_execution_20261005.md)。文件兼容后端不提供持久空页退役，S11–S13 扩展未实施 |
 | S10 | [F27 DeferredWriteback 与待落位索引](modules/deferred-writeback.md)<br>[F07 JournalService](modules/journal-service.md)<br>[F08 MetadataEngine B](modules/metadata-engine.md)<br>[F10 B CheckpointManager](modules/metadata-checkpoint.md)<br>[F11 RecoveryDispatcher](modules/recovery-dispatcher.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F16 Admission](modules/admission.md)<br>[F17 Sequencer](modules/sequencer.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F19 CommitPipeline 与 TxContext](modules/commit-pipeline.md)<br>[F20 VersionPublisher](modules/version-publisher.md)<br>[F21 ReadResolver](modules/read-resolver.md)<br>[F22 GCService](modules/gc-service.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F33 NodeStateController](modules/node-state-controller.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | Deferred 从提交后可读到有序落位及安全裁剪的完整路径。 | 已完成首轮新目标范围；原地覆盖未启用，详见 [协议](s10_deferred_protocol.md)/[证据](s10_execution_20261005.md) |
-| S11 | [F28 BusTub A 业务 Checkpoint](modules/business-checkpoint.md)<br>[F13 对象元数据与 extent 映射](modules/object-mapping.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F25 SnapshotStore](modules/snapshot-store.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F22 GCService](modules/gc-service.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 可靠本地业务恢复点与最小固定版本共享按 [共同协议](s11_business_checkpoint.md) 实施；F36 回收服从持久共享引用。跨节点共享/增量/压缩后续接续。 | 本地恢复/最小共享已完成，见 [执行证据](s11_execution_20261006.md)；跨节点优化未完成 |
+| S11 | [F28 BusTub A 业务 Checkpoint](modules/business-checkpoint.md)<br>[F13 对象元数据与 extent 映射](modules/object-mapping.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F25 SnapshotStore](modules/snapshot-store.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F22 GCService](modules/gc-service.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 可靠本地业务恢复点与最小固定版本共享按 [共同协议](s11_business_checkpoint.md) 实施；F36 回收服从持久共享引用。共享正文的全量跨节点快照按 [F25 接续](s11_shared_snapshot.md) 完成；增量/压缩仍后续接续。 | 本地恢复/最小共享及 F25 全量传输已完成，见 [F28](s11_execution_20261006.md) / [F25](s11_shared_snapshot_execution_20261006.md)；增量/压缩未完成 |
 | S12 | [F22 GCService](modules/gc-service.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F26 数组 BufferPool](modules/array-buffer-pool.md)<br>[F29 日志段整理](modules/log-segment-cleaner.md)<br>[F30 校验扫描与损坏上报](modules/integrity-scrubber.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 完整回收、页清理/日志整理预算、校验扫描和前后台协调；调整 F26 翻译内存回收与预算策略。 | 未完成 |
 | S13 | [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F26 数组 BufferPool](modules/array-buffer-pool.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md) | F35 先明确业务依赖、复用查询链，再分离事件推进与耗时执行，演进多客户端/单客户端窗口；复核 F36 回收与新读者并发条件，保留读屏障；F26 评估上层并发热点及独立的乐观短读实验。 | 未完成 |
 
@@ -971,6 +976,8 @@ S3 最新执行依据为 [F07 §6.9](modules/journal-service.md#69-s3-已批准�
 已有未审查的结果不作为基线。测试应说明承诺、风险、观察边界与独立判定依据，避免镜像每层实现细节、测第三方保证或保留历史重构痕迹。具体记录见测试文档。
 
 ## 16. 文档变更记录
+
+- 2026-10-06：将热路径及 SS/RS/PL/GT 讨论收录为 [唯一补充评测方案](testing_translation_access.md)，同步测试/F26/S9 入口。原 P1–P4 不改口径；明确 RS 实际执行路径、GT 页翻译消费者缺口、资源和归因条件、后续阶段复用。仅文档，本轮未改生产/测试或运行基准。
 
 - 2026-09-23（F02 同类风险复审）：发现自有缓冲分配失败检查仍有空余名额，实际会漏检任务名额泄漏；加强原预算场景并新增对应变异，生产未改。8 项/10 个变异通过，旧包替换、临时产物清除；见 [复审](f02_execution_20260922.md#14-2026-09-23-方案落实与测试复审)。
 
@@ -1175,3 +1182,7 @@ S8 当前完成边界见 [执行记录](s8_execution_20261003.md)：对象日志
 先审生产控制流，发现 Journal 前台读错误未进入现有节点故障通道、混合来源读取可能把永久容量超限误当临时繁忙。本轮修正 Journal 完成回调与 Data 使用同一错误记录；调用者丢弃票据也不能吞掉真实 IO 错误。F02 提供正式的只计算不预留的合计预算检查，F21/F07 将 Data 范围、完整 Journal 批次及对齐余量共同计算；超过部署总容量明确拒绝，只有可以装下但暂被占用才允许重试。此接口由生产读取使用，测试不直接调用。
 
 复验结果、两项新增风险场景和定向变异统一见 [S10 审查](s10_execution_20261005.md#十再次复审读取错误和混合来源预算)，不重复注册 F02 小测试。默认 Common、原地覆盖未启用、共同性能基线和正式 E2E 内容保持不变。
+
+### 2026-10-06 S11 / F25 共享快照接续
+
+F28 已完成的本地恢复点接入 F25，按 [共享快照共同方案及 prompt](s11_shared_snapshot.md) 执行。实现顺序：目标偏移共享 → 准确 checkpoint 边界与引用交接 → F25 原有候选/Manifest → 原表页流接收恢复 → 逻辑审查、测试与归档。本轮共享与全量接收恢复已完成，见 [执行审查](s11_shared_snapshot_execution_20261006.md)；增量、压缩、S12/S13 尚未完成。SS/RS/PL/GT 只补充独立性能评测方向，继续保留原 E2E 基线。

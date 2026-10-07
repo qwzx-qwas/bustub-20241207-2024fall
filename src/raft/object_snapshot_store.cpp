@@ -134,20 +134,29 @@ auto ObjectSnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachin
   storage_->Check(check);
   body.object_ = storage_->Candidate(2);
   try {
-    machine.WriteSnapshot([&](const auto &bytes) {
-      if (bytes.size() > storage_->options_.max_snapshot_bytes_ - body.info_.payload_size_) {
-        throw std::invalid_argument("snapshot body budget exceeded");
-      }
-      if (!bytes.empty()) {
-        storage_->Append(body.object_, bytes);
-      }
-      body.info_.payload_size_ += bytes.size();
-    });
+    const auto shared = machine.WriteSharedSnapshot(*storage_->storage_, storage_->Key(body.object_), index, term,
+                                                    storage_->options_.max_snapshot_bytes_);
+    if (shared) {
+      body.info_.payload_size_ = *shared;
+    } else {
+      machine.WriteSnapshot([&](const auto &bytes) {
+        if (bytes.size() > storage_->options_.max_snapshot_bytes_ - body.info_.payload_size_) {
+          throw std::invalid_argument("snapshot body budget exceeded");
+        }
+        if (!bytes.empty()) {
+          storage_->Append(body.object_, bytes);
+        }
+        body.info_.payload_size_ += bytes.size();
+      });
+    }
     auto input = Source(body);
     body.info_.payload_checksum_ = Checksum(input);
     body.info_.snapshot_id_ =
         std::to_string(index) + "-" + std::to_string(term) + "-" + std::to_string(body.info_.payload_checksum_);
-    machine.ValidateSnapshot(input, index);
+    // The shared producer captured a validated business checkpoint. Rebuilding
+    // a temporary database here would undo sharing's purpose. Receivers still
+    // validate/install through the production state-machine path.
+    if (!shared) machine.ValidateSnapshot(input, index);
     return Publish(body, true);
   } catch (...) {
     const auto error = std::current_exception();

@@ -21,6 +21,8 @@
 #include "recovery/snapshot_stream.h"
 
 namespace bustub {
+class NodeStorage;
+struct ObjectKey;
 struct StateMachineRecoveryPoint {
   uint64_t index_, term_;
 };
@@ -35,6 +37,13 @@ class RaftStateMachine {
   /** Optional durable local base, validated against the committed Raft history. */
   virtual auto LocalRecoveryPoint() const -> std::optional<StateMachineRecoveryPoint> { return std::nullopt; }
   virtual void WriteSnapshot(const SnapshotAppend &append) const = 0;
+  /** Optional local sharing into an empty, unpublished F25-owned object.
+   * nullopt means unsupported, before changing the destination. Errors after
+   * admission propagate; they must not trigger a canonical fallback. */
+  virtual auto WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index, uint64_t term,
+                                   uint64_t limit) -> std::optional<uint64_t> {
+    return std::nullopt;
+  }
   virtual void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) = 0;
   virtual void LoadSnapshot(const SnapshotInput &payload, uint64_t index) = 0;
   virtual void CreateSnapshotFile(const std::filesystem::path &path) const = 0;

@@ -2,6 +2,8 @@
 
 > 最新性能执行规则：用户已确认 [T0-C v2](testing_performance_observation.md)。性能场景采用分阶段预算、同身份重试、未确认时间下界和独立结果维度；下文早期的性能首错终止、600 s 共用期限和 P4 零错误资格要求由 v2 替代。生产改进留在后续阶段。
 
+> 当前证据见 [2026-09-21 执行记录](testing_execution_20260921.md)，下文“未运行”为历史状态。2026-10-06 收录的 [SS/RS/PL/GT 补充评测](testing_translation_access.md)另行版本化且尚未实施；本页原四个业务性能目标和旧结果保持，不扩写为已测的翻译矩阵。
+
 更新时间：2026-09-20（Asia/Shanghai）
 
 [总体约束](testing_plan.md) · [场景与资源](testing_scenarios.md) · [业务数据与请求契约](testing_data_contracts.md)

@@ -3,6 +3,7 @@
 //===----------------------------------------------------------------------===//
 #include "storage/disk/node_storage.h"
 #include "common/config.h"
+#include "storage/byte_range.h"
 
 #include <condition_variable>  // NOLINT(build/c++11)
 #include <mutex>               // NOLINT(build/c++11)
@@ -633,12 +634,16 @@ auto NodeStorage::ProtectObject(const ObjectMappingSnapshot &base, ObjectKey key
       [&](ObjectContext &c, uint64_t) { return c.references_->ProtectRead(base, key, offset, length); });
 }
 auto NodeStorage::ShareObjectRange(const ObjectMappingSnapshot &source, ObjectKey key, ObjectKey destination,
-                                   uint64_t offset, uint64_t length) -> JournalResult {
+                                   uint64_t offset, uint64_t length, uint64_t destination_offset) -> JournalResult {
+  if (!StorageByteRange::Create(destination_offset, length)) {
+    throw std::invalid_argument("shared destination range overflows");
+  }
   return impl_->ObjectCall([&](ObjectContext &c, uint64_t generation) {
     auto lease = c.references_->ProtectRead(source, key, offset, length);
     auto spans = lease.Spans();
     for (auto &span : spans) {
       if (span.data_ && !span.data_->owner_) span.data_->owner_ = key;
+      span.offset_ = destination_offset + (span.offset_ - offset);
     }
     auto result = c.mapping_->Share(c.mapping_->Read(), destination, spans);
     impl_->Outcome(generation, result);

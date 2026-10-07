@@ -320,6 +320,7 @@ void BusTubRaftStateMachine::OpenLocalCheckpoint() {
   ObjectPageStorage::RetireAbandoned(deployment.storage_, deployment.pages_, {space, state_->object_pages_->Space()});
 }
 void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint64_t requested_term) {
+  std::lock_guard checkpoint_lock(checkpoint_build_mutex_);
   std::shared_ptr<WorkingState> state;
   {
     std::lock_guard lock(lifecycle_mutex_);
@@ -406,6 +407,201 @@ void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint
     checkpoint_->published_ = record.point_.index_;
   }
   if (previous != 0) ObjectPageStorage::Open(deployment.storage_, previous, deployment.pages_)->Retire();
+}
+
+namespace {
+constexpr std::array<std::byte, 8> PAGE_SNAPSHOT_MAGIC{std::byte{'B'}, std::byte{'S'}, std::byte{'P'}, std::byte{'A'},
+                                                       std::byte{'G'}, std::byte{'E'}, std::byte{'0'}, std::byte{'1'}};
+constexpr uint64_t PAGE_SNAPSHOT_FIXED = 56;
+auto PageSnapshotHeaderSize(uint64_t count, uint64_t catalog, uint64_t sessions) -> uint64_t {
+  return ((PAGE_SNAPSHOT_FIXED + count * sizeof(uint32_t) + catalog + sessions + sizeof(uint32_t) + BUSTUB_PAGE_SIZE -
+           1) /
+          BUSTUB_PAGE_SIZE) *
+         BUSTUB_PAGE_SIZE;
+}
+}  // namespace
+
+auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index,
+                                                 uint64_t term, uint64_t limit) -> std::optional<uint64_t> {
+  if (index == 0 || !page_deployment_ || page_deployment_->storage_.get() != &storage || !checkpoint_)
+    return std::nullopt;
+  {
+    std::lock_guard lock(lifecycle_mutex_);
+    if (index > fsm_->LastApplied() || (index == fsm_->LastApplied() && applied_term_ != 0 && term != applied_term_)) {
+      throw std::runtime_error("shared snapshot request does not match applied history");
+    }
+  }
+  DrainCheckpoint();
+  if (PollCheckpoint() < index) {
+    RequestCheckpoint(index, term);
+    DrainCheckpoint();
+  }
+  // Keep the chosen checkpoint registered until its references have been
+  // copied. This gate is never taken by business Apply or ordinary page IO.
+  std::lock_guard checkpoint_lock(checkpoint_build_mutex_);
+  const auto &options = page_deployment_->pages_;
+  const auto space = CheckpointSpace(storage, options.registry_);
+  const auto record = ReadBusinessCheckpoint(storage, space);
+  if (record.point_.index_ != index || record.point_.term_ != term) {
+    throw std::runtime_error("shared snapshot does not match the requested Raft boundary");
+  }
+  auto frozen = ObjectPageStorage::Open(page_deployment_->storage_, space, options);
+  const auto highwater = frozen->SealedPageCount();
+  // This lease is temporary; every successful Share below establishes an
+  // independent durable reference owned by F25's existing candidate object.
+  const auto capture = frozen->Capture(highwater, std::nullopt);
+  const auto view = storage.Objects();
+  std::vector<page_id_t> pages;
+  for (uint64_t page = 0; page < highwater; ++page) {
+    const ObjectKey source{space, 1 + page / options.pages_per_object_};
+    const auto offset = (page % options.pages_per_object_) * BUSTUB_PAGE_SIZE;
+    const auto ranges = view.Resolve(source, offset, BUSTUB_PAGE_SIZE);
+    if (!ranges.complete_) throw std::runtime_error("incomplete checkpoint page mapping");
+    if (std::any_of(ranges.spans_.begin(), ranges.spans_.end(),
+                    [](const auto &span) { return span.data_.has_value(); })) {
+      if (pages.size() >= page_deployment_->cache_.arena_bytes_ / sizeof(page_id_t)) {
+        throw std::runtime_error("shared snapshot page directory exceeds budget");
+      }
+      pages.push_back(static_cast<page_id_t>(page));
+    }
+  }
+  const auto header_size = PageSnapshotHeaderSize(pages.size(), record.catalog_.size(), record.sessions_.size());
+  const auto size = header_size + uint64_t{pages.size()} * BUSTUB_PAGE_SIZE;
+  if (size > std::min(limit, BusTubSnapshotBundleCodec::MAX_STREAM_BUNDLE_BYTES)) {
+    throw std::runtime_error("shared snapshot body budget exceeded");
+  }
+  ByteWriter header;
+  header.PutBytes(PAGE_SNAPSHOT_MAGIC.data(), PAGE_SNAPSHOT_MAGIC.size());
+  header.PutU32(1);  // Current native TablePage representation, distinct from canonical bundles.
+  header.PutU32(BUSTUB_PAGE_SIZE);
+  header.PutU64(index);
+  header.PutU64(highwater);
+  header.PutU64(pages.size());
+  header.PutU64(record.catalog_.size());
+  header.PutU64(record.sessions_.size());
+  for (const auto page : pages) header.PutU32(static_cast<uint32_t>(page));
+  header.PutBytes(record.catalog_);
+  header.PutBytes(record.sessions_);
+  auto bytes = header.Take();
+  bytes.resize(header_size - sizeof(uint32_t), std::byte{0});
+  auto crc = Crc32cExtend(0, bytes.data() + PAGE_SNAPSHOT_MAGIC.size(), bytes.size() - PAGE_SNAPSHOT_MAGIC.size());
+  for (const auto page : pages) {
+    auto read =
+        storage.ReadObject(storage.Objects(), {space, 1 + static_cast<uint64_t>(page) / options.pages_per_object_},
+                           (page % options.pages_per_object_) * uint64_t{BUSTUB_PAGE_SIZE}, BUSTUB_PAGE_SIZE);
+    read.Wait();
+    std::array<std::byte, BUSTUB_PAGE_SIZE> body;
+    read.CopyTo(body.data(), body.size());
+    crc = Crc32cExtend(crc, body.data(), body.size());
+  }
+  ByteWriter checksum;
+  checksum.PutU32(crc);
+  bytes.insert(bytes.end(), checksum.Data().begin(), checksum.Data().end());
+  // Finish the header while the object ends at the header. Common's allocation
+  // rounding must not pre-map the later page stream, even when its unit exceeds
+  // BUSTUB_PAGE_SIZE. No writes touch this object after sharing its page ranges.
+  ObjectTransaction tx;
+  for (uint64_t offset = 0; offset < bytes.size();) {
+    const auto take = std::min<uint64_t>(storage.PageIO().max_write_bytes_, bytes.size() - offset);
+    tx = {{{ObjectOperation::Write,
+            destination,
+            offset,
+            ObjectSizeMode::Variable,
+            {bytes.begin() + offset, bytes.begin() + offset + take}}},
+          {}};
+    tx.objects_.front().common_only_ = true;
+    SubmitCheckpoint(storage, tx);
+    offset += take;
+  }
+  tx = {{{ObjectOperation::Resize, destination, size, ObjectSizeMode::Variable, {}}}, {}};
+  SubmitCheckpoint(storage, tx);
+  for (size_t i = 0; i < pages.size(); ++i) {
+    const auto page = static_cast<uint64_t>(pages[i]);
+    for (;;) {
+      try {
+        const auto result = storage.ShareObjectRange(view, {space, 1 + page / options.pages_per_object_}, destination,
+                                                     (page % options.pages_per_object_) * BUSTUB_PAGE_SIZE,
+                                                     BUSTUB_PAGE_SIZE, header_size + i * BUSTUB_PAGE_SIZE);
+        if (result.outcome_ != JournalOutcome::Durable) {
+          if (result.error_) std::rethrow_exception(result.error_);
+          throw std::runtime_error("shared snapshot reference was not durably committed");
+        }
+        break;
+      } catch (const MetadataViewConflict &) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));  // Rejected before commit; retry current B.
+      } catch (const MetadataCommitBusy &) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+  }
+  return size;
+}
+
+auto BusTubRaftStateMachine::BuildSnapshotState(const SnapshotInput &payload, uint64_t index,
+                                                const std::filesystem::path &directory)
+    -> std::unique_ptr<WorkingState> {
+  const auto magic = payload.Read(0, PAGE_SNAPSHOT_MAGIC.size());
+  if (magic != std::vector<std::byte>(PAGE_SNAPSHOT_MAGIC.begin(), PAGE_SNAPSHOT_MAGIC.end())) {
+    const auto bundle = BusTubSnapshotBundleCodec::Read(payload);
+    if (bundle.last_included_index_ != index || index >= TXN_START_ID) {
+      throw std::runtime_error("BusTub streamed snapshot bundle index mismatch");
+    }
+    return BuildWorkingState(bundle, directory);
+  }
+  if (payload.size_ < PAGE_SNAPSHOT_FIXED + 4 || payload.size_ > BusTubSnapshotBundleCodec::MAX_STREAM_BUNDLE_BYTES) {
+    throw std::runtime_error("invalid page snapshot size");
+  }
+  const auto prefix = payload.Read(PAGE_SNAPSHOT_MAGIC.size(), PAGE_SNAPSHOT_FIXED - PAGE_SNAPSHOT_MAGIC.size());
+  ByteReader r(prefix);
+  if (r.ReadU32() != 1 || r.ReadU32() != BUSTUB_PAGE_SIZE || r.ReadU64() != index || index >= TXN_START_ID) {
+    throw std::runtime_error("unsupported page snapshot format or boundary");
+  }
+  const auto highwater = r.ReadU64(), count = r.ReadU64(), catalog_size = r.ReadU64(), session_size = r.ReadU64();
+  if (highwater > INT32_MAX || count > highwater || count > payload.size_ / BUSTUB_PAGE_SIZE ||
+      catalog_size > CatalogSnapshotCodec::MAX_CATALOG_BYTES || session_size > 64U * 1024U * 1024U) {
+    throw std::runtime_error("page snapshot directory exceeds its limits");
+  }
+  const auto header_size = PageSnapshotHeaderSize(count, catalog_size, session_size);
+  if (header_size + count * BUSTUB_PAGE_SIZE != payload.size_) {
+    throw std::runtime_error("page snapshot directory and body length differ");
+  }
+  const auto checksum_bytes = payload.Read(header_size - 4, 4);
+  ByteReader checksum(checksum_bytes);
+  const auto header_crc = ChecksumSlice(payload.Slice(PAGE_SNAPSHOT_MAGIC.size(), header_size - 12));
+  if (checksum.ReadU32() != ChecksumSlice(payload.Slice(header_size, payload.size_ - header_size), header_crc)) {
+    throw std::runtime_error("page snapshot checksum mismatch");
+  }
+  const auto directory_bytes = payload.Read(PAGE_SNAPSHOT_FIXED, count * sizeof(uint32_t));
+  ByteReader entries(directory_bytes);
+  std::vector<page_id_t> pages;
+  pages.reserve(count);
+  for (uint64_t i = 0; i < count; ++i) {
+    const auto page = entries.ReadU32();
+    if (page >= highwater || (!pages.empty() && page <= static_cast<uint32_t>(pages.back()))) {
+      throw std::runtime_error("page snapshot has an invalid or duplicate page identity");
+    }
+    pages.push_back(static_cast<page_id_t>(page));
+  }
+  const auto catalog = payload.Read(PAGE_SNAPSHOT_FIXED + directory_bytes.size(), catalog_size);
+  const auto sessions = payload.Read(PAGE_SNAPSHOT_FIXED + directory_bytes.size() + catalog_size, session_size);
+  storage_->RemoveTree(directory);
+  storage_->CreateDirectories(directory);
+  auto state = std::make_unique<WorkingState>();
+  if (page_deployment_) {
+    state->object_pages_ = ObjectPageStorage::Create(page_deployment_->storage_, page_deployment_->pages_);
+    state->buffer_pool_manager_ =
+        std::make_unique<BufferPoolManager>(buffer_pool_size_, state->object_pages_, page_deployment_->cache_);
+  } else {
+    state->disk_manager_ = std::make_unique<DiskManager>(directory / "db.bustub");
+    state->buffer_pool_manager_ = std::make_unique<BufferPoolManager>(buffer_pool_size_, state->disk_manager_.get());
+  }
+  state->buffer_pool_manager_->SetNextPageIdForRecovery(static_cast<page_id_t>(highwater));
+  for (size_t i = 0; i < pages.size(); ++i) {
+    const auto bytes = payload.Read(header_size + i * BUSTUB_PAGE_SIZE, BUSTUB_PAGE_SIZE);
+    auto guard = state->buffer_pool_manager_->WritePage(pages[i]);
+    std::memcpy(guard.GetDataMut(), bytes.data(), bytes.size());
+  }
+  return FinishWorkingState(std::move(state), index, catalog, sessions, false);
 }
 
 auto BusTubSnapshotBundleCodec::Encode(const BusTubSnapshotBundleV1 &bundle) -> std::vector<std::byte> {
@@ -691,11 +887,6 @@ void BusTubRaftStateMachine::InstallSnapshotFile(const DurableFileSlice &payload
 auto BusTubRaftStateMachine::OpenWorkingState(uint64_t last_included_index, const std::vector<std::byte> &catalog_bytes,
                                               const std::vector<std::byte> &session_bytes,
                                               const std::filesystem::path &directory) -> std::unique_ptr<WorkingState> {
-  const auto catalog_snapshot = CatalogSnapshotCodec::Decode(catalog_bytes);
-  ValidateReplicatedCatalogV1(catalog_snapshot);
-  auto sessions = std::make_unique<SessionTable>();
-  SessionSnapshotCodec::DecodeInto(session_bytes, sessions.get());
-  sessions->ValidateSnapshotBoundary(last_included_index);
   auto state = std::make_unique<WorkingState>();
   if (page_deployment_) {
     state->object_pages_ = ObjectPageStorage::Create(page_deployment_->storage_, page_deployment_->pages_);
@@ -719,6 +910,17 @@ auto BusTubRaftStateMachine::OpenWorkingState(uint64_t last_included_index, cons
     state->disk_manager_ = std::make_unique<DiskManager>(directory / "db.bustub");
     state->buffer_pool_manager_ = std::make_unique<BufferPoolManager>(buffer_pool_size_, state->disk_manager_.get());
   }
+  return FinishWorkingState(std::move(state), last_included_index, catalog_bytes, session_bytes, true);
+}
+auto BusTubRaftStateMachine::FinishWorkingState(std::unique_ptr<WorkingState> state, uint64_t last_included_index,
+                                                const std::vector<std::byte> &catalog_bytes,
+                                                const std::vector<std::byte> &session_bytes, bool canonical)
+    -> std::unique_ptr<WorkingState> {
+  const auto catalog_snapshot = CatalogSnapshotCodec::Decode(catalog_bytes);
+  ValidateReplicatedCatalogV1(catalog_snapshot);
+  auto sessions = std::make_unique<SessionTable>();
+  SessionSnapshotCodec::DecodeInto(session_bytes, sessions.get());
+  sessions->ValidateSnapshotBoundary(last_included_index);
   state->catalog_ = std::make_unique<Catalog>(state->buffer_pool_manager_.get(), nullptr, nullptr);
   CatalogSnapshotCodec::Restore(catalog_snapshot, state->catalog_.get(), state->buffer_pool_manager_.get(), nullptr);
   for (const auto &table_name : state->catalog_->GetTableNames()) {
@@ -726,7 +928,7 @@ auto BusTubRaftStateMachine::OpenWorkingState(uint64_t last_included_index, cons
     for (auto iterator = table->table_->MakeIterator(); !iterator.IsEnd(); ++iterator) {
       const auto [meta, tuple] = iterator.GetTuple();
       static_cast<void>(tuple);
-      if (meta.is_deleted_ || meta.ts_ < 0 || static_cast<uint64_t>(meta.ts_) > last_included_index) {
+      if ((canonical && meta.is_deleted_) || meta.ts_ < 0 || static_cast<uint64_t>(meta.ts_) > last_included_index) {
         throw std::runtime_error("BusTub snapshot row timestamp exceeds its included index");
       }
     }
@@ -751,18 +953,13 @@ auto BusTubRaftStateMachine::BuildWorkingState(const BusTubSnapshotBundleView &b
 }
 
 void BusTubRaftStateMachine::ValidateSnapshot(const SnapshotInput &payload, uint64_t last_included_index) {
-  auto bundle = BusTubSnapshotBundleCodec::Read(payload);
-  if (bundle.last_included_index_ != last_included_index || last_included_index >= TXN_START_ID) {
-    throw std::runtime_error("BusTub streamed snapshot bundle index mismatch");
-  }
-
   std::filesystem::path candidate_directory;
   {
     std::lock_guard lifecycle(lifecycle_mutex_);
     candidate_directory = runtime_directory_ / GenerationName(next_generation_++);
   }
   try {
-    auto candidate = BuildWorkingState(bundle, candidate_directory);
+    auto candidate = BuildSnapshotState(payload, last_included_index, candidate_directory);
     candidate.reset();
     storage_->RemoveTree(candidate_directory);
   } catch (...) {
@@ -772,11 +969,6 @@ void BusTubRaftStateMachine::ValidateSnapshot(const SnapshotInput &payload, uint
 }
 
 void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t last_included_index) {
-  auto bundle = BusTubSnapshotBundleCodec::Read(payload);
-  if (bundle.last_included_index_ != last_included_index || last_included_index >= TXN_START_ID) {
-    throw std::runtime_error("BusTub streamed snapshot bundle index mismatch");
-  }
-
   std::filesystem::path candidate_directory;
   {
     std::lock_guard lifecycle(lifecycle_mutex_);
@@ -784,7 +976,7 @@ void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t
   }
   std::unique_ptr<WorkingState> candidate;
   try {
-    candidate = BuildWorkingState(bundle, candidate_directory);
+    candidate = BuildSnapshotState(payload, last_included_index, candidate_directory);
   } catch (...) {
     storage_->RemoveTree(candidate_directory);
     throw;

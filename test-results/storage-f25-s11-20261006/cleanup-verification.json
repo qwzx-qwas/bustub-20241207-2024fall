@@ -1,0 +1,17 @@
+{
+  "temporary_workspace": "/tmp/f25-review",
+  "temporary_workspace_removed": true,
+  "source_archive": "test/archives/F25-shared-snapshot.tar.gz",
+  "results_archive": "test-results/storage-f25-s11-20261006/F25-results.tar.gz",
+  "source_archive_versions": 1,
+  "obsolete_f25_archives": [],
+  "dependency_archives": "seven unchanged effective module archives, retained",
+  "production_cases_passed": 33,
+  "mutations_detected": 9,
+  "hash_checks_passed": 706,
+  "local_links_checked": 809,
+  "new_permanent_test_targets": 0,
+  "commit_performed": false,
+  "review_date": "2026-10-07",
+  "production_changed_in_review": false
+}

@@ -1,5 +1,8 @@
 # 阶段测试源码归档
 
+2026-10-06（F25 / S11 共享快照）：新增唯一 [F25-shared-snapshot.tar.gz](F25-shared-snapshot.tar.gz)。6 个新生产路径场景，复用 F28 7、S8 8、F27 12，2026-10-07 复审后 33 项通过、9 个定向变异检出。F28 原 portable/local 场景不再重复执行；加强原 T1，以接收端旧 checkpoint、新快照和后缀重启真正接管其恢复选择风险；原依赖归档不修改。测试只压缩保存，无生产测试 hook，错误/中间版本没有单独保留旧包。[逐项审查](../../docs/storage_redesign/s11_shared_snapshot_execution_20261006.md)、[结果](../../test-results/storage-f25-s11-20261006/README.md)。增量/压缩、真实掉电和性能对比未在本轮完成。
+
+
 2026-10-06（F28 / S11，第三次复审）：同一源码包原位更新 runner/RESTORE/MANIFEST，要求 `--case` 与 `--checkpoint-only` 一起使用，防止静默漏跑目标。生产/C++场景/变异未改，实际只检查错误命令拒绝；最近16项/2个指定变异结果沿用第二次复审，见 [审查 §11](../../docs/storage_redesign/s11_execution_20261006.md#11-第三次复审定向测试命令不能漏跑目标2026-10-06)。
 
 2026-10-06（F28 / S11，第二次复审换代）：唯一 [F28-business-checkpoint.tar.gz](F28-business-checkpoint.tar.gz) 已原位替换，旧包不保留备份。F28 仍8项；T4 由手工保存改为真实 SQL/F28 worker/重启验证，生产未改。最新重跑 F28＋S8 共16项通过、2个指定变异检出（1个新增）；另48项沿用首轮，覆盖目录共64项，不冒称全部重跑。首轮63项/5变异、第一次复审16项/2新变异按轮保存。[逐项审查及具体修复](../../docs/storage_redesign/s11_execution_20261006.md)、[压缩结果](../../test-results/storage-f28-20261006/README.md)。共同C/P和有效依赖包不变。

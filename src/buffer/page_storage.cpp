@@ -229,7 +229,7 @@ auto ObjectPageStorage::Clone(std::shared_ptr<NodeStorage> storage, const Object
         continue;
       for (;;) {
         try {
-          Durable(storage->ShareObjectRange(capture.view_, source, destination, offset, length));
+          Durable(storage->ShareObjectRange(capture.view_, source, destination, offset, length, offset));
           break;
         } catch (const MetadataViewConflict &) {
           continue;
