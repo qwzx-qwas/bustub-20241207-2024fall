@@ -9,9 +9,12 @@ add_library(
   persistent_state.cpp
   raft_node.cpp
   rpc_codec.cpp
+  snapshot_tasks.cpp
   snapshot_store.cpp
   tcp_transport.cpp
   stable_store.cpp)
+
+target_link_libraries(bustub_raft PRIVATE bustub_lz4)
 
 set(ALL_OBJECT_FILES
   ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:bustub_raft>

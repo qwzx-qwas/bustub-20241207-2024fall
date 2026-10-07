@@ -1,5 +1,7 @@
 # F35 Raft 提案流水线与线性一致读
 
+> **F25 快照正文任务的局部交接已完成**：[共同协议](../s11_snapshot_compression.md) · [实施/测试审查](../s11_compression_execution_20261007.md)。下文未启用 prompt 仍用于后续完整 F35；S13 未完成。
+
 > 2026-10-07 [F25 增量接续](../s11_incremental_snapshot.md)：F25 增量消息复用现有 TCP/节点驱动；本轮不宣称解决同步准备/安装的协议阻塞。基础保留与自然追赶已按共同协议 §7 实现，F35 的职责不移入 SnapshotStore。
 
 更新时间：2026-09-21（Asia/Shanghai）
@@ -313,3 +315,10 @@ S8 Store 内部可异步，但现有同步 API 仍等待 durable/发布；Raft �
 Raft 接收依次 PrepareSnapshot→发布/持久化边界→Install 同一候选，消除验证后销毁再构建。日志可接续时仍优先 AppendEntries；必须快照才协商并按收益筛选。每 peer 固定目标与一个未确认块。协议线程全面异步化仍归 F35 后续阶段。
 
 阶段测试只压缩保留，旧 F25 包原位替换；本轮不把 S12 全局预算、F35 全面异步或共同性能对照标为完成。
+
+### 2026-10-07 F25 正文任务局部接续
+
+已完成当轮范围。SnapshotTasks 的队列可靠认领任务和完成槽后，Raft 可以继续处理其他协议事件；队满保持 pending/发送方重试，后台完成携带任期/请求身份，由 Tick/Receive 验证后使用。不存在持锁等待压缩或入队；网络本就位于节点锁外。慢任务仍发送心跳并续期 delta 会话。后台只访问固定输入，不并发调用可变 Store 发布/安装。该机制参考 etcd 的决策/IO 分离，落地与测试见 [F25 共同协议](../s11_snapshot_compression.md)。本轮没有扩大多提案窗口，也没有把 SQL Prepare/Apply、全部持久化、安装数据库移出协议线程。
+
+
+2026-10-07 追加复查：已协商传输的 pending（尚未取得 worker future）与执行中任务都要保留心跳。解压结果槽只保留身份，正文由任务持有；TCP 队列复用已编码帧。SnapshotTasks 为当前唯一快照正文 CPU executor，不复制 F02 设备 IO/F19 事务；后续抽取通用 worker 时整合它，见 [职责矩阵](../s11_snapshot_compression.md#31-与现有模块复用及重复工作约束)。

@@ -17,3 +17,5 @@ add_subdirectory(utf8proc)
 add_subdirectory(backward-cpp)
 
 add_subdirectory(readerwriterqueue)
+
+add_subdirectory(lz4)

@@ -281,7 +281,7 @@ void TcpRaftTransport::Send(RaftEnvelope envelope) {
       envelope.group_id_ != group_id_) {
     throw std::runtime_error("invalid or inactive TCP Raft send");
   }
-  static_cast<void>(RaftRpcCodec::Encode(envelope));
+  auto frame = RaftRpcCodec::Encode(envelope);
   {
     std::lock_guard lock(mutex_);
     // Pair the running-state check with queue insertion so Stop() either
@@ -294,7 +294,7 @@ void TcpRaftTransport::Send(RaftEnvelope envelope) {
       dropped_messages_++;
       return;
     }
-    outbound_.push_back(std::move(envelope));
+    outbound_.push_back({envelope.to_, std::move(frame)});
   }
   send_cv_.notify_one();
 }
@@ -355,24 +355,24 @@ void TcpRaftTransport::HandleConnection(int socket_fd) {
 
 void TcpRaftTransport::SendLoop() {
   while (true) {
-    RaftEnvelope envelope;
+    PendingFrame frame;
     {
       std::unique_lock lock(mutex_);
       send_cv_.wait(lock, [&] { return !running_ || !outbound_.empty(); });
       if (!running_ && outbound_.empty()) {
         return;
       }
-      envelope = std::move(outbound_.front());
+      frame = std::move(outbound_.front());
       outbound_.pop_front();
     }
-    if (!SendOne(envelope)) {
+    if (!SendOne(frame)) {
       dropped_messages_++;
     }
   }
 }
 
-auto TcpRaftTransport::SendOne(const RaftEnvelope &envelope) -> bool {
-  const auto peer = peers_.find(envelope.to_);
+auto TcpRaftTransport::SendOne(const PendingFrame &frame) -> bool {
+  const auto peer = peers_.find(frame.to_);
   if (peer == peers_.end()) {
     return false;
   }
@@ -381,8 +381,7 @@ auto TcpRaftTransport::SendOne(const RaftEnvelope &envelope) -> bool {
     return false;
   }
   SocketGuard guard(socket_fd);
-  const auto frame = RaftRpcCodec::Encode(envelope);
-  return WriteExact(socket_fd, frame.data(), frame.size());
+  return WriteExact(socket_fd, frame.bytes_.data(), frame.bytes_.size());
 }
 
 }  // namespace bustub

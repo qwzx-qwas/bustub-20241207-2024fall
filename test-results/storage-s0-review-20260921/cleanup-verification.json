@@ -3,10 +3,16 @@
   "removed_logical_file_bytes": 869891738,
   "temporary_workspace_absent": true,
   "generated_test_caches_removed": true,
-  "archive_sha256_verified": "ca4a5e8d907cf77f0dbb8412a3d88b8636db1b10b4f01c9c3c592e563845241f",
+  "archive_sha256_verified": "399db6678e8fc69681193447c9666ce7d0a16c7b533d93ee1f597ff08e514a0d",
   "archives_ignored_by_git": true,
   "production_unchanged_this_review": true,
   "common_workloads_unchanged_this_review": true,
   "checked_at": "2026-09-21T15:32:54.092225+00:00",
-  "final_source_cleanup": "workload.py EOF blank line removed; AST unchanged; 25 harness checks passed again"
+  "final_source_cleanup": "workload.py EOF blank line removed; AST unchanged; 25 harness checks passed again",
+  "previous_archive_sha256": "ca4a5e8d907cf77f0dbb8412a3d88b8636db1b10b4f01c9c3c592e563845241f",
+  "archive_consolidated_on": "2026-10-07",
+  "obsolete_initial_archive_deleted": true,
+  "historical_logs_merged": 20,
+  "revised_sources_unchanged": true,
+  "tests_rerun_for_archive_consolidation": false
 }

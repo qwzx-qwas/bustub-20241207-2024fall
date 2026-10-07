@@ -3,13 +3,17 @@
   "removed": "/tmp/bustub-s0-jmd4q3co",
   "removed_logical_file_bytes": 871393759,
   "temporary_workspace_absent": true,
-  "archive_sha256_verified": "576e05ccc3e2f244bdac292514de28e3cc15b9be40fa3db65c2de7ba6018a3ad",
   "archived_snapshot_matches_final_files": true,
   "unrelated_input_hashes_unchanged": true,
   "preserved": [
-    "production and test sources",
-    "all prior test-results archives",
-    "test-results/storage-s0-20260921/results.tar.gz"
+    "Historical README and cleanup record",
+    "Initial runtime/diagnostic logs inside revised S0 result archive"
   ],
-  "checked_at": "2026-09-21T15:13:09.696786+00:00"
+  "checked_at": "2026-09-21T15:13:09.696786+00:00",
+  "historical_archive_sha256": "576e05ccc3e2f244bdac292514de28e3cc15b9be40fa3db65c2de7ba6018a3ad",
+  "archive_deleted": true,
+  "archive_deleted_on": "2026-10-07",
+  "replacement_archive": "../storage-s0-review-20260921/results.tar.gz",
+  "replacement_sha256": "399db6678e8fc69681193447c9666ce7d0a16c7b533d93ee1f597ff08e514a0d",
+  "initial_source_backup_retained": false
 }

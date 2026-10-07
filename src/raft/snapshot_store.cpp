@@ -457,19 +457,10 @@ auto SnapshotStore::ReadPayloadChunk(const RaftSnapshot &snapshot, uint64_t offs
   if (snapshot.generation_ == 0 || offset > snapshot.payload_size_ || maximum_size > STREAM_CHUNK_BYTES) {
     throw std::runtime_error("invalid Raft snapshot payload range");
   }
-  const auto stored =
-      latest_.has_value() && latest_->generation_ == snapshot.generation_
-          ? latest_
-          : (previous_.has_value() && previous_->generation_ == snapshot.generation_ ? previous_ : std::nullopt);
-  const auto payload_offset = payload_offsets_.find(snapshot.generation_);
-  if (!stored.has_value() || stored->snapshot_id_ != snapshot.snapshot_id_ ||
-      stored->payload_size_ != snapshot.payload_size_ || payload_offset == payload_offsets_.end()) {
-    throw std::runtime_error("Raft snapshot payload is not retained locally");
-  }
-  const auto requested = static_cast<size_t>(
-      std::min<uint64_t>(std::min<uint64_t>(maximum_size, STREAM_CHUNK_BYTES), snapshot.payload_size_ - offset));
-  return storage_->ReadFileRange(directory_ / SnapshotFileName(snapshot.generation_), payload_offset->second + offset,
-                                 requested);
+  // Keep one authority for retained-file identity and payload location.
+  const auto payload = PayloadFile(snapshot);
+  const auto requested = static_cast<size_t>(std::min<uint64_t>(maximum_size, payload.size_ - offset));
+  return storage_->ReadFileRange(payload.path_, payload.offset_ + offset, requested);
 }
 
 auto SnapshotStore::PayloadFile(const RaftSnapshot &snapshot) -> DurableFileSlice {

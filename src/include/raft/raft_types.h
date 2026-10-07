@@ -70,6 +70,8 @@ struct AppendEntriesResponse {
   std::optional<uint64_t> read_context_;
 };
 
+enum class SnapshotEncoding : uint8_t { Raw, Lz4 };
+
 struct InstallSnapshotRequest {
   uint64_t term_{0};
   NodeId leader_id_{0};
@@ -84,6 +86,9 @@ struct InstallSnapshotRequest {
   std::vector<std::byte> data_;
   uint64_t delta_session_{0};
   std::optional<SnapshotReuse> reuse_{std::nullopt};
+  SnapshotEncoding encoding_{SnapshotEncoding::Raw};
+  uint32_t raw_size_{0};
+  uint64_t encoding_session_{0};
 };
 
 struct SnapshotOfferRequest {
@@ -92,12 +97,15 @@ struct SnapshotOfferRequest {
   uint64_t request_id_{0};
   RaftSnapshot target_;
   RaftSnapshot base_;
+  // Extended Offer permits an absent base and negotiates independent LZ4 blocks.
+  bool extended_{false};
 };
 enum class SnapshotOfferStatus : uint8_t { Unsupported, Accepted, Error };
 struct SnapshotOfferResponse {
   uint64_t term_{0};
   uint64_t request_id_{0};
   SnapshotOfferStatus status_{SnapshotOfferStatus::Unsupported};
+  bool extended_{false};
 };
 
 struct InstallSnapshotResponse {

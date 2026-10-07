@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <condition_variable>  // NOLINT(build/c++11)
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -17,6 +18,7 @@
 #include <mutex>  // NOLINT(build/c++11)
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <vector>
 
 #include "raft/transport.h"
 
@@ -57,7 +59,11 @@ class TcpRaftTransport : public RaftTransport {
   void ReceiveLoop();
   void SendLoop();
   void HandleConnection(int socket_fd);
-  auto SendOne(const RaftEnvelope &envelope) -> bool;
+  struct PendingFrame {
+    NodeId to_;
+    std::vector<std::byte> bytes_;
+  };
+  auto SendOne(const PendingFrame &frame) -> bool;
 
   NodeId local_node_id_;
   std::string group_id_;
@@ -68,7 +74,7 @@ class TcpRaftTransport : public RaftTransport {
 
   mutable std::mutex mutex_;
   std::condition_variable send_cv_;
-  std::deque<RaftEnvelope> outbound_;
+  std::deque<PendingFrame> outbound_;
   Receiver receiver_;
   int listen_fd_{-1};
   std::atomic<bool> running_{false};

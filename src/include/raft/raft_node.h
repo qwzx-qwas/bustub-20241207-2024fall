@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <optional>
@@ -27,6 +28,7 @@
 namespace bustub {
 
 class RaftNodeTestPeer;
+class SnapshotTasks;
 
 /** Draws one election timeout from the inclusive bounds supplied by RaftNode. */
 using ElectionTimeoutSource = std::function<uint64_t(uint64_t, uint64_t)>;
@@ -53,6 +55,8 @@ class RaftNode {
   RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transport, std::unique_ptr<StableStore> stable_store,
            std::unique_ptr<LogStore> log_store, std::shared_ptr<RaftStateMachine> state_machine,
            std::unique_ptr<SnapshotStore> snapshot_store = nullptr);
+
+  ~RaftNode();
 
   void Tick(uint64_t now_ms);
   void Receive(NodeId from, const RaftMessage &message);
@@ -103,6 +107,7 @@ class RaftNode {
   void Handle(NodeId from, const SnapshotOfferRequest &request);
   void Handle(NodeId from, const SnapshotOfferResponse &response);
   void CancelIncomingDelta();
+  void PollSnapshotTasks();
 
   void Send(NodeId to, RaftMessage message);
   void SendAppend(NodeId peer, std::optional<uint64_t> read_context = std::nullopt);
@@ -146,7 +151,9 @@ class RaftNode {
     SnapshotInput input_;
     std::optional<SnapshotDeltaOffer> offer_{std::nullopt};
     std::optional<SnapshotDelta> delta_{std::nullopt};
-    std::optional<SnapshotChunk> chunk_{std::nullopt};
+    std::optional<InstallSnapshotRequest> chunk_{std::nullopt};
+    std::optional<std::future<InstallSnapshotRequest>> work_{std::nullopt};
+    bool extended_{true}, compression_{false};
     uint64_t offer_id_{0}, offer_deadline_{0};
     bool offering_{false};
   };
@@ -156,6 +163,18 @@ class RaftNode {
     std::string target_;
   };
   std::optional<IncomingDelta> incoming_delta_;
+  std::optional<IncomingDelta> incoming_encoding_;
+  struct IncomingDecode {
+    NodeId from_;
+    uint64_t term_;
+    uint64_t request_id_;
+    uint64_t encoding_session_;
+    std::string snapshot_id_;
+    std::future<InstallSnapshotRequest> work_;
+  };
+  std::optional<IncomingDecode> incoming_decode_;
+  // Destroyed explicitly before stores and input leases. Workers never access this node.
+  std::unique_ptr<SnapshotTasks> snapshot_tasks_;
   // Highest snapshot request observed in this term. Keep it after cancellation
   // so a delayed Offer/full chunk cannot restart an older receive session.
   uint64_t snapshot_request_floor_{0};

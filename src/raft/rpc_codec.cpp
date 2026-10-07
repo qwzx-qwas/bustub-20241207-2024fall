@@ -35,6 +35,9 @@ enum class RpcType : uint32_t {
   SNAPSHOT_OFFER_REQUEST = 7,
   SNAPSHOT_OFFER_RESPONSE = 8,
   INSTALL_SNAPSHOT_DELTA = 9,
+  SNAPSHOT_ENCODING_OFFER = 10,
+  SNAPSHOT_ENCODING_RESPONSE = 11,
+  INSTALL_SNAPSHOT_COMPRESSED = 12,
 };
 
 void PutBool(ByteWriter *writer, bool value) { writer->PutU8(value ? 1 : 0); }
@@ -55,9 +58,9 @@ void PutBlob(ByteWriter *writer, const std::vector<std::byte> &bytes) {
   writer->PutBytes(bytes);
 }
 
-auto ReadBlob(ByteReader *reader) -> std::vector<std::byte> {
+auto ReadBlob(ByteReader *reader, size_t maximum) -> std::vector<std::byte> {
   const auto size = reader->ReadU32();
-  if (size > reader->Remaining()) {
+  if (size > maximum || size > reader->Remaining()) {
     throw std::runtime_error("Raft RPC blob exceeds its frame");
   }
   return reader->ReadBytes(size);
@@ -138,7 +141,13 @@ auto EncodeMessage(const RaftMessage &message) -> std::pair<RpcType, std::vector
           }
           return {RpcType::APPEND_ENTRIES_RESPONSE, body.Take()};
         } else if constexpr (std::is_same_v<T, InstallSnapshotRequest>) {  // NOLINT(readability/braces)
-          const auto size = value.reuse_ ? value.reuse_->length_ : value.data_.size();
+          const bool compressed = value.encoding_ == SnapshotEncoding::Lz4;
+          const auto size = value.reuse_ ? value.reuse_->length_ : compressed ? value.raw_size_ : value.data_.size();
+          if ((value.encoding_ != SnapshotEncoding::Raw && !compressed) ||
+              (compressed && (value.reuse_ || value.raw_size_ == 0 || value.encoding_session_ == 0 ||
+                              value.data_.empty() || value.data_.size() > MAX_SNAPSHOT_CHUNK_BYTES)) ||
+              (!compressed && (value.raw_size_ != 0 || value.encoding_session_ != 0)))
+            throw std::runtime_error("invalid snapshot encoding");
           if (value.snapshot_id_.empty() || size > MAX_SNAPSHOT_CHUNK_BYTES ||
               (value.reuse_ && (value.delta_session_ == 0 || !value.data_.empty() || size == 0)) ||
               value.offset_ > value.total_size_ || size > value.total_size_ - value.offset_ ||
@@ -156,6 +165,13 @@ auto EncodeMessage(const RaftMessage &message) -> std::pair<RpcType, std::vector
           body.PutU32(value.payload_checksum_);
           PutBool(&body, value.done_);
           PutBlob(&body, value.data_);
+          if (compressed) {
+            body.PutU64(value.delta_session_);
+            body.PutU8(static_cast<uint8_t>(value.encoding_));
+            body.PutU32(value.raw_size_);
+            body.PutU64(value.encoding_session_);
+            return {RpcType::INSTALL_SNAPSHOT_COMPRESSED, body.Take()};
+          }
           if (value.delta_session_ != 0) {
             body.PutU64(value.delta_session_);
             PutBool(&body, value.reuse_.has_value());
@@ -171,6 +187,11 @@ auto EncodeMessage(const RaftMessage &message) -> std::pair<RpcType, std::vector
           body.PutU64(value.leader_id_);
           body.PutU64(value.request_id_);
           PutSnapshot(&body, value.target_);
+          if (value.extended_) {
+            PutBool(&body, !value.base_.snapshot_id_.empty());
+            if (!value.base_.snapshot_id_.empty()) PutSnapshot(&body, value.base_);
+            return {RpcType::SNAPSHOT_ENCODING_OFFER, body.Take()};
+          }
           PutSnapshot(&body, value.base_);
           return {RpcType::SNAPSHOT_OFFER_REQUEST, body.Take()};
         } else if constexpr (std::is_same_v<T, SnapshotOfferResponse>) {
@@ -178,7 +199,8 @@ auto EncodeMessage(const RaftMessage &message) -> std::pair<RpcType, std::vector
           body.PutU64(value.request_id_);
           if (static_cast<uint8_t>(value.status_) > 2) throw std::runtime_error("invalid snapshot offer status");
           body.PutU8(static_cast<uint8_t>(value.status_));
-          return {RpcType::SNAPSHOT_OFFER_RESPONSE, body.Take()};
+          return {value.extended_ ? RpcType::SNAPSHOT_ENCODING_RESPONSE : RpcType::SNAPSHOT_OFFER_RESPONSE,
+                  body.Take()};
         } else {
           body.PutU64(value.term_);
           body.PutU64(value.request_id_);
@@ -219,7 +241,7 @@ auto DecodeMessage(RpcType type, const std::vector<std::byte> &bytes) -> RaftMes
         throw std::runtime_error("Raft AppendEntries count exceeds V1 limit");
       }
       for (uint32_t index = 0; index < count; index++) {
-        const auto encoded = ReadBlob(&body);
+        const auto encoded = ReadBlob(&body, body.Remaining());
         const auto decoded = LogCodec::DecodeOne(encoded);
         if (decoded.status_ != LogDecodeStatus::COMPLETE || !decoded.entry_.has_value() ||
             decoded.bytes_consumed_ != encoded.size()) {
@@ -247,15 +269,38 @@ auto DecodeMessage(RpcType type, const std::vector<std::byte> &bytes) -> RaftMes
       break;
     }
     case RpcType::INSTALL_SNAPSHOT_REQUEST:
-    case RpcType::INSTALL_SNAPSHOT_DELTA: {
-      InstallSnapshotRequest value{body.ReadU64(), body.ReadU64(),  body.ReadU64(), body.ReadString(),
-                                   body.ReadU64(), body.ReadU64(),  body.ReadU64(), body.ReadU64(),
-                                   body.ReadU32(), ReadBool(&body), ReadBlob(&body)};
+    case RpcType::INSTALL_SNAPSHOT_DELTA:
+    case RpcType::INSTALL_SNAPSHOT_COMPRESSED: {
+      InstallSnapshotRequest value{body.ReadU64(),
+                                   body.ReadU64(),
+                                   body.ReadU64(),
+                                   body.ReadString(),
+                                   body.ReadU64(),
+                                   body.ReadU64(),
+                                   body.ReadU64(),
+                                   body.ReadU64(),
+                                   body.ReadU32(),
+                                   ReadBool(&body),
+                                   ReadBlob(&body, MAX_SNAPSHOT_CHUNK_BYTES)};
       if (type == RpcType::INSTALL_SNAPSHOT_DELTA) {
         value.delta_session_ = body.ReadU64();
         if (value.delta_session_ == 0) throw std::runtime_error("missing delta session");
         if (ReadBool(&body)) value.reuse_ = SnapshotReuse{body.ReadU64(), body.ReadU64()};
       }
+      if (type == RpcType::INSTALL_SNAPSHOT_COMPRESSED) {
+        value.delta_session_ = body.ReadU64();
+        value.encoding_ = static_cast<SnapshotEncoding>(body.ReadU8());
+        value.raw_size_ = body.ReadU32();
+        value.encoding_session_ = body.ReadU64();
+        if (value.encoding_ != SnapshotEncoding::Lz4) throw std::runtime_error("unknown snapshot encoding");
+      }
+      message = std::move(value);
+      break;
+    }
+    case RpcType::SNAPSHOT_ENCODING_OFFER: {
+      SnapshotOfferRequest value{body.ReadU64(), body.ReadU64(), body.ReadU64(), ReadSnapshot(&body), {}};
+      if (ReadBool(&body)) value.base_ = ReadSnapshot(&body);
+      value.extended_ = true;
       message = std::move(value);
       break;
     }
@@ -264,7 +309,9 @@ auto DecodeMessage(RpcType type, const std::vector<std::byte> &bytes) -> RaftMes
                                      ReadSnapshot(&body)};
       break;
     case RpcType::SNAPSHOT_OFFER_RESPONSE:
-      message = SnapshotOfferResponse{body.ReadU64(), body.ReadU64(), static_cast<SnapshotOfferStatus>(body.ReadU8())};
+    case RpcType::SNAPSHOT_ENCODING_RESPONSE:
+      message = SnapshotOfferResponse{body.ReadU64(), body.ReadU64(), static_cast<SnapshotOfferStatus>(body.ReadU8()),
+                                      type == RpcType::SNAPSHOT_ENCODING_RESPONSE};
       break;
     case RpcType::INSTALL_SNAPSHOT_RESPONSE:
       message = InstallSnapshotResponse{body.ReadU64(),  body.ReadU64(), ReadBool(&body), ReadBool(&body),
@@ -276,7 +323,7 @@ auto DecodeMessage(RpcType type, const std::vector<std::byte> &bytes) -> RaftMes
   if (!body.Empty()) {
     throw std::runtime_error("Raft RPC message has trailing bytes");
   }
-  static_cast<void>(EncodeMessage(message));
+  // Decode() performs the canonical re-encoding once, including field validation.
   return message;
 }
 

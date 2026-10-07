@@ -40,6 +40,7 @@ set(BUSTUB_LIBS
 find_package(Threads REQUIRED)
 
 set(BUSTUB_THIRDPARTY_LIBS
+        bustub_lz4
         bustub_murmur3
         duckdb_pg_query
         fmt
