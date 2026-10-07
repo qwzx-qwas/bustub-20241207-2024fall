@@ -211,32 +211,41 @@ auto ObjectPageStorage::Clone(std::shared_ptr<NodeStorage> storage, const Object
     -> std::shared_ptr<ObjectPageStorage> {
   auto result = Create(storage, capture.options_);
   result->EnsurePages(capture.next_);
-  // A page bounds each metadata publication. Captured leases keep source bytes
-  // alive while these durable shared references are established in batches.
+  // Range construction owns batching; a sparse source is scanned by mappings.
   for (uint64_t n = 1; n <= capture.objects_; ++n) {
     const ObjectKey source{capture.space_, n}, destination{result->Space(), n};
-    const auto size = capture.view_.Describe(source).size_;
-    for (uint64_t offset = 0; offset < size; offset += BUSTUB_PAGE_SIZE) {
-      const auto page = (n - 1) * capture.options_.pages_per_object_ + offset / BUSTUB_PAGE_SIZE;
-      if (page >= capture.next_ ||
-          (capture.pages_ &&
-           !std::binary_search(capture.pages_->begin(), capture.pages_->end(), static_cast<page_id_t>(page))))
-        continue;
-      const auto length = std::min<uint64_t>(BUSTUB_PAGE_SIZE, size - offset);
-      const auto resolved = capture.view_.Resolve(source, offset, length);
-      if (resolved.complete_ && std::none_of(resolved.spans_.begin(), resolved.spans_.end(),
-                                             [](const auto &span) { return span.data_.has_value(); }))
-        continue;
-      for (;;) {
-        try {
-          Durable(storage->ShareObjectRange(capture.view_, source, destination, offset, length, offset));
-          break;
-        } catch (const MetadataViewConflict &) {
+    const auto size =
+        std::min<uint64_t>(capture.view_.Describe(source).size_,
+                           capture.next_ > (n - 1) * capture.options_.pages_per_object_
+                               ? (capture.next_ - (n - 1) * capture.options_.pages_per_object_) * BUSTUB_PAGE_SIZE
+                               : 0);
+    for (uint64_t offset = 0; offset < size;) {
+      const auto resolved = capture.view_.Resolve(source, offset, size - offset);
+      if (resolved.spans_.empty()) throw std::runtime_error("clone mapping made no progress");
+      for (const auto &span : resolved.spans_) {
+        if (!span.data_) continue;
+        if (!capture.pages_) {
+          storage->ShareObjectRangeBatched(capture.view_, source, destination, span.offset_, span.size_, span.offset_);
           continue;
-        } catch (const MetadataCommitBusy &) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        const auto first = (n - 1) * capture.options_.pages_per_object_;
+        auto page =
+            std::lower_bound(capture.pages_->begin(), capture.pages_->end(), first + span.offset_ / BUSTUB_PAGE_SIZE);
+        while (page != capture.pages_->end()) {
+          const auto begin = (static_cast<uint64_t>(*page) - first) * BUSTUB_PAGE_SIZE;
+          if (begin >= span.offset_ + span.size_) break;
+          auto last = page + 1;
+          while (last != capture.pages_->end() && *last == *(last - 1) + 1 &&
+                 (static_cast<uint64_t>(*last) - first) * BUSTUB_PAGE_SIZE < span.offset_ + span.size_)
+            ++last;
+          const auto start = std::max(begin, span.offset_);
+          const auto stop = std::min<uint64_t>((static_cast<uint64_t>(*(last - 1)) - first + 1) * BUSTUB_PAGE_SIZE,
+                                               span.offset_ + span.size_);
+          storage->ShareObjectRangeBatched(capture.view_, source, destination, start, stop - start, start);
+          page = last;
         }
       }
+      offset = resolved.spans_.back().offset_ + resolved.spans_.back().size_;
     }
   }
   uint64_t cursor = 1;

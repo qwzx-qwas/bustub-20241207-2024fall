@@ -132,6 +132,21 @@ void KvStateMachine::InstallSnapshot(const std::vector<std::byte> &payload, uint
 }
 
 void KvStateMachine::WriteSnapshot(const SnapshotAppend &append) const { append(CreateSnapshot()); }
+struct KvStateMachine::Prepared : PreparedSnapshot {
+  KvStateMachine &owner_;
+  KvStateMachine candidate_;
+  explicit Prepared(KvStateMachine &owner) : owner_(owner) {}
+  void Install() override {
+    owner_.data_.swap(candidate_.data_);
+    std::swap(owner_.last_applied_, candidate_.last_applied_);
+  }
+};
+auto KvStateMachine::PrepareSnapshot(const SnapshotInput &payload, uint64_t index)
+    -> std::unique_ptr<PreparedSnapshot> {
+  auto prepared = std::make_unique<Prepared>(*this);
+  prepared->candidate_.LoadSnapshot(payload, index);
+  return prepared;
+}
 void KvStateMachine::ValidateSnapshot(const SnapshotInput &payload, uint64_t index) {
   KvStateMachine candidate;
   candidate.LoadSnapshot(payload, index);

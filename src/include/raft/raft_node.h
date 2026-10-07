@@ -144,7 +144,9 @@ class RaftNode {
     uint64_t end_offset_{0};
     uint64_t request_id_{0};
     SnapshotInput input_;
+    std::optional<SnapshotDeltaOffer> offer_{std::nullopt};
     std::optional<SnapshotDelta> delta_{std::nullopt};
+    std::optional<SnapshotChunk> chunk_{std::nullopt};
     uint64_t offer_id_{0}, offer_deadline_{0};
     bool offering_{false};
   };

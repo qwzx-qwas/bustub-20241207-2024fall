@@ -1,7 +1,6 @@
 #include "object_snapshot_store.h"
 #include <algorithm>
 #include <stdexcept>
-#include <thread>
 #include "common/byte_codec.h"
 #include "recovery/page_snapshot.h"
 namespace bustub {
@@ -11,10 +10,12 @@ ObjectSnapshotStore::ObjectSnapshotStore(std::shared_ptr<RaftObjectStorage> stor
     return;
   }
   ByteReader r(*root);
-  if (r.ReadU64() != 1) {
+  const auto version = r.ReadU64();
+  if (version != 1 && version != 2) {
     throw std::runtime_error("unknown snapshot manifest");
   }
-  for (auto *slot : {&latest_, &previous_}) {
+  for (auto *slot : {&latest_, &previous_, &transfer_base_}) {
+    if (slot == &transfer_base_ && version == 1) break;
     const auto present = r.ReadU8();
     if (present > 1) {
       throw std::runtime_error("invalid snapshot manifest presence");
@@ -38,15 +39,18 @@ ObjectSnapshotStore::ObjectSnapshotStore(std::shared_ptr<RaftObjectStorage> stor
     *slot = std::move(body);
   }
   if (!r.Empty() ||
-      (previous_ && (!latest_ || previous_->info_.last_included_index_ >= latest_->info_.last_included_index_))) {
+      (previous_ && (!latest_ || previous_->info_.last_included_index_ >= latest_->info_.last_included_index_)) ||
+      (transfer_base_ &&
+       (!latest_ || transfer_base_->info_.last_included_index_ >= latest_->info_.last_included_index_ ||
+        (previous_ && transfer_base_->object_ == previous_->object_)))) {
     throw std::runtime_error("invalid snapshot recovery chain");
   }
 }
-auto ObjectSnapshotStore::Encode(const std::optional<Body> &latest, const std::optional<Body> &previous) const
-    -> std::vector<std::byte> {
+auto ObjectSnapshotStore::Encode(const std::optional<Body> &latest, const std::optional<Body> &previous,
+                                 const std::optional<Body> &base) const -> std::vector<std::byte> {
   ByteWriter w;
-  w.PutU64(1);
-  for (const auto *slot : {&latest, &previous}) {
+  w.PutU64(2);
+  for (const auto *slot : {&latest, &previous, &base}) {
     w.PutU8(slot->has_value());
     if (!*slot) {
       continue;
@@ -65,8 +69,17 @@ auto ObjectSnapshotStore::Encode(const std::optional<Body> &latest, const std::o
 auto ObjectSnapshotStore::Source(const Body &body) -> SnapshotInput {
   auto use = storage_->Lease(body.object_);
   auto storage = storage_;
-  return {0, body.info_.payload_size_, [storage, use, object = body.object_](uint64_t offset, size_t size) {
+  return {0, body.info_.payload_size_,
+          [storage, use, object = body.object_](uint64_t offset, size_t size) {
             return storage->Read(object, offset, size);
+          },
+          [storage, use, object = body.object_](uint64_t offset, std::byte *data, size_t size,
+                                                std::shared_ptr<void> owner) {
+            auto read =
+                storage->storage_->ReadObjectInto(storage->storage_->Objects(), storage->Key(object), offset, size,
+                                                  {reinterpret_cast<char *>(data), size, std::move(owner)});
+            read.Finish();
+            if (read.Size() != size) throw std::runtime_error("snapshot body was truncated");
           }};
 }
 auto ObjectSnapshotStore::Checksum(const SnapshotInput &input) const -> uint32_t {
@@ -85,7 +98,7 @@ auto ObjectSnapshotStore::Oldest() const -> std::optional<RaftSnapshot> {
   return previous_ ? std::optional<RaftSnapshot>(previous_->info_) : Latest();
 }
 auto ObjectSnapshotStore::Input(const RaftSnapshot &snapshot) -> SnapshotInput {
-  for (const auto *body : {&latest_, &previous_}) {
+  for (const auto *body : {&latest_, &previous_, &transfer_base_}) {
     if (*body && (*body)->info_.generation_ == snapshot.generation_ &&
         (*body)->info_.snapshot_id_ == snapshot.snapshot_id_) {
       return Source(**body);
@@ -100,10 +113,19 @@ auto ObjectSnapshotStore::Publish(Body body, bool retain) -> RaftSnapshot {
   body.info_.generation_ = latest_ ? latest_->info_.generation_ + 1 : 1;
   auto next = std::optional<Body>(body);
   auto previous = retain ? latest_ : std::nullopt;
-  std::vector<ObjectControlMutation> controls{storage_->Change(3, 0, Encode(next, previous)),
+  // Rotation preserves at most one retired recovery image, under the existing
+  // per-snapshot byte and namespace ownership budgets. No body is copied.
+  auto base = previous_ ? previous_ : transfer_base_;
+  if (!retain && latest_) base = latest_;
+  if (base) {
+    const std::vector<std::byte> magic(PAGE_SNAPSHOT_MAGIC.begin(), PAGE_SNAPSHOT_MAGIC.end());
+    auto input = Source(*base);
+    if (input.size_ < magic.size() || input.Read(0, magic.size()) != magic) base.reset();
+  }
+  std::vector<ObjectControlMutation> controls{storage_->Change(3, 0, Encode(next, previous, base)),
                                               storage_->Own(body.object_, 2, 1)};
-  for (const auto *old : {&latest_, &previous_}) {
-    if (*old && (!previous || (*old)->object_ != previous->object_)) {
+  for (const auto *old : {&latest_, &previous_, &transfer_base_}) {
+    if (*old && (!previous || (*old)->object_ != previous->object_) && (!base || (*old)->object_ != base->object_)) {
       controls.push_back(storage_->Own((*old)->object_, 2, 2));
     }
   }
@@ -115,15 +137,19 @@ auto ObjectSnapshotStore::Publish(Body body, bool retain) -> RaftSnapshot {
   storage_->Commit({{}, std::move(controls)});
   latest_.swap(next);
   previous_.swap(previous);
+  transfer_base_.swap(base);
+  plan_cache_.reset();
   return result;
 }
 void ObjectSnapshotStore::RetainOnlyLatest() {
   if (!previous_) {
     return;
   }
-  storage_->Commit(
-      {{}, {storage_->Change(3, 0, Encode(latest_, std::nullopt)), storage_->Own(previous_->object_, 2, 2)}});
+  storage_->Commit({{},
+                    {storage_->Change(3, 0, Encode(latest_, std::nullopt, transfer_base_)),
+                     storage_->Own(previous_->object_, 2, 2)}});
   previous_.reset();
+  plan_cache_.reset();
 }
 auto ObjectSnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot {
   if ((index == 0 && term != 0) || (latest_ && index <= latest_->info_.last_included_index_)) {
@@ -132,17 +158,20 @@ auto ObjectSnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachin
   Body body{{1, latest_ ? latest_->info_.generation_ + 1 : 1,
              std::to_string(index) + "-" + std::to_string(term) + "-" + std::to_string(UINT32_MAX), index, term, 0, 0},
             0};
-  std::vector<ObjectControlMutation> check{storage_->Change(3, 0, Encode(body, latest_)), storage_->Own(16, 2, 1)};
+  std::vector<ObjectControlMutation> check{
+      storage_->Change(3, 0, Encode(body, latest_, previous_ ? previous_ : transfer_base_)), storage_->Own(16, 2, 1)};
   if (previous_) {
     check.push_back(storage_->Own(previous_->object_, 2, 2));
   }
+  if (transfer_base_) check.push_back(storage_->Own(transfer_base_->object_, 2, 2));
   storage_->Check(check);
   body.object_ = storage_->Candidate(2);
   try {
     const auto shared = machine.WriteSharedSnapshot(*storage_->storage_, storage_->Key(body.object_), index, term,
                                                     storage_->options_.max_snapshot_bytes_);
     if (shared) {
-      body.info_.payload_size_ = *shared;
+      body.info_.payload_size_ = shared->size_;
+      body.info_.payload_checksum_ = shared->checksum_;
     } else {
       machine.WriteSnapshot([&](const auto &bytes) {
         if (bytes.size() > storage_->options_.max_snapshot_bytes_ - body.info_.payload_size_) {
@@ -151,11 +180,11 @@ auto ObjectSnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachin
         if (!bytes.empty()) {
           storage_->Append(body.object_, bytes);
         }
+        body.info_.payload_checksum_ = Crc32cExtend(body.info_.payload_checksum_, bytes.data(), bytes.size());
         body.info_.payload_size_ += bytes.size();
       });
     }
     auto input = Source(body);
-    body.info_.payload_checksum_ = Checksum(input);
     body.info_.snapshot_id_ =
         std::to_string(index) + "-" + std::to_string(term) + "-" + std::to_string(body.info_.payload_checksum_);
     // The shared producer captured a validated business checkpoint. Rebuilding
@@ -200,59 +229,106 @@ auto SameContent(const ObjectMappingSnapshot &view, ObjectKey a, uint64_t x, Obj
 }
 }  // namespace
 
-auto ObjectSnapshotStore::PlanDelta(const RaftSnapshot &target) -> std::optional<SnapshotDelta> {
-  if (!latest_ || !previous_ || !SameSnapshot(target, latest_->info_)) return std::nullopt;
-  auto input = Source(*latest_), base_input = Source(*previous_);
-  const auto dir = ReadPageSnapshotDirectory(input, target.last_included_index_);
-  const auto old = ReadPageSnapshotDirectory(base_input, previous_->info_.last_included_index_);
-  if (!dir || !old) return std::nullopt;
-  std::vector<uint64_t> reused(dir->pages_.size(), UINT64_MAX);
-  const auto view = storage_->storage_->Objects();
-  size_t j = 0, count = 0;
-  for (size_t i = 0; i < dir->pages_.size(); ++i) {
-    while (j < old->pages_.size() && old->pages_[j] < dir->pages_[i]) ++j;
-    if (j < old->pages_.size() && old->pages_[j] == dir->pages_[i] &&
-        SameContent(view, storage_->Key(latest_->object_), dir->header_size_ + i * BUSTUB_PAGE_SIZE,
-                    storage_->Key(previous_->object_), old->header_size_ + j * BUSTUB_PAGE_SIZE, BUSTUB_PAGE_SIZE)) {
-      reused[i] = old->header_size_ + j * BUSTUB_PAGE_SIZE;
-      ++count;
+struct ObjectSnapshotStore::DeltaPlanCache {
+  std::function<std::optional<SnapshotDelta>()> build_;
+  std::optional<SnapshotDelta> result_;
+  bool ready_{false};
+  auto Get() -> std::optional<SnapshotDelta> {
+    if (!ready_) {
+      result_ = build_();
+      ready_ = true;
+      build_ = {};
     }
+    return result_;
   }
-  if (count == 0) return std::nullopt;
-  return SnapshotDelta{
-      previous_->info_, [target, input, base_input, header = dir->header_size_, reused = std::move(reused)](
-                            uint64_t offset, size_t maximum) {
-        (void)base_input;  // Keeps the base body leased even when no body read is needed.
-        if (offset >= target.payload_size_ || offset % BUSTUB_PAGE_SIZE != 0 || maximum < BUSTUB_PAGE_SIZE)
-          throw std::invalid_argument("invalid delta read range");
-        auto size = std::min<uint64_t>(maximum / BUSTUB_PAGE_SIZE * BUSTUB_PAGE_SIZE, target.payload_size_ - offset);
-        std::optional<SnapshotReuse> reuse;
-        if (offset < header) {
-          size = std::min(size, header - offset);
-        } else {
-          const auto first = (offset - header) / BUSTUB_PAGE_SIZE;
-          size = BUSTUB_PAGE_SIZE;
-          while (size + BUSTUB_PAGE_SIZE <= maximum && offset + size < target.payload_size_) {
-            const auto next = reused[first + size / BUSTUB_PAGE_SIZE];
-            if (reused[first] == UINT64_MAX ? next != UINT64_MAX : next != reused[first] + size) break;
-            size += BUSTUB_PAGE_SIZE;
-          }
-          if (reused[first] != UINT64_MAX) reuse = SnapshotReuse{reused[first], size};
+};
+
+auto ObjectSnapshotStore::OfferDelta(const RaftSnapshot &target) -> std::optional<SnapshotDeltaOffer> {
+  const auto &base = transfer_base_ ? transfer_base_ : previous_;
+  if (!latest_ || !base || !SameSnapshot(target, latest_->info_)) return std::nullopt;
+  if (!plan_cache_) {
+    auto input = Source(*latest_), base_input = Source(*base);
+    // Only the fixed header is needed to recognize the native format.
+    const std::vector<std::byte> magic(PAGE_SNAPSHOT_MAGIC.begin(), PAGE_SNAPSHOT_MAGIC.end());
+    if (input.size_ < magic.size() || base_input.size_ < magic.size() || input.Read(0, magic.size()) != magic ||
+        base_input.Read(0, magic.size()) != magic)
+      return std::nullopt;
+    auto cache = std::make_shared<DeltaPlanCache>();
+    cache->build_ = [storage = storage_, target_body = *latest_, base_body = *base, target, input,
+                     base_input]() -> std::optional<SnapshotDelta> {
+      const auto dir = ReadPageSnapshotDirectory(input, target.last_included_index_);
+      const auto old = ReadPageSnapshotDirectory(base_input, base_body.info_.last_included_index_);
+      std::vector<uint64_t> reused(dir->pages_.size(), UINT64_MAX);
+      const auto view = storage->storage_->Objects();
+      size_t j = 0, count = 0;
+      for (size_t i = 0; i < dir->pages_.size(); ++i) {
+        while (j < old->pages_.size() && old->pages_[j] < dir->pages_[i]) ++j;
+        if (j < old->pages_.size() && old->pages_[j] == dir->pages_[i] &&
+            SameContent(view, storage->Key(target_body.object_), dir->header_size_ + i * BUSTUB_PAGE_SIZE,
+                        storage->Key(base_body.object_), old->header_size_ + j * BUSTUB_PAGE_SIZE, BUSTUB_PAGE_SIZE)) {
+          reused[i] = old->header_size_ + j * BUSTUB_PAGE_SIZE;
+          ++count;
         }
-        SnapshotChunk chunk{target.snapshot_id_,
-                            target.last_included_index_,
-                            target.last_included_term_,
-                            offset,
-                            target.payload_size_,
-                            target.payload_checksum_,
-                            offset + size == target.payload_size_,
-                            {}};
-        if (reuse)
-          chunk.reuse_ = reuse;
-        else
-          chunk.data_ = input.Read(offset, size);
-        return chunk;
-      }};
+      }
+      if (count == 0) return std::nullopt;
+      constexpr uint64_t chunk_bytes = 64U * 1024U;
+      uint64_t messages = (dir->header_size_ + chunk_bytes - 1) / chunk_bytes;
+      for (size_t first = 0; first < reused.size();) {
+        size_t last = first + 1;
+        while (last < reused.size() && (last - first) * BUSTUB_PAGE_SIZE < chunk_bytes &&
+               (reused[first] == UINT64_MAX ? reused[last] == UINT64_MAX
+                                            : reused[last] == reused[first] + (last - first) * BUSTUB_PAGE_SIZE))
+          ++last;
+        ++messages;
+        first = last;
+      }
+      const auto full_messages = (target.payload_size_ + chunk_bytes - 1) / chunk_bytes;
+      const auto saved = uint64_t{count} * BUSTUB_PAGE_SIZE;
+      // REUSE's fixed descriptor is charged too. A fragmented plan must save an
+      // extra page-equivalent for each additional stop-and-wait exchange.
+      const auto overhead =
+          messages * 32 + (messages > full_messages ? messages - full_messages : 0) * BUSTUB_PAGE_SIZE;
+      if (saved <= overhead || saved - overhead < target.payload_size_ / 5) return std::nullopt;
+      return SnapshotDelta{
+          base_body.info_,
+          [target, input, base_input, header = dir->header_size_,
+           reused = std::make_shared<const std::vector<uint64_t>>(std::move(reused))](uint64_t offset, size_t maximum) {
+            (void)base_input;  // Keeps the base body leased even when no body read is needed.
+            if (offset >= target.payload_size_ || offset % BUSTUB_PAGE_SIZE != 0 || maximum < BUSTUB_PAGE_SIZE)
+              throw std::invalid_argument("invalid delta read range");
+            auto size =
+                std::min<uint64_t>(maximum / BUSTUB_PAGE_SIZE * BUSTUB_PAGE_SIZE, target.payload_size_ - offset);
+            std::optional<SnapshotReuse> reuse;
+            if (offset < header) {
+              size = std::min(size, header - offset);
+            } else {
+              const auto first = (offset - header) / BUSTUB_PAGE_SIZE;
+              size = BUSTUB_PAGE_SIZE;
+              while (size + BUSTUB_PAGE_SIZE <= maximum && offset + size < target.payload_size_) {
+                const auto next = (*reused)[first + size / BUSTUB_PAGE_SIZE];
+                if ((*reused)[first] == UINT64_MAX ? next != UINT64_MAX : next != (*reused)[first] + size) break;
+                size += BUSTUB_PAGE_SIZE;
+              }
+              if ((*reused)[first] != UINT64_MAX) reuse = SnapshotReuse{(*reused)[first], size};
+            }
+            SnapshotChunk chunk{target.snapshot_id_,
+                                target.last_included_index_,
+                                target.last_included_term_,
+                                offset,
+                                target.payload_size_,
+                                target.payload_checksum_,
+                                offset + size == target.payload_size_,
+                                {}};
+            if (reuse)
+              chunk.reuse_ = reuse;
+            else
+              chunk.data_ = input.Read(offset, size);
+            return chunk;
+          }};
+    };
+    plan_cache_ = std::move(cache);
+  }
+  return SnapshotDeltaOffer{base->info_, [cache = plan_cache_] { return cache->Get(); }};
 }
 
 auto ObjectSnapshotStore::BeginDelta(const RaftSnapshot &target, const RaftSnapshot &base, uint64_t session) -> bool {
@@ -261,7 +337,7 @@ auto ObjectSnapshotStore::BeginDelta(const RaftSnapshot &target, const RaftSnaps
       target.last_included_index_ <= base.last_included_index_)
     throw std::invalid_argument("invalid delta offer");
   std::optional<Body> source;
-  for (const auto *b : {&latest_, &previous_})
+  for (const auto *b : {&latest_, &previous_, &transfer_base_})
     if (*b && SameSnapshot((*b)->info_, base)) source = **b;
   if (!source) return false;
   auto input = Source(*source);
@@ -271,9 +347,10 @@ auto ObjectSnapshotStore::BeginDelta(const RaftSnapshot &target, const RaftSnaps
   // Raft decides whether to keep a recovery base only after validation.
   // Fixed-width object IDs below are sizing placeholders, never allocations.
   const Body planned{target, 16};
-  std::vector<ObjectControlMutation> check{storage_->Change(3, 0, Encode(planned, latest_)), storage_->Own(16, 2, 1),
-                                           storage_->Own(17, 2, 2)};
-  for (const auto *old : {&latest_, &previous_})
+  std::vector<ObjectControlMutation> check{
+      storage_->Change(3, 0, Encode(planned, latest_, previous_ ? previous_ : transfer_base_)), storage_->Own(16, 2, 1),
+      storage_->Own(17, 2, 2)};
+  for (const auto *old : {&latest_, &previous_, &transfer_base_})
     if (*old) check.push_back(storage_->Own((*old)->object_, 2, 2));
   storage_->Check(check);
   if (download_) Cancel(download_->body_.info_.snapshot_id_);
@@ -351,25 +428,8 @@ void ObjectSnapshotStore::FinishDelta() {
                     {}});
   for (const auto &part : delta.parts_) {
     const auto object = part.reuse_ ? delta.base_object_ : delta.scratch_;
-    for (uint64_t offset = 0; offset < part.size_; offset += BUSTUB_PAGE_SIZE) {
-      for (;;) {
-        try {
-          auto view = storage_->storage_->Objects();
-          const auto result =
-              storage_->storage_->ShareObjectRange(view, storage_->Key(object), storage_->Key(d.body_.object_),
-                                                   part.source_ + offset, BUSTUB_PAGE_SIZE, part.offset_ + offset);
-          if (result.outcome_ != JournalOutcome::Durable) {
-            if (result.error_) std::rethrow_exception(result.error_);
-            throw std::runtime_error("delta reference was not durably committed");
-          }
-          break;
-        } catch (const MetadataViewConflict &) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        } catch (const MetadataCommitBusy &) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-      }
-    }
+    storage_->storage_->ShareObjectRangeBatched(storage_->storage_->Objects(), storage_->Key(object),
+                                                storage_->Key(d.body_.object_), part.source_, part.size_, part.offset_);
   }
   const auto input = Source(d.body_);
   if (Checksum(input) != d.body_.info_.payload_checksum_ ||
@@ -396,14 +456,15 @@ auto ObjectSnapshotStore::Stage(const SnapshotChunk &chunk) -> SnapshotStageResu
     Body body{{1, latest_ ? latest_->info_.generation_ + 1 : 1, chunk.snapshot_id_, chunk.last_included_index_,
                chunk.last_included_term_, chunk.total_size_, chunk.payload_checksum_},
               0};
-    auto check =
-        std::vector<ObjectControlMutation>{storage_->Change(3, 0, Encode(body, latest_)), storage_->Own(16, 2, 1)};
+    auto check = std::vector<ObjectControlMutation>{
+        storage_->Change(3, 0, Encode(body, latest_, previous_ ? previous_ : transfer_base_)), storage_->Own(16, 2, 1)};
     if (previous_) {
       check.push_back(storage_->Own(previous_->object_, 2, 2));
     }
     if (latest_) {
       check.push_back(storage_->Own(latest_->object_, 2, 2));
     }
+    if (transfer_base_) check.push_back(storage_->Own(transfer_base_->object_, 2, 2));
     storage_->Check(check);
     if (download_) {
       Cancel(download_->body_.info_.snapshot_id_);
@@ -433,10 +494,11 @@ auto ObjectSnapshotStore::Stage(const SnapshotChunk &chunk) -> SnapshotStageResu
     if (!chunk.data_.empty()) {
       storage_->Append(d.body_.object_, chunk.data_);
     }
+    d.checksum_ = Crc32cExtend(d.checksum_, chunk.data_.data(), chunk.data_.size());
     d.received_ += chunk.data_.size();
   }
   if (chunk.done_) {
-    if (d.received_ != info.payload_size_ || Checksum(Source(d.body_)) != info.payload_checksum_) {
+    if (d.received_ != info.payload_size_ || d.checksum_ != info.payload_checksum_) {
       throw std::runtime_error("received snapshot checksum mismatch");
     }
     d.complete_ = true;

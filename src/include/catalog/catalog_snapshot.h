@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include <functional>
 #include "catalog/catalog.h"
 
 namespace bustub {
@@ -56,6 +57,8 @@ class CatalogSnapshotCodec {
 
   /** Reopen table heaps, then rebuild every derived index from table rows. */
   static void Restore(const CatalogSnapshot &snapshot, Catalog *catalog, BufferPoolManager *bpm, Transaction *txn);
+  static void Restore(const CatalogSnapshot &snapshot, Catalog *catalog, BufferPoolManager *bpm, Transaction *txn,
+                      const std::function<void(const TupleMeta &)> &validate_row);
 };
 
 /** Fail-closed admission check applied before a Catalog is exposed as a replicated V1 state machine. */

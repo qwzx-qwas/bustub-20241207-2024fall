@@ -96,7 +96,8 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   void DrainCheckpoint();
   void WriteSnapshot(const SnapshotAppend &append) const override;
   auto WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index, uint64_t term,
-                           uint64_t limit) -> std::optional<uint64_t> override;
+                           uint64_t limit) -> std::optional<SharedSnapshotResult> override;
+  auto PrepareSnapshot(const SnapshotInput &payload, uint64_t index) -> std::unique_ptr<PreparedSnapshot> override;
   void ValidateSnapshot(const SnapshotInput &payload, uint64_t index) override;
   void LoadSnapshot(const SnapshotInput &payload, uint64_t index) override;
   void CreateSnapshotFile(const std::filesystem::path &path) const override;
@@ -117,6 +118,7 @@ class BusTubRaftStateMachine : public RaftStateMachine {
 
  private:
   struct WorkingState;
+  struct Prepared;
   struct CheckpointWorker;
 
   BusTubRaftStateMachine(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage,

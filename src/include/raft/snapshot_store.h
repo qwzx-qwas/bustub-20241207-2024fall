@@ -60,6 +60,12 @@ struct SnapshotDelta {
   std::function<SnapshotChunk(uint64_t, size_t)> chunk_;
 };
 
+struct SnapshotDeltaOffer {
+  RaftSnapshot base_;
+  // Pins target/base immediately; mapping comparison is deferred until Accepted.
+  std::function<std::optional<SnapshotDelta>()> plan_;
+};
+
 enum class SnapshotStageStatus { IN_PROGRESS, COMPLETE, DUPLICATE_COMPLETE };
 
 struct SnapshotStageResult {
@@ -102,7 +108,7 @@ class SnapshotStore {
   auto PrepareCapturePath() -> std::filesystem::path;
   void CancelCapture();
 
-  auto PlanDelta(const RaftSnapshot &target) -> std::optional<SnapshotDelta>;
+  auto OfferDelta(const RaftSnapshot &target) -> std::optional<SnapshotDeltaOffer>;
   auto BeginDelta(const RaftSnapshot &target, const RaftSnapshot &base, uint64_t session) -> bool;
   auto StageChunk(const SnapshotChunk &chunk) -> SnapshotStageResult;
   auto Staged(std::string_view snapshot_id) const -> std::optional<RaftSnapshot>;

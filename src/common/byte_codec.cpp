@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "common/byte_codec.h"
+#include <array>
 
 #include <cstring>
 #include <limits>
@@ -95,6 +96,31 @@ auto ByteReader::ReadString() -> std::string {
 void ByteReader::Skip(size_t size) {
   Require(size);
   offset_ += size;
+}
+
+auto Crc32cCombine(uint32_t prefix, uint32_t suffix, uint64_t suffix_size) -> uint32_t {
+  // Exponentiate the linear zero-byte operator over GF(2). Like zlib's
+  // crc32_combine, but using CRC32C's reflected Castagnoli polynomial.
+  std::array<uint32_t, 32> operation{};
+  for (size_t i = 0; i < operation.size(); ++i) {
+    auto v = uint32_t{1} << i;
+    for (int bit = 0; bit < 8; ++bit) v = (v >> 1U) ^ ((v & 1U) ? 0x82F63B78U : 0U);
+    operation[i] = v;
+  }
+  const auto apply = [](const auto &matrix, uint32_t value) {
+    uint32_t result = 0;
+    for (size_t i = 0; value != 0; ++i, value >>= 1U)
+      if (value & 1U) result ^= matrix[i];
+    return result;
+  };
+  while (suffix_size != 0) {
+    if (suffix_size & 1U) prefix = apply(operation, prefix);
+    suffix_size >>= 1U;
+    auto squared = operation;
+    for (size_t i = 0; i < operation.size(); ++i) squared[i] = apply(operation, operation[i]);
+    operation = squared;
+  }
+  return prefix ^ suffix;
 }
 
 auto Crc32cExtend(uint32_t previous_crc, const std::byte *data, size_t size) -> uint32_t {

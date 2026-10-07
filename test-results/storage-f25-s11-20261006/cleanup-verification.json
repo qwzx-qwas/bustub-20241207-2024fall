@@ -1,72 +1,97 @@
 {
   "review_date": "2026-10-07",
+  "base_commit": "3a298eb8de9d8c64b4f1f780b03475e8c35cf936",
   "temporary_workspaces_removed": [
+    "/tmp/f25-next",
     "/tmp/f25-review-20261007",
-    "/tmp/f25-session-review",
-    "/tmp/f25-final-review-20261007",
-    "/tmp/f25-precommit-20261007"
+    "/tmp/f25-proof-review-20261007"
   ],
   "source_archive": "test/archives/F25-shared-snapshot.tar.gz",
   "results_archive": "test-results/storage-f25-s11-20261006/F25-results.tar.gz",
   "source_archive_versions": 1,
-  "obsolete_f25_archives": [],
-  "dependency_archives": "seven unchanged effective module archives, retained",
-  "normal_tests_passed": 38,
-  "mutations_detected": 13,
-  "hash_checks": 2336,
-  "local_links_checked": 649,
-  "new_permanent_test_targets": 0,
-  "production_changed_in_review": false,
-  "review_changes": [
-    "Revalidated unchanged production implementation against agreed plan and previous test evidence",
-    "Clarified incremental retirement/GC interleaving does not demonstrate concurrent Store calls",
-    "Clarified duplicate progress/content assertions do not independently prove all persistent references released",
-    "Changed one test comment and RESTORE documentation only; assertions and runners unchanged",
-    "Reused prior 38 passing cases and 13 detected mutations; no test rerun",
-    "Replaced current source/results archives in place; no obsolete package retained"
-  ],
-  "incomplete": "Retained transfer base policy and automatic Leader incremental catch-up E2E remain pending user choice",
   "result_archive_versions": 1,
-  "production_files_in_manifest": 460,
-  "source_archive_sha256": "08b1459ddf6b82838bdb2cd482ac2774eed76694013fd40dcc67997126cce013",
-  "results_archive_sha256": "1f80b0f6a969d35d1be6f6373ad36d0fcdc68bc5706666edc04aaef17b9291b8",
-  "production_files_changed_in_review": [],
-  "mutation_selection_checks": {
-    "commands": 2,
-    "exit_codes": [
-      2,
-      2
-    ]
-  },
-  "production_changed": false,
-  "test_behavior_changed": false,
+  "obsolete_f25_archives": [],
+  "dependency_archives": "seven unchanged effective module archives",
+  "normal_tests_passed": 47,
+  "normal_stage": 42,
+  "existing_catalog": 5,
+  "mutations_detected": 19,
+  "final_api_cleanup_rechecked_mutations": 5,
   "tests_rerun": false,
-  "verified_previous_normal": 38,
-  "verified_previous_mutations": 13,
-  "initial_hash_checks": 1618,
-  "source_changes": [
-    "RESTORE.md",
-    "tests/incremental_snapshot_test.cpp (comment only)"
-  ],
+  "test_behavior_changed": false,
+  "new_permanent_test_targets": 0,
+  "production_files_in_manifest": 460,
+  "source_archive_sha256": "4a0201a50d60ae99510238bf499cea7e776696a73fdf1e14803b2843492865f8",
+  "results_archive_sha256": "3ed2348ff0f42b951b62e5ee351dfaa18ff3419ffd123db758195b8687be78e5",
+  "hash_checks": 1313,
+  "local_links_checked": 719,
+  "evidence_files_verified": 815,
   "commit_requested": true,
-  "commit_scope": "verified incremental snapshot mechanisms; automatic catch-up remains incomplete",
-  "precommit_review": {
+  "validation_scope": "Direct files, real SQL/RaftNode, loopback TCP, ASan/UBSan/LSan; fixtures set up the base. No CLI E2E, performance, raw device, TSan or physical power-loss validation.",
+  "incomplete": "S11 compression, S12/S13 and common performance comparison",
+  "normal_rerun_this_review": 0,
+  "mutations_rerun_this_review": 0,
+  "normal_inherited_unchanged": 47,
+  "mutations_inherited_unchanged": 19,
+  "production_changed_in_implementation": true,
+  "production_changed_this_review": false,
+  "review_changes_previous_implementation": [
+    "Manifest v2 independent transfer base and lazy benefit-filtered shared plan",
+    "Stable per-peer target and cached unacknowledged chunk",
+    "Prepare once and install same validated candidate",
+    "CRC passes and Catalog scans combined; batched range sharing and frame input",
+    "Removed production PlanDelta wrappers lacking production callers",
+    "Replaced source/results archives; removed all current task temporary artifacts"
+  ],
+  "review_changes": [
+    "Corrected obsolete current-progress summary; S11 full/incremental transfer and automatic catchup are complete, compression remains.",
+    "Rechecked current source/dependency/test hashes, archived raw XML and specific mutation predicates; no production or C++ test edits/reruns.",
+    "Confirmed exactly one current source/results archive and absent old temporary workspaces; refreshed documentation in results archive.",
+    "User authorized committing current stage; next stage remains pending confirmation."
+  ],
+  "previous_case_review_changes": [
+    "Enhanced existing automatic catchup with actual SQL suffix and Raft constructor recovery; removed manual test Apply.",
+    "Direct Offer/Install target assertions; removed end-of-test duplicate assertion and target vector.",
+    "Corrected mutation to actually select new target; old timeout is superseded and not counted.",
+    "Added skip-restart-committed-suffix mutation; four relevant mutations rechecked.",
+    "No production changes or new normal test functions; remaining valid evidence reused transparently.",
+    "Replaced the only F25 source and results archives; verified contents; removed 2.0 GiB review workspace."
+  ],
+  "previous_case_review_runs": {
+    "normal": 1,
+    "mutations": 4
+  },
+  "cpp_tests_changed_this_review": false,
+  "verdict_checks": {
+    "existing_proofs_accepted": 19,
+    "invalid_proofs_rejected": 11,
+    "scope": "test runner classifier only; not additional database tests"
+  },
+  "commit_verification": "Commit identity and completion are verified from git log/status after submission, not self-recorded in this file.",
+  "previous_verdict_review_changes": [
+    "Require specific failure markers for all mutations; replace eleven absent and three generic markers.",
+    "Check exact test identity, executed/non-skipped status, and reject internal progress timeout.",
+    "Replay verdict function against nineteen existing raw XML proofs and reject eleven invalid proof inputs; no C++ rerun.",
+    "Clarify latest-at-start versus fixed target during transfer in plan; no production changes.",
+    "Replace only source/results archives, verify all hashes, remove temporary workspace."
+  ],
+  "submission_review": {
     "date": "2026-10-07",
-    "production_hashes_verified": 460,
-    "dependencies_verified": 7,
-    "normal_tests": {
-      "deferred": 12,
-      "checkpoint": 26
-    },
-    "mutations_verified": 13,
-    "tests_rerun": false,
-    "hash_checks": 1645,
-    "obsolete_archives": [],
-    "source_versions": 1,
-    "result_versions": 1,
     "production_changed": false,
-    "local_links_checked": 649,
-    "results_archive_sha256": "1f80b0f6a969d35d1be6f6373ad36d0fcdc68bc5706666edc04aaef17b9291b8",
-    "evidence_files_verified": 689
+    "cpp_tests_changed": false,
+    "cpp_rerun": false,
+    "source_and_dependencies_verified": 473,
+    "normal_raw_xml_verified": 47,
+    "mutation_raw_xml_verified": 19,
+    "current_source_archive_versions": 1,
+    "current_results_archive_versions": 1,
+    "commit_authorized": true,
+    "next_stage_execution_authorized": false
+  },
+  "hash_check_breakdown": {
+    "source_and_dependencies": 473,
+    "results_contents": 815,
+    "source_archive_inventory": 24,
+    "results_archive_inventory": 1
   }
 }

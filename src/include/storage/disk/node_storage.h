@@ -119,6 +119,10 @@ class NodeStorage {
   auto ShareObjectRange(const ObjectMappingSnapshot &source, ObjectKey key, ObjectKey destination, uint64_t offset,
                         uint64_t length, uint64_t destination_offset) -> JournalResult;
   auto ReclaimObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t allocation) -> ObjectReclaimResult;
+  /** Construct an unpublished immutable range using bounded commits. May have
+   * committed a prefix on failure; caller owns cancellation of its candidate. */
+  void ShareObjectRangeBatched(const ObjectMappingSnapshot &source, ObjectKey key, ObjectKey destination,
+                               uint64_t offset, uint64_t length, uint64_t destination_offset);
   auto ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length) -> ObjectRead;
   auto ReadObjectInto(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
                       ObjectReadTarget target) -> ObjectRead;

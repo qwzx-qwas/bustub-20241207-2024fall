@@ -1,22 +1,25 @@
-# S11 / F25 共享与增量接收验证（更新至 2026-10-07）
+# S11 / F25 自动增量追赶与去重验证（2026-10-07）
 
-**本轮 38 项正常测试通过，13 项指定变异全部检出；增量整轮尚未完成。** 当前 `previous` 同时承担恢复入口与日志保留边界，独立传输基础的保留策略仍待选择。因此，实际 TCP Follower 安装已验证，自动 Leader 在自然落后场景选择增量的 E2E 尚未完成。
+**上次实际复验：1 个增强场景通过、4 个指定变异检出；当前有效证据合计 47 个正常场景、19 个不同变异。** 其余 46 个正常场景和 15 个变异沿用未改动部分的既有结果，不表示全套重跑。 日志不足时由真实 Leader 自动协商旧基础并发送最新目标，已由三节点生产路径验证。S11 压缩、S12/S13、正式性能比较仍未完成。
 
-最新复核见 [审查 §10](../../docs/storage_redesign/s11_incremental_execution_20261007.md#10-再次核对实现与证据范围2026-10-07)：未改生产或测试行为，沿用上述实测结果，没有重新运行。修正“并发退役”的范围表述，并明确重复块断言不能独立证明所有空间已释放；本次实际执行归档哈希、XML/命令、文档链接和 diff 核验。
+- 最终默认阶段证据：`runs/clean-final/deferred.xml` 12 项、`checkpoint.xml` 30 项（F25 共享 6、增量 9、F28 7、S8 8）；另直接运行既有 Catalog 5 项（`runs/catalog.xml`）。不把诊断重跑累计成额外覆盖。
+- 上次实际定向证据：`runs/design-review-20261007/normal/checkpoint.xml`、`runs/design-review-20261007/mutations/mutations.json`。增强真实业务后缀和 Raft 启动恢复；Offer/Install 立即核对目标。
+- `runs/mutations` 原记录 18 项、`runs/mutations-final` 是其中 5 项复验。**原更换目标变异实际反复重建旧会话、依靠进度超时，不能算直接检出。** 最新变异同时更换目标选择和重建条件，已命中身份错误；新增加跳过启动 ApplyCommitted 的变异，命中恢复进度/业务/Session 断言。当前 19 项来自 15 个未变旧变异及本次 4 个，不累计重复执行。旧超时及本次修正过程只作诊断。
+- Clang 14 Debug，ASan/UBSan/LSan；真实 SQL、Direct 普通文件、loopback TCP。自动追赶夹具先准备基础数据/日志缺口，随后只控制离线链路与逻辑时钟，Raft 自行选举、发 Offer/Install/Append；旧手工 TCP 场景专门保护乱序/会话/term 风险。不是 CLI/客户端网关 E2E；低收益回退仍为 Store 集成测试。未验证真实掉电、裸设备、TSan 或性能比较。
+- 唯一阶段源码：[F25-shared-snapshot.tar.gz](../../test/archives/F25-shared-snapshot.tar.gz)。MANIFEST 固定生产源码、五个包内文件、七个有效依赖包及复用的 Catalog 测试。RESTORE 提供重建运行命令；测试只压缩归档，不新增常驻目标。
+- [共同协议](../../docs/storage_redesign/s11_incremental_snapshot.md) · [实际改动、代码逻辑与测试设计审查](../../docs/storage_redesign/s11_automatic_execution_20261007.md)。旧文档的 38/13 为前一轮证据，本包已经原位替换旧包，没有旧版备份。
 
-- 新增增量 5 项、原 F25 6 项、F28 7 项、S8 8 项、F27 12 项。原模块场景从有效归档复用，不另建重复 oracle。
-- 最终正常证据：`runs/session-review20261007/deferred.xml` 的 12 项与 `runs/session-review20261007/checkpoint.xml` 的 26 项。`runs/session-mutations20261007` 是十三项定向变异；其余运行仅为过程诊断，不累加通过数量。`runs/selection-review.json` 单独记录变异脚本拒绝空/未知选择的两条命令。
-- Clang14 Debug，ASan/UBSan/LSan；真实 SQL、Direct 普通文件、本机 TCP。新 TCP 场景使用实际 Raft Follower，发送端为测试协议驱动；原 S8 三节点继续保护全量传输。未进行真实掉电、裸设备、TSan 或性能对比。
-- 唯一阶段源码：[F25-shared-snapshot.tar.gz](../../test/archives/F25-shared-snapshot.tar.gz)。MANIFEST 核对生产、测试及七个依赖包；RESTORE 提供重建与运行命令。
-- [增量协议](../../docs/storage_redesign/s11_incremental_snapshot.md)、[实际改动与测试设计审查](../../docs/storage_redesign/s11_incremental_execution_20261007.md)。旧共享阶段证据范围见对应历史文档，本轮未将自动增量标为完成。
+最新复审只收紧变异脚本，未修改生产代码或 C++ 场景；使用同一判定函数复核 19 份既有原始 XML，全部符合；10 种无效报告及原目标超时 XML 全部拒绝。见 `runs/verdict-review-20261007`。这次没有重编译/重跑 C++，这些判据检查不增加 47/19 的测试数量。
 
-此前复审补齐 BeginDelta 的最终清单预算预检和独立会话判据。本次修复迟到 Offer/旧全量块取消新接收、Accepted 重发未续期的问题，并在新 term 清除编号边界。复用原 TCP 测试验证这四种风险，没有增加正常测试函数或生产测试接口；四个新变异逐条验证断言有效。另修正变异脚本静默跳过未知选择的问题。具体逻辑、Oracle 和范围见审查 §9。
+再次审查未修改生产代码。此前本轮生产变化包括 Manifest v2 独立传输基础、轻量协商后规划、按成本代理筛选、固定传输目标与一个重传块；PrepareSnapshot 一次构建后安装；校验遍历/多索引扫描合并；范围引用合批；映射枚举及帧缓冲读取。保持现有发布、恢复校验和引用保护。20% 是初始筛选规则，网络正文减少与逻辑读取次数减少都不代替实际延迟/设备 IO 测量。
 
-测试验证独立 SQL/Session 预期、日志后缀、重启、旧基础退役期间读取、大于数据库页的分配单位、错误基础、冲突重发、错误复用和旧会话；字节对照不是唯一判据。接收阶段观察实际 pwrite，检查未变化正文没有额外复制。观察代码只链接在测试程序，没有 production hook/getter。
+过程诊断保留在 `diagnostics`：首次沙箱无法使用 TCP/LSan，后在允许环境复验；测试夹具曾把清单版本写成小端，已按实际大端格式修正；1 KiB 日志段导致大夹具裁剪超出现有提交额度，改用合法 16 KiB 测试部署，未放宽生产额度。编译阶段的缺少头文件及临时值生命周期错误也已修正。最终正常结果均为零失败。
 
-本目录仅保留 README、SHA256SUMS、清理核验及 `F25-results.tar.gz`。结果包保留命令/日志/XML、变异说明、当前生产源及 diff、当前唯一测试源码包、方案与审查，不保留设备镜像、执行文件、对象文件或旧源码包。原 F25 源码与结果包原位替换，无旧版/备份；S8/F28/F27 等独立有效依赖包不变。目录沿用初次验证日期以保持既有链接有效。
+本目录仅保留 README、SHA256SUMS、清理核验及 `F25-results.tar.gz`。结果包包含最终命令/日志/XML、变异、诊断、当前源码及 diff、唯一测试源码包和方案审查，不保留镜像、可执行文件、对象文件或旧测试包。其他模块有效依赖包不变。目录沿用初次验证日期以保持链接有效。
 
-首次沙箱 LSan 线程检查失败，仅记环境诊断；在允许线程检查和本机网络的环境复验，没有关闭 sanitizer。构建与测试在 `/tmp` 展开，归档校验后删除本轮中间产物。结果 tar 沿既有 .gitignore 本地保存，不自动加入 Git。用户已授权本次审查通过后提交已完成的增量机制；提交范围与下一步边界见 [§11](../../docs/storage_redesign/s11_incremental_execution_20261007.md#11-提交前核验与后续边界2026-10-07)，实际提交以 Git 历史为准。
+归档校验后删除 `/tmp/f25-next` 、再次审查的 `/tmp/f25-review-20261007` 及判据复审的 `/tmp/f25-proof-review-20261007` 展开和构建产物；结果 tar 沿现有 .gitignore 本地保存。
+
+提交前复核再次核对当前源码及原始 XML：47 个不同正常场景通过，19 个变异符合归档 runner 的指定失败判据；本次没有重跑 C++。仅修正文档的过时进度摘要并同步归档说明，详见执行审查 §9。用户已授权提交本阶段，具体提交身份以 Git 为准；不 push。
 
 ```bash
 (cd test-results/storage-f25-s11-20261006 && sha256sum -c SHA256SUMS)

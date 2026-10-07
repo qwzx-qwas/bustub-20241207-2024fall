@@ -308,3 +308,7 @@ S11 增加预算预刷和完整 Apply 边界的脏表页捕获；不引入完整
 ## 2026-10-06 S11 / F25 共享快照接续
 
 本轮已授权的共同协议与 prompt 见 [共享快照](../s11_shared_snapshot.md)。本段接续前文历史待定项：F25 沿用一个普通候选对象和 Manifest，将固定表页共享到该对象；F28 的页空间根与快照对象拥有独立引用，旧根退出不使快照失效。接收端读取新的页流格式并在本地重建索引，旧 canonical 格式仍可读。复用 S10 的 Journal/Data 来源切换；增量、压缩仍未实现。当前同步 Capture 可能等待准确的 checkpoint 边界，不等同 F35 全面异步化。
+
+### 2026-10-07 S11/F25 自动追赶接续
+
+SnapshotInput 的 ReadInto 让 native 快照恢复复用帧地址与持有许可，实际 IO 完成前保留 WritePageGuard。没有为测试暴露帧地址 getter，未增加 FS 长期数据缓存；文件输入仍使用兼容读法。Clone 从映射范围跳过空洞，连续共享委托 F13/NodeStorage 的有界构建。 共同规则见 [增量方案 §7](../s11_incremental_snapshot.md#7-本轮自动追赶与去重接续已授权)，证据与未覆盖范围见 [本轮审查](../s11_automatic_execution_20261007.md)。

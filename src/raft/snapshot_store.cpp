@@ -523,9 +523,10 @@ void SnapshotStore::RetainOnlyLatest() {
   PruneSnapshots();
 }
 
-auto SnapshotStore::PlanDelta(const RaftSnapshot &target) -> std::optional<SnapshotDelta> {
-  return object_ ? object_->PlanDelta(target) : std::nullopt;
+auto SnapshotStore::OfferDelta(const RaftSnapshot &target) -> std::optional<SnapshotDeltaOffer> {
+  return object_ ? object_->OfferDelta(target) : std::nullopt;
 }
+
 auto SnapshotStore::BeginDelta(const RaftSnapshot &target, const RaftSnapshot &base, uint64_t session) -> bool {
   return object_ && object_->BeginDelta(target, base, session);
 }

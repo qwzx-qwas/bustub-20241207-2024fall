@@ -335,19 +335,21 @@ class Catalog {
 
     // Populate the index with all tuples in table heap
     auto table_meta = GetTable(table_name);
-    for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
-      auto [tuple_meta, tuple] = iter.GetTuple();
-      if (tuple_meta.is_deleted_) {
-        continue;
+    if (!rebuilding_indexes_)
+      for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
+        auto [tuple_meta, tuple] = iter.GetTuple();
+        if (tuple_meta.is_deleted_) {
+          continue;
+        }
+        const auto inserted =
+            index->InsertEntry(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid(), txn);
+        // A primary index is the replicated row-identity oracle. Silently dropping a duplicate while rebuilding would
+        // expose a Catalog whose heap contains an unreachable second live row. Ordinary secondary indexes are
+        // intentionally non-unique in V1, so only primary insertion failure is fatal here.
+        if (is_primary_key && !inserted) {
+          return NULL_INDEX_INFO;
+        }
       }
-      const auto inserted = index->InsertEntry(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid(), txn);
-      // A primary index is the replicated row-identity oracle. Silently dropping a duplicate while rebuilding would
-      // expose a Catalog whose heap contains an unreachable second live row. Ordinary secondary indexes are
-      // intentionally non-unique in V1, so only primary insertion failure is fatal here.
-      if (is_primary_key && !inserted) {
-        return NULL_INDEX_INFO;
-      }
-    }
 
     // Recovery and replicated Apply supply the logical OID explicitly. Normal
     // single-node callers continue to allocate from the catalog counter.
@@ -391,13 +393,14 @@ class Catalog {
 
     auto table_meta = GetTable(table_name);
     std::vector<std::pair<Tuple, RID>> entries;
-    for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
-      auto [tuple_meta, tuple] = iter.GetTuple();
-      if (tuple_meta.is_deleted_) {
-        continue;
+    if (!rebuilding_indexes_)
+      for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
+        auto [tuple_meta, tuple] = iter.GetTuple();
+        if (tuple_meta.is_deleted_) {
+          continue;
+        }
+        entries.emplace_back(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid());
       }
-      entries.emplace_back(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid());
-    }
     index->BuildFromEntries(entries);
 
     const auto index_oid = explicit_index_oid.value_or(next_index_oid_.load());
@@ -437,13 +440,14 @@ class Catalog {
 
     auto table_meta = GetTable(table_name);
     std::vector<std::pair<Tuple, RID>> entries;
-    for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
-      auto [tuple_meta, tuple] = iter.GetTuple();
-      if (tuple_meta.is_deleted_) {
-        continue;
+    if (!rebuilding_indexes_)
+      for (auto iter = table_meta->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
+        auto [tuple_meta, tuple] = iter.GetTuple();
+        if (tuple_meta.is_deleted_) {
+          continue;
+        }
+        entries.emplace_back(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid());
       }
-      entries.emplace_back(tuple.KeyFromTuple(schema, key_schema, key_attrs), tuple.GetRid());
-    }
     index->BuildFromEntries(entries);
 
     const auto index_oid = explicit_index_oid.value_or(next_index_oid_.load());
@@ -587,6 +591,10 @@ class Catalog {
   auto AdvanceSchemaEpoch() -> uint64_t { return schema_epoch_.fetch_add(1) + 1; }
 
  private:
+  friend class CatalogSnapshotCodec;
+  // Restore creates every index structure before a single table scan populates
+  // them. Private to serialized Catalog recovery, never a caller/test switch.
+  bool rebuilding_indexes_{false};
   [[maybe_unused]] BufferPoolManager *bpm_;
   [[maybe_unused]] LockManager *lock_manager_;
   [[maybe_unused]] LogManager *log_manager_;

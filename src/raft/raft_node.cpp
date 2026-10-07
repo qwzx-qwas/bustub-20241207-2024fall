@@ -471,7 +471,8 @@ void RaftNode::Handle(NodeId from, const SnapshotOfferResponse &response) {
     return;
   }
   t.offering_ = false;
-  if (response.status_ == SnapshotOfferStatus::Unsupported) t.delta_.reset();
+  if (response.status_ == SnapshotOfferStatus::Accepted) t.delta_ = t.offer_->plan_();
+  t.offer_.reset();
   t.request_id_ = ++last_request_id_[from];
   SendSnapshot(from);
 }
@@ -569,8 +570,9 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     FailStop();
     throw std::runtime_error("Raft snapshot boundary cannot preserve the committed suffix");
   }
+  std::unique_ptr<PreparedSnapshot> prepared;
   try {
-    state_machine_->ValidateSnapshot(*staged_payload, staged->last_included_index_);
+    prepared = state_machine_->PrepareSnapshot(*staged_payload, staged->last_included_index_);
   } catch (const std::exception &) {
     try {
       snapshot_store_->CancelStaged(request.snapshot_id_);
@@ -601,7 +603,8 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     if (log_store_->CommittedIndex() < new_commit) {
       AdvanceLogCommitOrStop(new_commit);
     }
-    state_machine_->LoadSnapshot(*staged_payload, staged->last_included_index_);
+    prepared->Install();
+    prepared.reset();
     snapshot_store_->CancelStaged(request.snapshot_id_);
     incoming_delta_.reset();
     last_applied_ = staged->last_included_index_;
@@ -719,6 +722,15 @@ auto RaftNode::CreateSnapshot() -> RaftSnapshot {
       throw std::runtime_error("published Raft snapshot has no recovery base");
     }
     if (recovery_base->last_included_index_ > log_store_->SnapshotBaseIndex()) {
+      // A session keeps its target across publication, but may not pin an
+      // unbounded log tail. Cancel only when the normal recovery floor actually
+      // crosses that target; the next attempt selects the current latest.
+      for (auto it = snapshot_transfers_.begin(); it != snapshot_transfers_.end();) {
+        if (it->second.snapshot_.last_included_index_ < recovery_base->last_included_index_)
+          it = snapshot_transfers_.erase(it);
+        else
+          ++it;
+      }
       InstallLogSnapshotBaseDurably(recovery_base->last_included_index_, recovery_base->last_included_term_, true);
     }
     return snapshot;
@@ -784,13 +796,13 @@ void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_of
   if (snapshot_store_ == nullptr || !snapshot_store_->Latest().has_value()) {
     throw std::runtime_error("Raft Leader has no published snapshot for a compacted follower");
   }
-  const auto snapshot = *snapshot_store_->Latest();
   auto transfer = snapshot_transfers_.find(peer);
-  if (transfer == snapshot_transfers_.end() || transfer->second.snapshot_.snapshot_id_ != snapshot.snapshot_id_) {
+  const auto snapshot = transfer == snapshot_transfers_.end() ? *snapshot_store_->Latest() : transfer->second.snapshot_;
+  if (transfer == snapshot_transfers_.end()) {
     const auto request_id = ++last_request_id_[peer];
     SnapshotTransfer t{snapshot, 0, 0, request_id, snapshot_store_->Input(snapshot)};
-    t.delta_ = snapshot_store_->PlanDelta(snapshot);
-    if (t.delta_) {
+    t.offer_ = snapshot_store_->OfferDelta(snapshot);
+    if (t.offer_) {
       t.offering_ = true;
       t.offer_id_ = request_id;
       t.offer_deadline_ = now_ms_ + config_.heartbeat_interval_ms_;
@@ -800,41 +812,47 @@ void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_of
     if (*acknowledged_offset < transfer->second.end_offset_ || *acknowledged_offset >= snapshot.payload_size_)
       throw std::runtime_error("follower acknowledged an invalid Raft snapshot offset");
     transfer->second.offset_ = *acknowledged_offset;
+    transfer->second.chunk_.reset();
     transfer->second.request_id_ = ++last_request_id_[peer];
   }
   auto &t = transfer->second;
   if (t.offering_) {
     if (now_ms_ < t.offer_deadline_) {
       Send(peer,
-           SnapshotOfferRequest{hard_state_.current_term_, config_.node_id_, t.offer_id_, snapshot, t.delta_->base_});
+           SnapshotOfferRequest{hard_state_.current_term_, config_.node_id_, t.offer_id_, snapshot, t.offer_->base_});
       return;
     }
     // No capability/base confirmation: a legacy peer may not recognize Offer.
     t.offering_ = false;
+    t.offer_.reset();
     t.delta_.reset();
     t.request_id_ = ++last_request_id_[peer];
   }
   constexpr size_t max_chunk_bytes = 64U * 1024U;
-  SnapshotChunk chunk;
-  if (t.delta_) {
-    chunk = t.delta_->chunk_(t.offset_, max_chunk_bytes);
-    chunk.delta_session_ = t.offer_id_;
-  } else {
-    const auto size = std::min<uint64_t>(max_chunk_bytes, snapshot.payload_size_ - t.offset_);
-    chunk = {snapshot.snapshot_id_,
-             snapshot.last_included_index_,
-             snapshot.last_included_term_,
-             t.offset_,
-             snapshot.payload_size_,
-             snapshot.payload_checksum_,
-             t.offset_ + size == snapshot.payload_size_,
-             t.input_.Read(t.offset_, size)};
+  if (!t.chunk_) {
+    SnapshotChunk chunk;
+    if (t.delta_) {
+      chunk = t.delta_->chunk_(t.offset_, max_chunk_bytes);
+      chunk.delta_session_ = t.offer_id_;
+    } else {
+      const auto size = std::min<uint64_t>(max_chunk_bytes, snapshot.payload_size_ - t.offset_);
+      chunk = {snapshot.snapshot_id_,
+               snapshot.last_included_index_,
+               snapshot.last_included_term_,
+               t.offset_,
+               snapshot.payload_size_,
+               snapshot.payload_checksum_,
+               t.offset_ + size == snapshot.payload_size_,
+               t.input_.Read(t.offset_, size)};
+    }
+    t.end_offset_ = chunk.offset_ + (chunk.reuse_ ? chunk.reuse_->length_ : chunk.data_.size());
+    t.chunk_ = std::move(chunk);
   }
-  t.end_offset_ = chunk.offset_ + (chunk.reuse_ ? chunk.reuse_->length_ : chunk.data_.size());
-  Send(peer, InstallSnapshotRequest{hard_state_.current_term_, config_.node_id_, t.request_id_, chunk.snapshot_id_,
-                                    chunk.last_included_index_, chunk.last_included_term_, chunk.offset_,
-                                    chunk.total_size_, chunk.payload_checksum_, chunk.done_, std::move(chunk.data_),
-                                    chunk.delta_session_, chunk.reuse_});
+  const auto &chunk = *t.chunk_;
+  Send(peer,
+       InstallSnapshotRequest{hard_state_.current_term_, config_.node_id_, t.request_id_, chunk.snapshot_id_,
+                              chunk.last_included_index_, chunk.last_included_term_, chunk.offset_, chunk.total_size_,
+                              chunk.payload_checksum_, chunk.done_, chunk.data_, chunk.delta_session_, chunk.reuse_});
 }
 
 void RaftNode::BroadcastAppend() {

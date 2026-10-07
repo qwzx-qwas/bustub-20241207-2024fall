@@ -1,6 +1,7 @@
 // Bounded snapshot bytes, independent of files versus ordinary objects.
 #pragma once
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -13,6 +14,18 @@ struct SnapshotInput {
   uint64_t size_;
   // The source retains its entire use lease, including gaps between Read calls.
   std::function<std::vector<std::byte>(uint64_t, size_t)> source_;
+  // Optional direct destination supported by object IO. The borrowed buffer
+  // and its owner's lifetime extend through actual completion.
+  std::function<void(uint64_t, std::byte *, size_t, std::shared_ptr<void>)> into_{};
+  void ReadInto(uint64_t offset, std::byte *data, size_t size, std::shared_ptr<void> owner) const {
+    if (offset > size_ || size > size_ - offset) throw std::out_of_range("snapshot range exceeds body");
+    if (into_) {
+      into_(offset_ + offset, data, size, std::move(owner));
+      return;
+    }
+    const auto bytes = Read(offset, size);
+    std::memcpy(data, bytes.data(), size);
+  }
   auto Read(uint64_t offset, size_t size) const -> std::vector<std::byte> {
     if (offset > size_ || size > size_ - offset) {
       throw std::out_of_range("snapshot range exceeds body");
@@ -27,7 +40,7 @@ struct SnapshotInput {
     if (offset > size_ || size > size_ - offset) {
       throw std::out_of_range("snapshot slice exceeds body");
     }
-    return {offset_ + offset, size, source_};
+    return {offset_ + offset, size, source_, into_};
   }
 };
 inline auto FileSnapshotInput(const DurableFileSlice &slice, std::shared_ptr<DurableStorage> storage) -> SnapshotInput {

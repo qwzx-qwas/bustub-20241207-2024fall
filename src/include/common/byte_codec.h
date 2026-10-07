@@ -64,6 +64,8 @@ class ByteReader {
 /** CRC-32C (Castagnoli), used only as an integrity checksum, never as a digest. */
 auto Crc32c(const std::byte *data, size_t size) -> uint32_t;
 auto Crc32c(const std::vector<std::byte> &data) -> uint32_t;
+/** CRC of A followed by B from their independent CRCs, without rereading A/B. */
+auto Crc32cCombine(uint32_t prefix, uint32_t suffix, uint64_t suffix_size) -> uint32_t;
 auto Crc32cExtend(uint32_t previous_crc, const std::byte *data, size_t size) -> uint32_t;
 
 /** Description of a stable magic/version/length/payload/CRC frame. */

@@ -7,6 +7,7 @@
 
 #include <condition_variable>  // NOLINT(build/c++11)
 #include <mutex>               // NOLINT(build/c++11)
+#include <thread>
 #include <utility>
 
 #include "object_io_internal.h"           // NOLINT(build/include_subdir): private sibling component.
@@ -649,6 +650,30 @@ auto NodeStorage::ShareObjectRange(const ObjectMappingSnapshot &source, ObjectKe
     impl_->Outcome(generation, result);
     return result;
   });
+}
+void NodeStorage::ShareObjectRangeBatched(const ObjectMappingSnapshot &source, ObjectKey key, ObjectKey destination,
+                                          uint64_t offset, uint64_t length, uint64_t destination_offset) {
+  uint64_t done = 0, bound = 64U * 1024U;
+  while (done < length) {
+    const auto take = std::min(bound, length - done);
+    try {
+      const auto result = ShareObjectRange(source, key, destination, offset + done, take, destination_offset + done);
+      if (result.outcome_ != JournalOutcome::Durable) {
+        if (result.error_) std::rethrow_exception(result.error_);
+        throw std::runtime_error("shared range was not durably committed");
+      }
+      done += take;
+    } catch (const MetadataViewConflict &) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } catch (const MetadataCommitBusy &) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } catch (const ObjectMappingError &e) {
+      // Mapping planning rejects oversized changes before any commit. Reduce
+      // the batch only for this capacity rejection, never retry uncertain IO.
+      if (e.Code() != ObjectMappingErrorCode::ResourceUnavailable || take <= BUSTUB_PAGE_SIZE) throw;
+      bound = std::max<uint64_t>(BUSTUB_PAGE_SIZE, (take / 2 / BUSTUB_PAGE_SIZE) * BUSTUB_PAGE_SIZE);
+    }
+  }
 }
 auto NodeStorage::ReadObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length)
     -> ObjectRead {

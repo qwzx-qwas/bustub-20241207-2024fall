@@ -439,6 +439,10 @@ auto CatalogSnapshotCodec::Decode(const std::vector<std::byte> &bytes) -> Catalo
 
 void CatalogSnapshotCodec::Restore(const CatalogSnapshot &snapshot, Catalog *catalog, BufferPoolManager *bpm,
                                    Transaction *txn) {
+  Restore(snapshot, catalog, bpm, txn, {});
+}
+void CatalogSnapshotCodec::Restore(const CatalogSnapshot &snapshot, Catalog *catalog, BufferPoolManager *bpm,
+                                   Transaction *txn, const std::function<void(const TupleMeta &)> &validate_row) {
   if (catalog == nullptr || bpm == nullptr) {
     throw std::runtime_error("invalid catalog restore target");
   }
@@ -465,9 +469,40 @@ void CatalogSnapshotCodec::Restore(const CatalogSnapshot &snapshot, Catalog *cat
   auto indexes = snapshot.indexes_;
   std::sort(indexes.begin(), indexes.end(),
             [](const auto &lhs, const auto &rhs) { return lhs.index_oid_ < rhs.index_oid_; });
+  struct RestoreMode {
+    bool &flag_;
+    explicit RestoreMode(bool &flag) : flag_(flag) { flag_ = true; }
+    ~RestoreMode() { flag_ = false; }
+  } mode(catalog->rebuilding_indexes_);
   for (const auto &record : indexes) {
     if (CreateDerivedIndexFromDefinition(record, catalog, txn) == nullptr) {
       throw std::runtime_error("failed to rebuild catalog index");
+    }
+  }
+  for (const auto &table_record : tables) {
+    auto table = catalog->GetTable(table_record.table_oid_);
+    const auto all = catalog->GetTableIndexes(table->name_);
+    std::map<index_oid_t, std::vector<std::pair<Tuple, RID>>> vectors;
+    for (auto it = table->table_->MakeIterator(); !it.IsEnd(); ++it) {
+      const auto [meta, tuple] = it.GetTuple();
+      if (validate_row) validate_row(meta);  // Also covers deleted rows and tables without indexes.
+      if (meta.is_deleted_) continue;
+      for (const auto &index : all) {
+        auto key = tuple.KeyFromTuple(table->schema_, index->key_schema_, index->key_attrs_);
+        if (index->index_type_ == IndexType::IVFFlatIndex || index->index_type_ == IndexType::HNSWIndex) {
+          vectors[index->index_oid_].emplace_back(std::move(key), tuple.GetRid());
+        } else if (!index->index_->InsertEntry(key, tuple.GetRid(), txn) && index->is_primary_key_) {
+          throw std::runtime_error("duplicate primary key in restored table");
+        }
+      }
+    }
+    for (const auto &index : all) {
+      if (index->index_type_ == IndexType::IVFFlatIndex)
+        dynamic_cast<IVFFlatIndex<Tuple, RID, IntComparator> &>(*index->index_)
+            .BuildFromEntries(vectors[index->index_oid_]);
+      else if (index->index_type_ == IndexType::HNSWIndex)
+        dynamic_cast<HNSWIndex<Tuple, RID, IntComparator> &>(*index->index_)
+            .BuildFromEntries(vectors[index->index_oid_]);
     }
   }
   if (!catalog->RestoreOidAllocators(snapshot.next_table_oid_, snapshot.next_index_oid_)) {

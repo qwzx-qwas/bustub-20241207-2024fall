@@ -301,14 +301,11 @@ void BusTubRaftStateMachine::OpenLocalCheckpoint() {
   SessionSnapshotCodec::DecodeInto(record.sessions_, state->sessions_.get());
   state->sessions_->ValidateSnapshotBoundary(record.point_.index_);
   state->catalog_ = std::make_unique<Catalog>(state->buffer_pool_manager_.get(), nullptr, nullptr);
-  CatalogSnapshotCodec::Restore(catalog, state->catalog_.get(), state->buffer_pool_manager_.get(), nullptr);
-  for (const auto &name : state->catalog_->GetTableNames()) {
-    for (auto it = state->catalog_->GetTable(name)->table_->MakeIterator(); !it.IsEnd(); ++it) {
-      const auto meta = it.GetTuple().first;
-      if (meta.ts_ < 0 || static_cast<uint64_t>(meta.ts_) > record.point_.index_)
-        throw std::runtime_error("checkpoint contains a row beyond its business boundary");
-    }
-  }
+  CatalogSnapshotCodec::Restore(catalog, state->catalog_.get(), state->buffer_pool_manager_.get(), nullptr,
+                                [index = record.point_.index_](const TupleMeta &meta) {
+                                  if (meta.ts_ < 0 || static_cast<uint64_t>(meta.ts_) > index)
+                                    throw std::runtime_error("checkpoint contains a row beyond its business boundary");
+                                });
   state->transaction_manager_ = std::make_unique<TransactionManager>();
   state->transaction_manager_->catalog_ = state->catalog_.get();
   state->execution_engine_ = std::make_unique<ExecutionEngine>(
@@ -411,7 +408,7 @@ void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint
 }
 
 auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index,
-                                                 uint64_t term, uint64_t limit) -> std::optional<uint64_t> {
+                                                 uint64_t term, uint64_t limit) -> std::optional<SharedSnapshotResult> {
   if (index == 0 || !page_deployment_ || page_deployment_->storage_.get() != &storage || !checkpoint_)
     return std::nullopt;
   {
@@ -441,17 +438,26 @@ auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const Obj
   const auto capture = frozen->Capture(highwater, std::nullopt);
   const auto view = storage.Objects();
   std::vector<page_id_t> pages;
-  for (uint64_t page = 0; page < highwater; ++page) {
-    const ObjectKey source{space, 1 + page / options.pages_per_object_};
-    const auto offset = (page % options.pages_per_object_) * BUSTUB_PAGE_SIZE;
-    const auto ranges = view.Resolve(source, offset, BUSTUB_PAGE_SIZE);
-    if (!ranges.complete_) throw std::runtime_error("incomplete checkpoint page mapping");
-    if (std::any_of(ranges.spans_.begin(), ranges.spans_.end(),
-                    [](const auto &span) { return span.data_.has_value(); })) {
-      if (pages.size() >= page_deployment_->cache_.arena_bytes_ / sizeof(page_id_t)) {
-        throw std::runtime_error("shared snapshot page directory exceeds budget");
+  // Enumerate mapped ranges, not every historical page ID in a sparse space.
+  for (uint64_t number = 1; number <= (highwater + options.pages_per_object_ - 1) / options.pages_per_object_;
+       ++number) {
+    const ObjectKey source{space, number};
+    const auto size = view.Describe(source).size_;
+    for (uint64_t offset = 0; offset < size;) {
+      const auto ranges = view.Resolve(source, offset, size - offset);
+      if (ranges.spans_.empty()) throw std::runtime_error("checkpoint mapping made no progress");
+      for (const auto &span : ranges.spans_) {
+        if (!span.data_) continue;
+        for (auto local = span.offset_ / BUSTUB_PAGE_SIZE;
+             local < (span.offset_ + span.size_ + BUSTUB_PAGE_SIZE - 1) / BUSTUB_PAGE_SIZE; ++local) {
+          const auto page = (number - 1) * options.pages_per_object_ + local;
+          if (page >= highwater || (!pages.empty() && pages.back() == static_cast<page_id_t>(page))) continue;
+          if (pages.size() >= page_deployment_->cache_.arena_bytes_ / sizeof(page_id_t))
+            throw std::runtime_error("shared snapshot page directory exceeds budget");
+          pages.push_back(static_cast<page_id_t>(page));
+        }
       }
-      pages.push_back(static_cast<page_id_t>(page));
+      offset = ranges.spans_.back().offset_ + ranges.spans_.back().size_;
     }
   }
   const auto header_size = PageSnapshotHeaderSize(pages.size(), record.catalog_.size(), record.sessions_.size());
@@ -473,7 +479,9 @@ auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const Obj
   header.PutBytes(record.sessions_);
   auto bytes = header.Take();
   bytes.resize(header_size - sizeof(uint32_t), std::byte{0});
-  auto crc = Crc32cExtend(0, bytes.data() + PAGE_SNAPSHOT_MAGIC.size(), bytes.size() - PAGE_SNAPSHOT_MAGIC.size());
+  const auto header_crc =
+      Crc32cExtend(0, bytes.data() + PAGE_SNAPSHOT_MAGIC.size(), bytes.size() - PAGE_SNAPSHOT_MAGIC.size());
+  uint32_t crc = 0;
   for (const auto page : pages) {
     auto read =
         storage.ReadObject(storage.Objects(), {space, 1 + static_cast<uint64_t>(page) / options.pages_per_object_},
@@ -484,7 +492,7 @@ auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const Obj
     crc = Crc32cExtend(crc, body.data(), body.size());
   }
   ByteWriter checksum;
-  checksum.PutU32(crc);
+  checksum.PutU32(Crc32cCombine(header_crc, crc, uint64_t{pages.size()} * BUSTUB_PAGE_SIZE));
   bytes.insert(bytes.end(), checksum.Data().begin(), checksum.Data().end());
   // Finish the header while the object ends at the header. Common's allocation
   // rounding must not pre-map the later page stream, even when its unit exceeds
@@ -504,26 +512,18 @@ auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const Obj
   }
   tx = {{{ObjectOperation::Resize, destination, size, ObjectSizeMode::Variable, {}}}, {}};
   SubmitCheckpoint(storage, tx);
-  for (size_t i = 0; i < pages.size(); ++i) {
+  for (size_t i = 0; i < pages.size();) {
     const auto page = static_cast<uint64_t>(pages[i]);
-    for (;;) {
-      try {
-        const auto result = storage.ShareObjectRange(view, {space, 1 + page / options.pages_per_object_}, destination,
-                                                     (page % options.pages_per_object_) * BUSTUB_PAGE_SIZE,
-                                                     BUSTUB_PAGE_SIZE, header_size + i * BUSTUB_PAGE_SIZE);
-        if (result.outcome_ != JournalOutcome::Durable) {
-          if (result.error_) std::rethrow_exception(result.error_);
-          throw std::runtime_error("shared snapshot reference was not durably committed");
-        }
-        break;
-      } catch (const MetadataViewConflict &) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));  // Rejected before commit; retry current B.
-      } catch (const MetadataCommitBusy &) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-    }
+    size_t end = i + 1;
+    while (end < pages.size() && static_cast<uint64_t>(pages[end]) == page + end - i &&
+           static_cast<uint64_t>(pages[end]) / options.pages_per_object_ == page / options.pages_per_object_)
+      ++end;
+    storage.ShareObjectRangeBatched(view, {space, 1 + page / options.pages_per_object_}, destination,
+                                    (page % options.pages_per_object_) * BUSTUB_PAGE_SIZE, (end - i) * BUSTUB_PAGE_SIZE,
+                                    header_size + i * BUSTUB_PAGE_SIZE);
+    i = end;
   }
-  return size;
+  return SharedSnapshotResult{size, Crc32cCombine(Crc32c(bytes), crc, uint64_t{pages.size()} * BUSTUB_PAGE_SIZE)};
 }
 
 auto BusTubRaftStateMachine::BuildSnapshotState(const SnapshotInput &payload, uint64_t index,
@@ -543,9 +543,8 @@ auto BusTubRaftStateMachine::BuildSnapshotState(const SnapshotInput &payload, ui
   const auto checksum_bytes = payload.Read(header_size - 4, 4);
   ByteReader checksum(checksum_bytes);
   const auto header_crc = ChecksumSlice(payload.Slice(PAGE_SNAPSHOT_MAGIC.size(), header_size - 12));
-  if (checksum.ReadU32() != ChecksumSlice(payload.Slice(header_size, payload.size_ - header_size), header_crc)) {
-    throw std::runtime_error("page snapshot checksum mismatch");
-  }
+  const auto expected_crc = checksum.ReadU32();
+  auto body_crc = header_crc;
   const auto catalog = payload.Read(PAGE_SNAPSHOT_FIXED + pages.size() * sizeof(uint32_t), catalog_size);
   const auto sessions =
       payload.Read(PAGE_SNAPSHOT_FIXED + pages.size() * sizeof(uint32_t) + catalog_size, session_size);
@@ -562,10 +561,12 @@ auto BusTubRaftStateMachine::BuildSnapshotState(const SnapshotInput &payload, ui
   }
   state->buffer_pool_manager_->SetNextPageIdForRecovery(static_cast<page_id_t>(highwater));
   for (size_t i = 0; i < pages.size(); ++i) {
-    const auto bytes = payload.Read(header_size + i * BUSTUB_PAGE_SIZE, BUSTUB_PAGE_SIZE);
-    auto guard = state->buffer_pool_manager_->WritePage(pages[i]);
-    std::memcpy(guard.GetDataMut(), bytes.data(), bytes.size());
+    auto guard = std::make_shared<WritePageGuard>(state->buffer_pool_manager_->WritePage(pages[i]));
+    auto *data = reinterpret_cast<std::byte *>(guard->GetDataMut());
+    payload.ReadInto(header_size + i * BUSTUB_PAGE_SIZE, data, BUSTUB_PAGE_SIZE, guard);
+    body_crc = Crc32cExtend(body_crc, data, BUSTUB_PAGE_SIZE);
   }
+  if (body_crc != expected_crc) throw std::runtime_error("page snapshot checksum mismatch");
   return FinishWorkingState(std::move(state), index, catalog, sessions, false);
 }
 
@@ -887,17 +888,12 @@ auto BusTubRaftStateMachine::FinishWorkingState(std::unique_ptr<WorkingState> st
   SessionSnapshotCodec::DecodeInto(session_bytes, sessions.get());
   sessions->ValidateSnapshotBoundary(last_included_index);
   state->catalog_ = std::make_unique<Catalog>(state->buffer_pool_manager_.get(), nullptr, nullptr);
-  CatalogSnapshotCodec::Restore(catalog_snapshot, state->catalog_.get(), state->buffer_pool_manager_.get(), nullptr);
-  for (const auto &table_name : state->catalog_->GetTableNames()) {
-    const auto table = state->catalog_->GetTable(table_name);
-    for (auto iterator = table->table_->MakeIterator(); !iterator.IsEnd(); ++iterator) {
-      const auto [meta, tuple] = iterator.GetTuple();
-      static_cast<void>(tuple);
-      if ((canonical && meta.is_deleted_) || meta.ts_ < 0 || static_cast<uint64_t>(meta.ts_) > last_included_index) {
-        throw std::runtime_error("BusTub snapshot row timestamp exceeds its included index");
-      }
-    }
-  }
+  CatalogSnapshotCodec::Restore(
+      catalog_snapshot, state->catalog_.get(), state->buffer_pool_manager_.get(), nullptr,
+      [canonical, last_included_index](const TupleMeta &meta) {
+        if ((canonical && meta.is_deleted_) || meta.ts_ < 0 || static_cast<uint64_t>(meta.ts_) > last_included_index)
+          throw std::runtime_error("BusTub snapshot row timestamp exceeds its included index");
+      });
   state->sessions_ = std::move(sessions);
   state->transaction_manager_ = std::make_unique<TransactionManager>();
   state->transaction_manager_->catalog_ = state->catalog_.get();
@@ -917,58 +913,65 @@ auto BusTubRaftStateMachine::BuildWorkingState(const BusTubSnapshotBundleView &b
   return OpenWorkingState(bundle.last_included_index_, catalog, sessions, directory);
 }
 
-void BusTubRaftStateMachine::ValidateSnapshot(const SnapshotInput &payload, uint64_t last_included_index) {
-  std::filesystem::path candidate_directory;
+struct BusTubRaftStateMachine::Prepared : PreparedSnapshot {
+  BusTubRaftStateMachine &owner_;
+  std::filesystem::path directory_;
+  std::shared_ptr<WorkingState> state_;
+  std::unique_ptr<BusTubStateMachine> fsm_;
+  Prepared(BusTubRaftStateMachine &owner, std::filesystem::path directory, std::unique_ptr<WorkingState> state,
+           uint64_t index)
+      : owner_(owner),
+        directory_(std::move(directory)),
+        state_(std::move(state)),
+        fsm_(std::make_unique<BusTubStateMachine>(state_->catalog_.get(), state_->sessions_.get(), &owner.visibility_,
+                                                  index)) {}
+  ~Prepared() override {
+    fsm_.reset();
+    state_.reset();
+    if (!directory_.empty()) {
+      try {
+        owner_.storage_->RemoveTree(directory_);
+      } catch (const std::exception &e) {
+        LOG_ERROR("snapshot candidate cleanup deferred: %s", e.what());
+      }
+    }
+  }
+  void Install() override {
+    // All allocations and reconstruction happened before Raft publication.
+    // Exchange ownership under visibility protection, destroy old state outside.
+    {
+      std::lock_guard lifecycle(owner_.lifecycle_mutex_);
+      auto exclusive = owner_.visibility_.LockExclusive();
+      owner_.fsm_.swap(fsm_);
+      owner_.state_.swap(state_);
+      owner_.active_directory_.swap(directory_);
+      owner_.recovered_point_.reset();
+      owner_.applied_term_ = 0;
+    }
+  }
+};
+
+auto BusTubRaftStateMachine::PrepareSnapshot(const SnapshotInput &payload, uint64_t index)
+    -> std::unique_ptr<PreparedSnapshot> {
+  std::filesystem::path directory;
   {
     std::lock_guard lifecycle(lifecycle_mutex_);
-    candidate_directory = runtime_directory_ / GenerationName(next_generation_++);
+    directory = runtime_directory_ / GenerationName(next_generation_++);
   }
   try {
-    auto candidate = BuildSnapshotState(payload, last_included_index, candidate_directory);
-    candidate.reset();
-    storage_->RemoveTree(candidate_directory);
+    auto state = BuildSnapshotState(payload, index, directory);
+    return std::make_unique<Prepared>(*this, directory, std::move(state), index);
   } catch (...) {
-    storage_->RemoveTree(candidate_directory);
+    storage_->RemoveTree(directory);
     throw;
   }
 }
-
-void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t last_included_index) {
-  std::filesystem::path candidate_directory;
-  {
-    std::lock_guard lifecycle(lifecycle_mutex_);
-    candidate_directory = runtime_directory_ / GenerationName(next_generation_++);
-  }
-  std::unique_ptr<WorkingState> candidate;
-  try {
-    candidate = BuildSnapshotState(payload, last_included_index, candidate_directory);
-  } catch (...) {
-    storage_->RemoveTree(candidate_directory);
-    throw;
-  }
-  auto candidate_fsm = std::make_unique<BusTubStateMachine>(candidate->catalog_.get(), candidate->sessions_.get(),
-                                                            &visibility_, last_included_index);
-
-  std::unique_ptr<BusTubStateMachine> old_fsm;
-  std::shared_ptr<WorkingState> old_state;
-  std::filesystem::path old_directory;
-  {
-    std::lock_guard lifecycle(lifecycle_mutex_);
-    auto exclusive = visibility_.LockExclusive();
-    old_fsm = std::move(fsm_);
-    old_state = std::move(state_);
-    old_directory = active_directory_;
-    fsm_ = std::move(candidate_fsm);
-    state_ = std::move(candidate);
-    recovered_point_.reset();
-    applied_term_ = 0;
-    active_directory_ = candidate_directory;
-  }
-  old_fsm.reset();
-  old_state.reset();
-  if (old_directory != candidate_directory) {
-    storage_->RemoveTree(old_directory);
-  }
+void BusTubRaftStateMachine::ValidateSnapshot(const SnapshotInput &payload, uint64_t index) {
+  auto candidate = PrepareSnapshot(payload, index);
+}
+void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t index) {
+  auto candidate = PrepareSnapshot(payload, index);
+  candidate->Install();
 }
 
 auto BusTubRaftStateMachine::PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id,

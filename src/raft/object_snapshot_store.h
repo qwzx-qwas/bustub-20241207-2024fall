@@ -11,7 +11,7 @@ class ObjectSnapshotStore {
   void RetainOnlyLatest();
   auto Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot;
   auto Input(const RaftSnapshot &snapshot) -> SnapshotInput;
-  auto PlanDelta(const RaftSnapshot &target) -> std::optional<SnapshotDelta>;
+  auto OfferDelta(const RaftSnapshot &target) -> std::optional<SnapshotDeltaOffer>;
   auto BeginDelta(const RaftSnapshot &target, const RaftSnapshot &base, uint64_t session) -> bool;
   auto Stage(const SnapshotChunk &chunk) -> SnapshotStageResult;
   auto Staged(std::string_view id) const -> std::optional<RaftSnapshot>;
@@ -38,15 +38,20 @@ class ObjectSnapshotStore {
     uint64_t received_;
     bool complete_;
     std::optional<DeltaReceive> delta_{std::nullopt};
+    uint32_t checksum_{0};
   };
   auto StageDelta(const SnapshotChunk &chunk) -> SnapshotStageResult;
   void FinishDelta();
   auto Source(const Body &body) -> SnapshotInput;
   auto Checksum(const SnapshotInput &input) const -> uint32_t;
-  auto Encode(const std::optional<Body> &latest, const std::optional<Body> &previous) const -> std::vector<std::byte>;
+  auto Encode(const std::optional<Body> &latest, const std::optional<Body> &previous,
+              const std::optional<Body> &base) const -> std::vector<std::byte>;
   auto Publish(Body body, bool retain) -> RaftSnapshot;
   std::shared_ptr<RaftObjectStorage> storage_;
-  std::optional<Body> latest_, previous_;
+  // The third slot is a content-only transfer base, never a recovery/log floor.
+  std::optional<Body> latest_, previous_, transfer_base_;
+  struct DeltaPlanCache;
+  std::shared_ptr<DeltaPlanCache> plan_cache_;
   std::optional<Download> download_;
 };
 }  // namespace bustub
