@@ -32,6 +32,9 @@ enum class RpcType : uint32_t {
   APPEND_ENTRIES_RESPONSE = 4,
   INSTALL_SNAPSHOT_REQUEST = 5,
   INSTALL_SNAPSHOT_RESPONSE = 6,
+  SNAPSHOT_OFFER_REQUEST = 7,
+  SNAPSHOT_OFFER_RESPONSE = 8,
+  INSTALL_SNAPSHOT_DELTA = 9,
 };
 
 void PutBool(ByteWriter *writer, bool value) { writer->PutU8(value ? 1 : 0); }
@@ -58,6 +61,25 @@ auto ReadBlob(ByteReader *reader) -> std::vector<std::byte> {
     throw std::runtime_error("Raft RPC blob exceeds its frame");
   }
   return reader->ReadBytes(size);
+}
+
+void PutSnapshot(ByteWriter *w, const RaftSnapshot &s) {
+  w->PutU32(s.format_version_);
+  w->PutString(s.snapshot_id_);
+  w->PutU64(s.last_included_index_);
+  w->PutU64(s.last_included_term_);
+  w->PutU64(s.payload_size_);
+  w->PutU32(s.payload_checksum_);
+}
+auto ReadSnapshot(ByteReader *r) -> RaftSnapshot {
+  RaftSnapshot s;
+  s.format_version_ = r->ReadU32();
+  s.snapshot_id_ = r->ReadString();
+  s.last_included_index_ = r->ReadU64();
+  s.last_included_term_ = r->ReadU64();
+  s.payload_size_ = r->ReadU64();
+  s.payload_checksum_ = r->ReadU32();
+  return s;
 }
 
 auto EncodeMessage(const RaftMessage &message) -> std::pair<RpcType, std::vector<std::byte>> {
@@ -116,9 +138,11 @@ auto EncodeMessage(const RaftMessage &message) -> std::pair<RpcType, std::vector
           }
           return {RpcType::APPEND_ENTRIES_RESPONSE, body.Take()};
         } else if constexpr (std::is_same_v<T, InstallSnapshotRequest>) {  // NOLINT(readability/braces)
-          if (value.snapshot_id_.empty() || value.data_.size() > MAX_SNAPSHOT_CHUNK_BYTES ||
-              value.offset_ > value.total_size_ || value.data_.size() > value.total_size_ - value.offset_ ||
-              value.done_ != (value.offset_ + value.data_.size() == value.total_size_)) {
+          const auto size = value.reuse_ ? value.reuse_->length_ : value.data_.size();
+          if (value.snapshot_id_.empty() || size > MAX_SNAPSHOT_CHUNK_BYTES ||
+              (value.reuse_ && (value.delta_session_ == 0 || !value.data_.empty() || size == 0)) ||
+              value.offset_ > value.total_size_ || size > value.total_size_ - value.offset_ ||
+              value.done_ != (value.offset_ + size == value.total_size_)) {
             throw std::runtime_error("invalid Raft snapshot chunk");
           }
           body.PutU64(value.term_);
@@ -132,7 +156,29 @@ auto EncodeMessage(const RaftMessage &message) -> std::pair<RpcType, std::vector
           body.PutU32(value.payload_checksum_);
           PutBool(&body, value.done_);
           PutBlob(&body, value.data_);
+          if (value.delta_session_ != 0) {
+            body.PutU64(value.delta_session_);
+            PutBool(&body, value.reuse_.has_value());
+            if (value.reuse_) {
+              body.PutU64(value.reuse_->offset_);
+              body.PutU64(value.reuse_->length_);
+            }
+            return {RpcType::INSTALL_SNAPSHOT_DELTA, body.Take()};
+          }
           return {RpcType::INSTALL_SNAPSHOT_REQUEST, body.Take()};
+        } else if constexpr (std::is_same_v<T, SnapshotOfferRequest>) {
+          body.PutU64(value.term_);
+          body.PutU64(value.leader_id_);
+          body.PutU64(value.request_id_);
+          PutSnapshot(&body, value.target_);
+          PutSnapshot(&body, value.base_);
+          return {RpcType::SNAPSHOT_OFFER_REQUEST, body.Take()};
+        } else if constexpr (std::is_same_v<T, SnapshotOfferResponse>) {
+          body.PutU64(value.term_);
+          body.PutU64(value.request_id_);
+          if (static_cast<uint8_t>(value.status_) > 2) throw std::runtime_error("invalid snapshot offer status");
+          body.PutU8(static_cast<uint8_t>(value.status_));
+          return {RpcType::SNAPSHOT_OFFER_RESPONSE, body.Take()};
         } else {
           body.PutU64(value.term_);
           body.PutU64(value.request_id_);
@@ -201,9 +247,24 @@ auto DecodeMessage(RpcType type, const std::vector<std::byte> &bytes) -> RaftMes
       break;
     }
     case RpcType::INSTALL_SNAPSHOT_REQUEST:
-      message = InstallSnapshotRequest{body.ReadU64(), body.ReadU64(),  body.ReadU64(), body.ReadString(),
-                                       body.ReadU64(), body.ReadU64(),  body.ReadU64(), body.ReadU64(),
-                                       body.ReadU32(), ReadBool(&body), ReadBlob(&body)};
+    case RpcType::INSTALL_SNAPSHOT_DELTA: {
+      InstallSnapshotRequest value{body.ReadU64(), body.ReadU64(),  body.ReadU64(), body.ReadString(),
+                                   body.ReadU64(), body.ReadU64(),  body.ReadU64(), body.ReadU64(),
+                                   body.ReadU32(), ReadBool(&body), ReadBlob(&body)};
+      if (type == RpcType::INSTALL_SNAPSHOT_DELTA) {
+        value.delta_session_ = body.ReadU64();
+        if (value.delta_session_ == 0) throw std::runtime_error("missing delta session");
+        if (ReadBool(&body)) value.reuse_ = SnapshotReuse{body.ReadU64(), body.ReadU64()};
+      }
+      message = std::move(value);
+      break;
+    }
+    case RpcType::SNAPSHOT_OFFER_REQUEST:
+      message = SnapshotOfferRequest{body.ReadU64(), body.ReadU64(), body.ReadU64(), ReadSnapshot(&body),
+                                     ReadSnapshot(&body)};
+      break;
+    case RpcType::SNAPSHOT_OFFER_RESPONSE:
+      message = SnapshotOfferResponse{body.ReadU64(), body.ReadU64(), static_cast<SnapshotOfferStatus>(body.ReadU8())};
       break;
     case RpcType::INSTALL_SNAPSHOT_RESPONSE:
       message = InstallSnapshotResponse{body.ReadU64(),  body.ReadU64(), ReadBool(&body), ReadBool(&body),

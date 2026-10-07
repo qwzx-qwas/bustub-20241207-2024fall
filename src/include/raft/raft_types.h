@@ -14,6 +14,7 @@
 #include <variant>
 #include <vector>
 
+#include "raft/snapshot_store.h"
 #include "recovery/log_codec.h"
 
 namespace bustub {
@@ -81,6 +82,22 @@ struct InstallSnapshotRequest {
   uint32_t payload_checksum_{0};
   bool done_{false};
   std::vector<std::byte> data_;
+  uint64_t delta_session_{0};
+  std::optional<SnapshotReuse> reuse_{std::nullopt};
+};
+
+struct SnapshotOfferRequest {
+  uint64_t term_{0};
+  NodeId leader_id_{0};
+  uint64_t request_id_{0};
+  RaftSnapshot target_;
+  RaftSnapshot base_;
+};
+enum class SnapshotOfferStatus : uint8_t { Unsupported, Accepted, Error };
+struct SnapshotOfferResponse {
+  uint64_t term_{0};
+  uint64_t request_id_{0};
+  SnapshotOfferStatus status_{SnapshotOfferStatus::Unsupported};
 };
 
 struct InstallSnapshotResponse {
@@ -93,8 +110,9 @@ struct InstallSnapshotResponse {
   uint64_t next_offset_{0};
 };
 
-using RaftMessage = std::variant<RequestVoteRequest, RequestVoteResponse, AppendEntriesRequest, AppendEntriesResponse,
-                                 InstallSnapshotRequest, InstallSnapshotResponse>;
+using RaftMessage =
+    std::variant<RequestVoteRequest, RequestVoteResponse, AppendEntriesRequest, AppendEntriesResponse,
+                 InstallSnapshotRequest, InstallSnapshotResponse, SnapshotOfferRequest, SnapshotOfferResponse>;
 
 struct RaftEnvelope {
   NodeId from_{0};

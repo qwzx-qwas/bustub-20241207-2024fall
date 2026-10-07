@@ -6,6 +6,7 @@ add_library(
   durable_storage.cpp
   log_codec.cpp
   log_manager.cpp
+  page_snapshot.cpp
   node_directory.cpp
   single_node_runtime.cpp
   snapshot_manager.cpp

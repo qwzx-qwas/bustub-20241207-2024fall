@@ -34,6 +34,7 @@
 #include "planner/planner.h"
 #include "raft/snapshot_store.h"
 #include "recovery/canonical_snapshot.h"
+#include "recovery/page_snapshot.h"
 #include "storage/byte_range.h"
 #include "storage/disk/disk_manager.h"
 #include "storage/disk/node_storage.h"
@@ -409,18 +410,6 @@ void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint
   if (previous != 0) ObjectPageStorage::Open(deployment.storage_, previous, deployment.pages_)->Retire();
 }
 
-namespace {
-constexpr std::array<std::byte, 8> PAGE_SNAPSHOT_MAGIC{std::byte{'B'}, std::byte{'S'}, std::byte{'P'}, std::byte{'A'},
-                                                       std::byte{'G'}, std::byte{'E'}, std::byte{'0'}, std::byte{'1'}};
-constexpr uint64_t PAGE_SNAPSHOT_FIXED = 56;
-auto PageSnapshotHeaderSize(uint64_t count, uint64_t catalog, uint64_t sessions) -> uint64_t {
-  return ((PAGE_SNAPSHOT_FIXED + count * sizeof(uint32_t) + catalog + sessions + sizeof(uint32_t) + BUSTUB_PAGE_SIZE -
-           1) /
-          BUSTUB_PAGE_SIZE) *
-         BUSTUB_PAGE_SIZE;
-}
-}  // namespace
-
 auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index,
                                                  uint64_t term, uint64_t limit) -> std::optional<uint64_t> {
   if (index == 0 || !page_deployment_ || page_deployment_->storage_.get() != &storage || !checkpoint_)
@@ -540,50 +529,26 @@ auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const Obj
 auto BusTubRaftStateMachine::BuildSnapshotState(const SnapshotInput &payload, uint64_t index,
                                                 const std::filesystem::path &directory)
     -> std::unique_ptr<WorkingState> {
-  const auto magic = payload.Read(0, PAGE_SNAPSHOT_MAGIC.size());
-  if (magic != std::vector<std::byte>(PAGE_SNAPSHOT_MAGIC.begin(), PAGE_SNAPSHOT_MAGIC.end())) {
+  const auto directory_info = ReadPageSnapshotDirectory(payload, index);
+  if (!directory_info) {
     const auto bundle = BusTubSnapshotBundleCodec::Read(payload);
     if (bundle.last_included_index_ != index || index >= TXN_START_ID) {
       throw std::runtime_error("BusTub streamed snapshot bundle index mismatch");
     }
     return BuildWorkingState(bundle, directory);
   }
-  if (payload.size_ < PAGE_SNAPSHOT_FIXED + 4 || payload.size_ > BusTubSnapshotBundleCodec::MAX_STREAM_BUNDLE_BYTES) {
-    throw std::runtime_error("invalid page snapshot size");
-  }
-  const auto prefix = payload.Read(PAGE_SNAPSHOT_MAGIC.size(), PAGE_SNAPSHOT_FIXED - PAGE_SNAPSHOT_MAGIC.size());
-  ByteReader r(prefix);
-  if (r.ReadU32() != 1 || r.ReadU32() != BUSTUB_PAGE_SIZE || r.ReadU64() != index || index >= TXN_START_ID) {
-    throw std::runtime_error("unsupported page snapshot format or boundary");
-  }
-  const auto highwater = r.ReadU64(), count = r.ReadU64(), catalog_size = r.ReadU64(), session_size = r.ReadU64();
-  if (highwater > INT32_MAX || count > highwater || count > payload.size_ / BUSTUB_PAGE_SIZE ||
-      catalog_size > CatalogSnapshotCodec::MAX_CATALOG_BYTES || session_size > 64U * 1024U * 1024U) {
-    throw std::runtime_error("page snapshot directory exceeds its limits");
-  }
-  const auto header_size = PageSnapshotHeaderSize(count, catalog_size, session_size);
-  if (header_size + count * BUSTUB_PAGE_SIZE != payload.size_) {
-    throw std::runtime_error("page snapshot directory and body length differ");
-  }
+  const auto &pages = directory_info->pages_;
+  const auto header_size = directory_info->header_size_, highwater = directory_info->highwater_;
+  const auto catalog_size = directory_info->catalog_size_, session_size = directory_info->session_size_;
   const auto checksum_bytes = payload.Read(header_size - 4, 4);
   ByteReader checksum(checksum_bytes);
   const auto header_crc = ChecksumSlice(payload.Slice(PAGE_SNAPSHOT_MAGIC.size(), header_size - 12));
   if (checksum.ReadU32() != ChecksumSlice(payload.Slice(header_size, payload.size_ - header_size), header_crc)) {
     throw std::runtime_error("page snapshot checksum mismatch");
   }
-  const auto directory_bytes = payload.Read(PAGE_SNAPSHOT_FIXED, count * sizeof(uint32_t));
-  ByteReader entries(directory_bytes);
-  std::vector<page_id_t> pages;
-  pages.reserve(count);
-  for (uint64_t i = 0; i < count; ++i) {
-    const auto page = entries.ReadU32();
-    if (page >= highwater || (!pages.empty() && page <= static_cast<uint32_t>(pages.back()))) {
-      throw std::runtime_error("page snapshot has an invalid or duplicate page identity");
-    }
-    pages.push_back(static_cast<page_id_t>(page));
-  }
-  const auto catalog = payload.Read(PAGE_SNAPSHOT_FIXED + directory_bytes.size(), catalog_size);
-  const auto sessions = payload.Read(PAGE_SNAPSHOT_FIXED + directory_bytes.size() + catalog_size, session_size);
+  const auto catalog = payload.Read(PAGE_SNAPSHOT_FIXED + pages.size() * sizeof(uint32_t), catalog_size);
+  const auto sessions =
+      payload.Read(PAGE_SNAPSHOT_FIXED + pages.size() * sizeof(uint32_t) + catalog_size, session_size);
   storage_->RemoveTree(directory);
   storage_->CreateDirectories(directory);
   auto state = std::make_unique<WorkingState>();

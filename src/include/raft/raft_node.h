@@ -100,6 +100,9 @@ class RaftNode {
   void Handle(NodeId from, const AppendEntriesResponse &response);
   void Handle(NodeId from, const InstallSnapshotRequest &request);
   void Handle(NodeId from, const InstallSnapshotResponse &response);
+  void Handle(NodeId from, const SnapshotOfferRequest &request);
+  void Handle(NodeId from, const SnapshotOfferResponse &response);
+  void CancelIncomingDelta();
 
   void Send(NodeId to, RaftMessage message);
   void SendAppend(NodeId peer, std::optional<uint64_t> read_context = std::nullopt);
@@ -141,8 +144,19 @@ class RaftNode {
     uint64_t end_offset_{0};
     uint64_t request_id_{0};
     SnapshotInput input_;
+    std::optional<SnapshotDelta> delta_{std::nullopt};
+    uint64_t offer_id_{0}, offer_deadline_{0};
+    bool offering_{false};
   };
   std::map<NodeId, SnapshotTransfer> snapshot_transfers_;
+  struct IncomingDelta {
+    uint64_t term_, leader_, session_, deadline_;
+    std::string target_;
+  };
+  std::optional<IncomingDelta> incoming_delta_;
+  // Highest snapshot request observed in this term. Keep it after cancellation
+  // so a delayed Offer/full chunk cannot restart an older receive session.
+  uint64_t snapshot_request_floor_{0};
 
   struct PendingReadIndex {
     uint64_t term_{0};

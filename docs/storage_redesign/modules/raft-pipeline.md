@@ -1,5 +1,7 @@
 # F35 Raft 提案流水线与线性一致读
 
+> 2026-10-07 [F25 增量接续](../s11_incremental_snapshot.md)：F25 增量消息复用现有 TCP/节点驱动；本轮不宣称解决同步准备/安装的协议阻塞。基础保留与自然追赶选择仍待用户确定，F35 的职责不移入 SnapshotStore。
+
 更新时间：2026-09-21（Asia/Shanghai）
 
 [主方案与阶段顺序](../README.md) · [测试设计议题](../testing_plan.md) · [子模块模板](../module_template.md)

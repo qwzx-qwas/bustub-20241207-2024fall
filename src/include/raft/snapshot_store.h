@@ -36,6 +36,11 @@ struct RaftSnapshot {
   uint32_t payload_checksum_{0};
 };
 
+struct SnapshotReuse {
+  uint64_t offset_;
+  uint64_t length_;
+};
+
 struct SnapshotChunk {
   std::string snapshot_id_;
   uint64_t last_included_index_{0};
@@ -45,13 +50,22 @@ struct SnapshotChunk {
   uint32_t payload_checksum_{0};
   bool done_{false};
   std::vector<std::byte> data_;
+  uint64_t delta_session_{0};
+  std::optional<SnapshotReuse> reuse_{std::nullopt};
+};
+
+struct SnapshotDelta {
+  RaftSnapshot base_;
+  // Owns both immutable input leases; produces one bounded target range.
+  std::function<SnapshotChunk(uint64_t, size_t)> chunk_;
 };
 
 enum class SnapshotStageStatus { IN_PROGRESS, COMPLETE, DUPLICATE_COMPLETE };
 
 struct SnapshotStageResult {
   SnapshotStageStatus status_;
-  /** First byte not yet durably staged for this snapshot. */
+  /** First unaccepted target byte in this session; REUSE counts logical bytes.
+   * This is not a durable restart cursor: interrupted receives start from zero. */
   uint64_t next_offset_;
 };
 
@@ -88,6 +102,8 @@ class SnapshotStore {
   auto PrepareCapturePath() -> std::filesystem::path;
   void CancelCapture();
 
+  auto PlanDelta(const RaftSnapshot &target) -> std::optional<SnapshotDelta>;
+  auto BeginDelta(const RaftSnapshot &target, const RaftSnapshot &base, uint64_t session) -> bool;
   auto StageChunk(const SnapshotChunk &chunk) -> SnapshotStageResult;
   auto Staged(std::string_view snapshot_id) const -> std::optional<RaftSnapshot>;
   auto StagedPayloadFile(std::string_view snapshot_id) const -> std::optional<DurableFileSlice>;

@@ -523,10 +523,18 @@ void SnapshotStore::RetainOnlyLatest() {
   PruneSnapshots();
 }
 
+auto SnapshotStore::PlanDelta(const RaftSnapshot &target) -> std::optional<SnapshotDelta> {
+  return object_ ? object_->PlanDelta(target) : std::nullopt;
+}
+auto SnapshotStore::BeginDelta(const RaftSnapshot &target, const RaftSnapshot &base, uint64_t session) -> bool {
+  return object_ && object_->BeginDelta(target, base, session);
+}
 auto SnapshotStore::StageChunk(const SnapshotChunk &chunk) -> SnapshotStageResult {
   if (object_) {
     return object_->Stage(chunk);
   }
+  if (chunk.delta_session_ != 0 || chunk.reuse_) throw std::invalid_argument("file store does not accept delta chunks");
+
   if (chunk.snapshot_id_.empty() || chunk.total_size_ > MAX_SNAPSHOT_BYTES || chunk.data_.size() > chunk.total_size_ ||
       chunk.offset_ > chunk.total_size_ - chunk.data_.size() ||
       (chunk.last_included_index_ == 0 && chunk.last_included_term_ != 0)) {
