@@ -89,10 +89,13 @@ class JournalPayloadRead {
   void Wait() const;
   auto WaitFor(std::chrono::milliseconds timeout) const -> bool;
   auto Bytes() const -> std::vector<std::byte>;
+  /** Check the same retained batch without allocating a second payload body. */
+  void Verify() const;
 
  private:
   friend class JournalService;
   explicit JournalPayloadRead(std::shared_ptr<JournalPayloadReadData> data);
+  auto Decode(bool copy) const -> std::vector<std::byte>;
   std::shared_ptr<JournalPayloadReadData> data_;
 };
 
@@ -169,6 +172,7 @@ class JournalService {
   auto ReadPayload(const JournalPayload &payload, IOReadBudget &budget,
                    std::function<void(const IOBatchResult &)> complete, std::function<void()> ready)
       -> JournalPayloadRead;
+  auto ScrubNext(uint64_t *cursor, uint64_t through) -> std::optional<JournalPayloadRead>;
   auto AppendCheckpoint(const JournalRecords &records) -> JournalSubmission;
   auto CheckpointRef(uint64_t lsn) const -> MetadataCheckpointRef;
   void RetireBefore(uint64_t checkpoint_lsn);

@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-10-08（F30）：唯一 [F30-integrity-scanning.tar.gz](F30-integrity-scanning.tar.gz)。最新修正 B 扫描由写回/checkpoint 接手时的结果与损坏分类；原 B 场景扩展三个完成入口，无新增正常场景。本轮全部 41 项正常场景通过、10 个变异检出，ASan/LSan 开启；旧同模块包及旧分轮结果已由完整复验替换。阶段源码仅压缩保存，无常驻新增目标；五个有效依赖包保持原哈希。见 [八项审查 §13](../../docs/storage_redesign/s12_integrity_execution_20261008.md#13-再次复核2026-10-08写回接手扫描失败的结果与状态) 与 [结果](../../test-results/storage-f30-20261008/README.md)。
+
 2026-10-08（F26 共享零页接续）：[唯一源码包](F26-array-buffer-pool.tar.gz) 原位替换，基础 6 项、实际页/SQL 10 项，复用课程 11 项与 S8 8 项，共 35 个不同正常场景；组件 TSan 6 项、当前变异 8 个。旧 S9.1e 的 32/25 是历史结果，不作为本轮证据。旧 F26 结果包已删除，其他模块有效依赖保留；见[审查](../../docs/storage_redesign/s12_translation_execution_20261008.md)和[当前结果](../../test-results/storage-f26-zero-20261008/README.md)。 最新复审仅加强变异失败内容判据，重跑组件六项和八个变异；其余结果沿用源码匹配的上轮证据，见审查 §9。
 
 

@@ -145,6 +145,8 @@ class MetadataEngine {
   void Create();
   void Open();
   auto Read() const -> MetadataSnapshot;
+  /** Check encoded input limits before the caller starts data IO; not a reservation. */
+  void CheckBatch(const std::vector<MetadataMutation> &mutations) const;
   auto Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations) -> JournalResult;
   auto Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations,
               const std::vector<MetadataPayloadMutation> &payloads) -> JournalResult;
@@ -163,6 +165,9 @@ class MetadataEngine {
    * max_pages must be positive. Close drains an admitted call before returning.
    */
   auto Writeback(size_t max_pages) -> MetadataWritebackResult;
+  /** One owner polls a bounded persistent-page/Journal check. False means IO
+   * remains in flight; no caller waits here. Uses ordinary F02 credits. */
+  auto ScrubStep() -> bool;
   /** F10/F11: excludes new modifications, drains existing work and writes pages
    * in batches of at most max_pages, then persists a checkpoint and its bootstrap
    * reference. Existing snapshots remain readable. A concurrent Commit rejects

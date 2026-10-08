@@ -59,7 +59,10 @@ void Cut(const MetadataSnapshot &base, ObjectKey key, uint64_t begin, uint64_t c
 
 void ReplaceChanges(const MetadataSnapshot &base, ObjectKey key, uint64_t begin, uint64_t length,
                     const std::vector<StorageByteRange> &ranges, const ObjectMappingContext &context, Description &d,
-                    Changes &changes) {
+                    Changes &changes, const std::vector<uint32_t> &checksums = {}) {
+  if (context.format_ >= 5 && checksums.size() != (length + context.unit_ - 1) / context.unit_)
+    throw std::invalid_argument("checked object publication requires one checksum per allocation unit");
+  size_t checksum = 0;
   if (length == 0) {
     throw std::invalid_argument("replacement must contain initialized data");
   }
@@ -85,6 +88,14 @@ void ReplaceChanges(const MetadataSnapshot &base, ObjectKey key, uint64_t begin,
       }
       changes.Put(Key(Allocation, key, id), Encode({range.Offset(), range.Size(), d.info_.version_, take}));
       changes.Put(Key(OwnedRange, key, range.Offset()), Encode({range.Size(), id}));
+    }
+    if (context.format_ >= 5) {
+      for (uint64_t pos = range.Offset(); pos < range.Offset() + range.Size(); pos += context.unit_) {
+        ByteWriter w;
+        w.PutU64(id);
+        w.PutU32(checksums.at(checksum++));
+        changes.Put(Key(Checksum, key, pos / context.unit_), w.Take());
+      }
     }
     changes.Map(key, {cursor, take, ObjectDataLocation{range.Offset(), id}});
     cursor += take;
@@ -281,14 +292,14 @@ struct ObjectMappingStore::Impl {
     ready_ = true;
   }
   auto Change(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t begin, uint64_t length,
-              DataReservation *reservation, bool remove) -> JournalResult {
+              DataReservation *reservation, bool remove, const std::vector<uint32_t> &checksums = {}) -> JournalResult {
     Active active(*context_);
     Check(base);
     auto d = ReadDescription(base.base_, key);
     d.info_.version_ = Advance(d.info_.version_);
     Changes changes(context_->options_);
     if (reservation != nullptr) {
-      ReplaceChanges(base.base_, key, begin, length, reservation->Extents(), *context_, d, changes);
+      ReplaceChanges(base.base_, key, begin, length, reservation->Extents(), *context_, d, changes, checksums);
     } else {
       if (!remove && d.info_.mode_ == ObjectSizeMode::Fixed && length != d.info_.size_) {
         throw std::invalid_argument("fixed object cannot change length");
@@ -360,10 +371,6 @@ auto ObjectMappingStore::CreateObject(const ObjectMappingSnapshot &base, ObjectK
   changes.Put(descriptor, EncodeDescription({true, {length, 1, mode}, 1, 1, 0}));
   return s.metadata_.Commit(base.base_, changes.Take());
 }
-auto ObjectMappingStore::Replace(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
-                                 DataReservation &reservation) -> JournalResult {
-  return impl_->Change(base, key, offset, length, &reservation, false);
-}
 auto ObjectMappingStore::Resize(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length) -> JournalResult {
   return impl_->Change(base, key, 0, length, nullptr, false);
 }
@@ -417,10 +424,11 @@ auto ObjectMappingSnapshot::Controls(ObjectKey owner, uint64_t from, size_t limi
   return result;
 }
 auto ObjectMappingAccess::Unit(ObjectMappingStore &store) -> uint64_t { return store.impl_->context_->unit_; }
-auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
-                                const std::vector<ObjectChange> &operations, DataReservation *reservation,
-                                const std::vector<ObjectControlMutation> &controls,
-                                const std::vector<std::vector<std::byte>> &payloads) -> JournalResult {
+auto ObjectMappingAccess::Prepare(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
+                                  const std::vector<ObjectChange> &operations, DataReservation *reservation,
+                                  const std::vector<ObjectControlMutation> &controls,
+                                  const std::vector<std::vector<std::byte>> &payloads, bool preflight)
+    -> PreparedObjectChange {
   auto &s = *store.impl_;
   Active active(*s.context_);
   s.Check(base);
@@ -470,10 +478,10 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
     d.info_.version_ = Advance(d.info_.version_);
     if (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append) {
       const auto first_allocation = d.next_allocation_;
-      ReplaceChanges(base.base_, key, op.offset_, op.length_, op.extents_, *s.context_, d, changes);
+      ReplaceChanges(base.base_, key, op.offset_, op.length_, op.extents_, *s.context_, d, changes, op.checksums_);
       if (op.deferred_) {
-        if (s.context_->format_ < 3 || payload_index >= payloads.size() ||
-            payloads[payload_index].size() != op.length_) {
+        if (s.context_->format_ < 3 ||
+            (!preflight && (payload_index >= payloads.size() || payloads[payload_index].size() != op.length_))) {
           throw std::invalid_argument("Deferred requires current object format and complete initialized body");
         }
         size_t cursor = 0;
@@ -481,9 +489,11 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
         for (const auto &range : op.extents_) {
           const auto take = std::min<uint64_t>(range.Size(), op.length_ - cursor);
           changes.Put(Key(Deferred, key, allocation), Encode({range.Offset(), range.Size()}));
-          const auto &body = payloads[payload_index];
-          journal_payloads.push_back(
-              {{key.space_, key.number_, allocation}, Bytes(body.begin() + cursor, body.begin() + cursor + take)});
+          if (!preflight) {
+            const auto &body = payloads[payload_index];
+            journal_payloads.push_back(
+                {{key.space_, key.number_, allocation}, Bytes(body.begin() + cursor, body.begin() + cursor + take)});
+          }
           cursor += take;
           ++allocation;
         }
@@ -508,9 +518,95 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
     }
     changes.Put(Key(object_mapping_detail::Control, control.owner_, control.item_), control.value_);
   }
-  const auto mutations = changes.Take();
-  return reservation != nullptr ? s.allocator_.Commit(base.base_, *reservation, mutations, journal_payloads)
-                                : s.metadata_.Commit(base.base_, mutations);
+  auto mutations = changes.Take();
+  if (preflight) {
+    for (const auto &op : operations) {
+      if (op.deferred_) {
+        // Deferred descriptors already passed Changes limits above. B adds
+        // one fixed-size payload reference per target at commit.
+        for (size_t i = 0; i < op.extents_.size(); ++i) {
+          mutations.push_back({{}, Bytes(16)});
+        }
+      }
+    }
+  }
+  return {std::move(mutations), std::move(journal_payloads)};
+}
+auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
+                                const std::vector<ObjectChange> &operations, DataReservation *reservation,
+                                const std::vector<ObjectControlMutation> &controls,
+                                const std::vector<std::vector<std::byte>> &payloads) -> JournalResult {
+  auto plan = Prepare(store, base, operations, reservation, controls, payloads, false);
+  auto &s = *store.impl_;
+  return reservation ? s.allocator_.Commit(base.base_, *reservation, plan.mutations_, plan.payloads_)
+                     : s.metadata_.Commit(base.base_, plan.mutations_);
+}
+void ObjectMappingAccess::Preflight(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
+                                    const std::vector<ObjectChange> &operations, DataReservation *reservation,
+                                    const std::vector<ObjectControlMutation> &controls) {
+  const auto plan = Prepare(store, base, operations, reservation, controls, {}, true);
+  if (reservation)
+    store.impl_->allocator_.CheckCommit(*reservation, plan.mutations_);
+  else
+    store.impl_->metadata_.CheckBatch(plan.mutations_);
+}
+auto ObjectMappingAccess::ReplaceChecked(ObjectMappingStore &store, const ObjectMappingSnapshot &base, ObjectKey key,
+                                         uint64_t offset, uint64_t length, DataReservation &reservation,
+                                         const std::vector<uint32_t> &checksums) -> JournalResult {
+  return store.impl_->Change(base, key, offset, length, &reservation, false, checksums);
+}
+auto ObjectMappingAccess::ScrubMetadata(ObjectMappingStore &store) -> bool {
+  return store.impl_->metadata_.ScrubStep();
+}
+auto ObjectMappingAccess::Checksummed(ObjectMappingStore &store) -> bool { return store.impl_->context_->format_ >= 5; }
+auto ObjectMappingAccess::Checksums(const ObjectMappingSnapshot &base, ObjectKey owner, uint64_t allocation,
+                                    uint64_t offset, uint64_t length) -> std::vector<ObjectUnitChecksum> {
+  std::vector<ObjectUnitChecksum> result;
+  if (base.context_->format_ < 5) return result;
+  const auto unit = base.context_->unit_;
+  // Callers pass complete units and charge their descriptors before reading.
+  // Reserve once so geometric vector growth does not exceed that capacity.
+  result.reserve(length / unit);
+  for (uint64_t pos = offset; pos < End(offset, length); pos += unit) {
+    const auto value = base.base_.Get(Key(Checksum, owner, pos / unit));
+    Require(value && value->size() == 12, "Data unit checksum missing or malformed");
+    ByteReader r(*value);
+    Require(r.ReadU64() == allocation, "Data unit checksum belongs to another allocation");
+    result.push_back({owner, allocation, pos, r.ReadU32()});
+  }
+  return result;
+}
+auto ObjectMappingAccess::ScrubCandidate(const ObjectMappingSnapshot &base, MetadataKey cursor)
+    -> ObjectScrubCandidate {
+  const auto category = uint64_t{OwnedRange} << 56;
+  if (cursor.category_ < category || (cursor.category_ >> 56) != OwnedRange) cursor = {category, 0, 0};
+  // Cursor may point inside the preceding ownership record.
+  auto entry = base.base_.GetFloor(cursor);
+  if (!entry || !SamePrefix(entry->key_, cursor) ||
+      End(entry->key_.item_, Decode(entry->value_, 2)[0]) <= cursor.item_) {
+    const auto rows = base.base_.Scan(cursor, 1);
+    entry = rows.empty() ? std::nullopt : std::optional<MetadataEntry>{rows.front()};
+  }
+  if (!entry || (entry->key_.category_ >> 56) != OwnedRange) return {{category, 0, 0}, {}, {}, true, false};
+  const auto fields = Decode(entry->value_, 2);
+  const ObjectKey owner{entry->key_.category_ & SPACE_LIMIT, entry->key_.owner_};
+  const auto start = SamePrefix(entry->key_, cursor) ? std::max(cursor.item_, entry->key_.item_) : entry->key_.item_;
+  const auto unit = base.context_->unit_;
+  Require(fields[0] && start % unit == 0, "invalid scrub ownership unit");
+  ObjectSpan span{0, unit, ObjectDataLocation{start, fields[1], owner}};
+  // Pending target has not been written yet. Its Journal record is the authority.
+  if (const auto task = base.base_.Get(Key(Deferred, owner, fields[1]))) {
+    const auto target = Decode(*task, 2);
+    auto payload = base.base_.Payload({owner.space_, owner.number_, fields[1]});
+    Require(payload.has_value(), "scrub Deferred payload missing");
+    span.journal_ = ObjectJournalLocation{*payload, 0};
+    span.data_->offset_ = target[0];
+    span.size_ = payload->ref_.bytes_ - 4;
+    // This read validates the complete Journal batch. Do not fetch it again
+    // for every unit of the same still-pending allocation.
+    return {{entry->key_.category_, entry->key_.owner_, target[0] + target[1]}, span, owner, false, true};
+  }
+  return {{entry->key_.category_, entry->key_.owner_, start + unit}, span, owner, false, base.context_->format_ >= 5};
 }
 auto ObjectMappingAccess::SupportsDeferred(ObjectMappingStore &store) -> bool {
   return store.impl_->context_->format_ >= 3;

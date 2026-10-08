@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-08",
+  "scope": "S12/F30 admitted metadata scan failure handoff",
+  "only_source_archive": "test/archives/F30-integrity-scanning.tar.gz",
+  "only_results_archive": "test-results/storage-f30-20261008/F30-results.tar.gz",
+  "old_F30_archives_replaced_without_backup": true,
+  "superseded_archive_sha256": {
+    "test/archives/F30-integrity-scanning.tar.gz": "60a4f6dc51680824c5224ff17890f553eb41c008c83ee6248a5f8a38c8ee7bcb",
+    "test-results/storage-f30-20261008/F30-results.tar.gz": "c6e7e588a386ab3081775528151f2aa93d1f21823673525c45afc5e3452faf70"
+  },
+  "current_archive_sha256": {
+    "test/archives/F30-integrity-scanning.tar.gz": "76e614ca51bad48ee70d96aaf2367debf67f6ee62ed9c4eb55a1d370e2adcc85",
+    "test-results/storage-f30-20261008/F30-results.tar.gz": "38243e71ee2b0bca9d7afa672e0c8445396336a6a5637af49b3b34bb2856517e"
+  },
+  "source_and_result_hashes_verified": true,
+  "verified_production_files": 1343,
+  "verified_result_files": 99,
+  "production_code_changed_this_review": [
+    "src/storage/disk/metadata_engine.cpp",
+    "src/storage/disk/node_storage.cpp"
+  ],
+  "archive_contents_verified_no_devices_binaries_or_python_cache": true,
+  "expanded_task_tree_removed": "/tmp/bustub-f30-handoff-review",
+  "temporary_allocated_bytes_removed": 889753600,
+  "dependency_archives_unchanged": [
+    "test/archives/S5-journal-recycling.tar.gz",
+    "test/archives/F27-deferred.tar.gz",
+    "test/archives/F29-log-cleaning.tar.gz",
+    "test/archives/S8-raft-object-stores.tar.gz",
+    "test/archives/F31-F22-resource-gc.tar.gz"
+  ],
+  "results_archive_gitignored": true,
+  "source_archive_gitignored": false,
+  "normal_tests": 41,
+  "normal_tests_reexecuted": 41,
+  "normal_tests_with_prior_evidence": 0,
+  "pressure_repetitions_this_review": 0,
+  "mutations_caught": 10,
+  "mutations_reexecuted": 10,
+  "mutations_with_prior_evidence": 0,
+  "commit_or_push_performed": false
+}

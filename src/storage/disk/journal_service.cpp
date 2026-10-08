@@ -229,6 +229,7 @@ struct JournalPayloadPin {
 };
 struct JournalPayloadReadData {
   JournalPayload payload_;
+  bool verify_only_{false};
   JournalIdentity identity_;
   uint32_t format_, unit_;
   uint64_t segment_;
@@ -241,19 +242,21 @@ void JournalPayloadRead::Wait() const { data_->batch_->Wait(); }
 auto JournalPayloadRead::WaitFor(std::chrono::milliseconds timeout) const -> bool {
   return data_->batch_->WaitFor(timeout);
 }
-auto JournalPayloadRead::Bytes() const -> std::vector<std::byte> {
+auto JournalPayloadRead::Bytes() const -> std::vector<std::byte> { return Decode(true); }
+void JournalPayloadRead::Verify() const { Decode(false); }
+auto JournalPayloadRead::Decode(bool copy) const -> std::vector<std::byte> {
   CheckIO(*data_->batch_);
   std::vector<std::byte> result;
   uint32_t ordinal = 0, length = 0, count = 0, rolling = 0;
-  uint64_t total = 0, prior = 0;
+  uint64_t total = 0, prior = 0, found = 0;
   bool partial = false, committed = false;
   const auto ref = data_->payload_.ref_;
   for (size_t i = 0; i < data_->positions_.size(); ++i) {
     const auto *raw =
         reinterpret_cast<const std::byte *>(data_->batch_->Buffer(data_->pieces_[i].first) + data_->pieces_[i].second);
-    std::vector<std::byte> unit(raw, raw + data_->unit_);
-    CheckUnitChecksum(unit);
-    ByteReader h(unit);
+    ByteReader crc(raw + data_->unit_ - 4, 4);
+    Require(crc.ReadU32() == Crc32c(raw, data_->unit_ - 4), "Journal unit checksum mismatch");
+    ByteReader h(raw, data_->unit_);
     auto magic = h.ReadBytes(8);
     Require(std::memcmp(magic.data(), UNIT_MAGIC, 8) == 0 && h.ReadU32() == data_->format_,
             "payload unit format mismatch");
@@ -293,8 +296,12 @@ auto JournalPayloadRead::Bytes() const -> std::vector<std::byte> {
                 "payload continuation corrupt");
       }
       Require(take <= length - count, "payload length corrupt");
-      auto bytes = r.ReadBytes(take);
-      if (number == ref.record_) result.insert(result.end(), bytes.begin(), bytes.end());
+      const auto *bytes = raw + UNIT_HEADER + r.Offset();
+      r.Skip(take);
+      if (!data_->verify_only_ && number == ref.record_) {
+        found += take;
+        if (copy) result.insert(result.end(), bytes, bytes + take);
+      }
       total += take;
       count += take;
       rolling = Crc32cExtend(rolling, raw + UNIT_HEADER + start, FRAGMENT_HEADER + take);
@@ -303,7 +310,8 @@ auto JournalPayloadRead::Bytes() const -> std::vector<std::byte> {
       if (!partial) ++ordinal;
     }
   }
-  Require(committed && result.size() == ref.bytes_ && ref.record_ < ordinal, "required payload is missing");
+  Require(committed && (data_->verify_only_ || (found == ref.bytes_ && ref.record_ < ordinal)),
+          "required payload is missing");
   return result;
 }
 
@@ -1174,8 +1182,8 @@ auto JournalService::ReadPayload(const JournalPayload &payload, IOReadBudget &bu
   }
   auto planned = budget;
   for (const auto &request : requests) {
-    if (!s.executor_.AccumulateReadBudget(
-            &planned, 1, request.size_ + s.executor_.DeviceInfo().memory_alignment_ - 1)) {
+    if (!s.executor_.AccumulateReadBudget(&planned, 1,
+                                          request.size_ + s.executor_.DeviceInfo().memory_alignment_ - 1)) {
       throw JournalError(JournalErrorCode::RequestTooLarge, "payload read exceeds total executor capacity");
     }
   }
@@ -1190,6 +1198,25 @@ auto JournalService::ReadPayload(const JournalPayload &payload, IOReadBudget &bu
   CheckAdmission(s.executor_.TrySubmit(*data->batch_));
   budget = planned;
   return JournalPayloadRead(std::move(data));
+}
+auto JournalService::ScrubNext(uint64_t *cursor, uint64_t through) -> std::optional<JournalPayloadRead> {
+  JournalPayload payload;
+  uint64_t position;
+  {
+    std::lock_guard lock(impl_->admission_mutex_);
+    const auto entry = impl_->batches_.lower_bound(*cursor);
+    if (entry == impl_->batches_.end() || entry->first > through) {
+      *cursor = 0;
+      return std::nullopt;
+    }
+    position = entry->first;
+    payload = {{position, 0, 0}, std::make_shared<JournalPayloadPin>(impl_->retention_, position)};
+  }
+  IOReadBudget budget;
+  auto read = ReadPayload(payload, budget, {}, {});
+  read.data_->verify_only_ = true;  // Consumer verifies after terminal publication, not on the IO worker.
+  *cursor = position + 1;
+  return read;
 }
 void JournalService::Close() { impl_->Close(); }
 

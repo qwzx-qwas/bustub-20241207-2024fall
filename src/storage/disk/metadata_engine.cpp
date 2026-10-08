@@ -594,6 +594,28 @@ void CheckMetadataAdmission(IOAdmission admission) {
   }
 }
 
+struct DiskPageStamp {
+  PageKind kind_;
+  uint64_t generation_, lsn_;
+};
+auto CheckDiskPage(const std::byte *bytes, uint32_t id, uint64_t covered) -> DiskPageStamp {
+  ByteReader trailer(bytes + BODY, TRAILER);
+  const auto magic = trailer.ReadBytes(8);
+  Require(std::memcmp(magic.data(), FORMAT_MAGIC, 8) == 0 && trailer.ReadU32() == FORMAT_VERSION,
+          "metadata page format mismatch");
+  const auto kind = static_cast<PageKind>(trailer.ReadU32());
+  Require(trailer.ReadU32() == id && trailer.ReadU32() == BUSTUB_PAGE_SIZE, "metadata page identity mismatch");
+  const auto generation = trailer.ReadU64();
+  const auto lsn = trailer.ReadU64();
+  Require(generation > 0 && lsn > 0 && lsn <= covered &&
+              trailer.ReadU32() == Crc32cExtend(Crc32c(bytes, BODY), bytes + BODY, 40),
+          ("metadata page checksum/version mismatch: page=" + std::to_string(id)).c_str());
+  const auto reserved = trailer.ReadBytes(trailer.Remaining());
+  Require(std::all_of(reserved.begin(), reserved.end(), [](std::byte b) { return b == std::byte{0}; }),
+          "unsupported metadata page trailer");
+  return {kind, generation, lsn};
+}
+
 // F09 keeps page persistence separate from transaction publication. Access is
 // serialized by Impl::writeback_mutex_; F02 parallelizes pages within a batch.
 class MetadataPageWriter {
@@ -601,6 +623,16 @@ class MetadataPageWriter {
   MetadataPageWriter(MetadataBackend &backend, IOExecutor &executor) : backend_(backend), executor_(executor) {}
 
   auto Write(std::shared_ptr<const MetadataVersion> view, size_t max_pages) -> MetadataWritebackResult {
+    if (scrub_) {
+      scrub_->Wait();
+      try {
+        FinishScrub();
+      } catch (...) {
+        // This read was already admitted by the scanner. A writer taking over
+        // its completion must report the IO failure before starting page writes.
+        return {MetadataWritebackOutcome::Failed, 0, std::current_exception()};
+      }
+    }
     durable_.resize(view->pages_.size());
     std::vector<MetadataPageRequest> requests;
     std::vector<Stamp> versions;
@@ -651,7 +683,52 @@ class MetadataPageWriter {
     return {MetadataWritebackOutcome::Durable, requests.size(), nullptr};
   }
 
+  void Recovered(size_t id, uint64_t generation, uint64_t lsn) {
+    if (durable_.size() <= id) durable_.resize(id + 1);
+    durable_[id] = {generation, lsn};
+  }
+  auto Scrub(const std::shared_ptr<const MetadataVersion> &view) -> bool {
+    if (scrub_) {
+      if (!scrub_->WaitFor(std::chrono::milliseconds(0))) return false;
+      FinishScrub();
+      return true;
+    }
+    if (scrub_cursor_ >= durable_.size()) {
+      scrub_cursor_ = 0;
+      return true;
+    }
+    const auto id = scrub_cursor_;
+    if (id >= view->pages_.size() || durable_[id].lsn_ == 0) {
+      ++scrub_cursor_;
+      return true;
+    }
+    auto prepared = backend_.TryPrepare({{static_cast<page_id_t>(id), IOOperation::Read}}, false);
+    if (prepared.admission_ == IOAdmission::Full) throw MetadataCommitBusy("metadata scrub IO credits held");
+    CheckMetadataAdmission(prepared.admission_);
+    auto batch = std::move(*prepared.batch_);
+    CheckMetadataAdmission(executor_.TrySubmit(batch));
+    scrub_id_ = id;
+    scrub_generation_ = durable_[id].generation_;
+    scrub_lsn_ = durable_[id].lsn_;
+    scrub_.emplace(std::move(batch));
+    ++scrub_cursor_;
+    return false;
+  }
+  void FinishScrub() {
+    const auto &r = scrub_->Result().operations_.front();
+    if (r.error_) std::rethrow_exception(r.error_);
+    Require(r.outcome_ == IOOutcome::Succeeded, "metadata scrub read incomplete");
+    const auto *p = reinterpret_cast<const std::byte *>(scrub_->Buffer(0));
+    const auto stamp = CheckDiskPage(p, scrub_id_, scrub_lsn_);
+    Require(stamp.generation_ == scrub_generation_ && stamp.lsn_ == scrub_lsn_,
+            "metadata scrub page version changed while protected");
+    scrub_.reset();
+  }
+
  private:
+  std::optional<IOBatch> scrub_;
+  size_t scrub_cursor_{0}, scrub_id_{0};
+  uint64_t scrub_generation_{0}, scrub_lsn_{0};
   struct Stamp {
     uint64_t generation_{0};
     uint64_t lsn_{0};
@@ -1013,23 +1090,14 @@ struct MetadataEngine::Impl {
       const auto *bytes = reinterpret_cast<const std::byte *>(batch.Buffer(0));
       PageBody body{};
       std::copy(bytes, bytes + BODY, body.begin());
-      ByteReader trailer(bytes + BODY, TRAILER);
-      const auto magic = trailer.ReadBytes(8);
-      Require(std::memcmp(magic.data(), FORMAT_MAGIC, 8) == 0 && trailer.ReadU32() == FORMAT_VERSION,
-              "checkpoint page format mismatch");
+      const auto stamp = CheckDiskPage(bytes, id, plan.covered_);
       auto page = NewImage(budget_);
-      page->kind_ = static_cast<PageKind>(trailer.ReadU32());
-      Require(trailer.ReadU32() == id && trailer.ReadU32() == BUSTUB_PAGE_SIZE, "checkpoint page identity mismatch");
-      page->generation_ = trailer.ReadU64();
-      const auto page_lsn = trailer.ReadU64();
-      Require(page->generation_ > 0 && page_lsn > 0 && page_lsn <= plan.covered_ &&
-                  trailer.ReadU32() == Crc32cExtend(Crc32c(body.data(), BODY), bytes + BODY, 40),
-              "checkpoint page checksum or version mismatch");
-      const auto reserved = trailer.ReadBytes(trailer.Remaining());
-      Require(std::all_of(reserved.begin(), reserved.end(), [](std::byte b) { return b == std::byte{0}; }),
-              "unsupported checkpoint page trailer");
+      page->kind_ = stamp.kind_;
+      page->generation_ = stamp.generation_;
+      const auto page_lsn = stamp.lsn_;
       DecodeBody(body, options_.max_value_bytes_, page.get());
       Seal(page.get(), static_cast<page_id_t>(id), page_lsn, body);
+      page_writer_.Recovered(id, page->generation_, page_lsn);
       next->pages_[id] = std::move(page);
     }
     checkpoint_lsn_ = lsn_ = plan.covered_;
@@ -1114,6 +1182,9 @@ struct MetadataEngine::Impl {
   RegionManager regions_;
   MetadataBackend backend_;
   MetadataPageWriter page_writer_;
+  uint64_t scrub_journal_cursor_{0};
+  bool scrub_pages_{true};
+  std::optional<JournalPayloadRead> scrub_journal_;
   JournalService journal_;
   MetadataOptions options_;
   std::shared_ptr<PageBudget> budget_;
@@ -1274,6 +1345,21 @@ auto MetadataEngine::Read() const -> MetadataSnapshot {
   }
   return MetadataSnapshot(impl_->published_);
 }
+void MetadataEngine::CheckBatch(const std::vector<MetadataMutation> &mutations) const {
+  const auto &s = *impl_;
+  uint64_t bytes = 0;
+  for (const auto &mutation : mutations) {
+    auto size = mutation.value_ ? mutation.value_->size() : 0;
+    if (size > s.options_.max_value_bytes_ || size > s.options_.max_batch_bytes_ - bytes) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata input budget exceeded");
+    }
+    bytes += size;
+    if (s.options_.max_batch_bytes_ - bytes < 32) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata operation budget exceeded");
+    }
+    bytes += 32;
+  }
+}
 auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations)
     -> JournalResult {
   return Commit(base, mutations, {});
@@ -1330,18 +1416,7 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
       updates.push_back({key, std::nullopt});
     }
   }
-  uint64_t bytes = 0;
-  for (const auto &mutation : updates) {
-    auto size = mutation.value_ ? mutation.value_->size() : 0;
-    if (size > s.options_.max_value_bytes_ || size > s.options_.max_batch_bytes_ - bytes) {
-      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata input budget exceeded");
-    }
-    bytes += size;
-    if (s.options_.max_batch_bytes_ - bytes < 32) {
-      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata operation budget exceeded");
-    }
-    bytes += 32;
-  }
+  CheckBatch(updates);
   MetadataPager pager(*next, s.budget_, s.options_.page_limit_);
   auto tree = TreeFor(&pager);
   for (const auto &mutation : updates) {
@@ -1393,6 +1468,42 @@ auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
     view = s.published_;
   }
   return s.page_writer_.Write(std::move(view), max_pages);
+}
+auto MetadataEngine::ScrubStep() -> bool {
+  auto &s = *impl_;
+  std::unique_lock writer(s.writer_mutex_, std::try_to_lock);
+  if (!writer.owns_lock()) throw MetadataCommitBusy("metadata scrub yields to commit");
+  std::unique_lock writeback(s.writeback_mutex_, std::try_to_lock);
+  if (!writeback.owns_lock()) throw MetadataCommitBusy("metadata scrub yields to writeback");
+  std::shared_ptr<const MetadataVersion> view;
+  {
+    std::lock_guard lock(s.view_mutex_);
+    if (!s.ready_) throw MetadataError(MetadataErrorCode::NotReady, "metadata scrub requires ready engine");
+    view = s.published_;
+  }
+  if (s.scrub_pages_) {
+    if (!s.page_writer_.Scrub(view)) return false;
+    s.scrub_pages_ = false;
+    return true;
+  }
+  if (s.scrub_journal_) {
+    if (!s.scrub_journal_->WaitFor(std::chrono::milliseconds(0))) return false;
+    s.scrub_journal_->Verify();
+    s.scrub_journal_.reset();
+    s.scrub_pages_ = true;
+    return true;
+  }
+  try {
+    s.scrub_journal_ = s.journal_.ScrubNext(&s.scrub_journal_cursor_, s.lsn_);
+  } catch (const JournalError &e) {
+    if (e.Code() == JournalErrorCode::ResourceUnavailable) throw MetadataCommitBusy("Journal scrub credits held");
+    throw;
+  }
+  if (!s.scrub_journal_) {
+    s.scrub_pages_ = true;
+    return true;
+  }
+  return false;
 }
 auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
   ProgressWork progress(true);

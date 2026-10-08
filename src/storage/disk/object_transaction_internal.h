@@ -14,6 +14,7 @@ class ObjectTransactionPipeline {
   ~ObjectTransactionPipeline();
   auto Submit(ObjectTransaction &transaction) -> ObjectTransactionSubmission;
   auto Error() const -> std::exception_ptr;
+  auto IntegrityStatus() const -> IntegrityScanStatus;
   void SetStoreMaintenance(std::function<void()> step);
   void StopStoreMaintenance();
   void Close();

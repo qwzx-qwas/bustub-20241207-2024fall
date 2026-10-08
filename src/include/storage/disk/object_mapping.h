@@ -122,8 +122,8 @@ struct ObjectSpaceCreation {
  * are explicit and serialized by the owner. B/allocator outlive all store calls.
  * Ordinary calls may overlap; B rejects stale bases, with no hidden retry.
  *
- * Replace consumes only a genuine pending allocation. Caller must initialize
- * and durably write its data first, retaining F12 leases through actual IO.
+ * Publication is bound privately to ObjectIO/S7: a genuine reservation, initialized
+ * durable bytes (or a Journal payload), and their original-unit checksums.
  * This module publishes mapping facts, not a complete WritePlanner/StorageAPI.
  * Removed ranges are persisted here; F14 owns safe physical release. No data-cache, second
  * WAL or data IO are implied. NodeStorage owns the protected sharing entry.
@@ -141,8 +141,6 @@ class ObjectMappingStore {
   auto CreateSpace(const ObjectMappingSnapshot &base) -> ObjectSpaceCreation;
   auto CreateObject(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length, ObjectSizeMode mode)
       -> JournalResult;
-  auto Replace(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
-               DataReservation &reservation) -> JournalResult;
   auto Resize(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t length) -> JournalResult;
   auto Remove(const ObjectMappingSnapshot &base, ObjectKey key) -> JournalResult;
   auto SupportsSharing() const -> bool;

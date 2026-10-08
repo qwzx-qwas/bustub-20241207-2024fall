@@ -119,6 +119,8 @@ class IOBatch {
    * Exactly range.Size() bytes, aligned to this executor's device. Accessible
    * only before Submit or after terminal completion. Stop using all saved
    * pointers before Submit; a wait timeout does not return buffer ownership.
+   * The registered completion owner may inspect retained bytes after member IO
+   * drains, before terminal publication (e.g. integrity verification).
    * External batches never expose addresses through this owned-buffer method.
    */
   auto Buffer(size_t member) -> char *;

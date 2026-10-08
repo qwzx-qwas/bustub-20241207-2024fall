@@ -95,6 +95,8 @@ class DataAllocator {
   auto Create() -> JournalResult;
   void Open();
   auto Reserve(uint64_t bytes) -> DataReservation;
+  /** Bounds the companion records plus actual bitmap records before data IO. */
+  void CheckCommit(const DataReservation &reservation, const std::vector<MetadataMutation> &related) const;
   auto Commit(const MetadataSnapshot &base, DataReservation &reservation, const std::vector<MetadataMutation> &related)
       -> JournalResult;
   auto Commit(const MetadataSnapshot &base, DataReservation &reservation, const std::vector<MetadataMutation> &related,

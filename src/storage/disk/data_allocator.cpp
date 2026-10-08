@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <mutex>  // NOLINT(build/c++11)
+#include <set>
 #include <utility>
 
 #include "common/byte_codec.h"
@@ -497,6 +498,17 @@ auto DataAllocator::AllocationUnit() const -> uint64_t { return impl_->context_-
 auto DataAllocator::Create() -> JournalResult { return impl_->Create(); }
 void DataAllocator::Open() { impl_->Open(); }
 auto DataAllocator::Reserve(uint64_t bytes) -> DataReservation { return impl_->Reserve(bytes); }
+void DataAllocator::CheckCommit(const DataReservation &reservation,
+                                const std::vector<MetadataMutation> &related) const {
+  auto &c = *impl_->context_;
+  const auto per_record = c.options_.bitmap_record_bytes_ / 8;
+  std::set<uint64_t> records;
+  c.EachWord(reservation.Extents(), [&](uint64_t i, uint64_t) { records.insert(i / per_record); });
+  auto mutations = related;
+  for (auto id : records)
+    mutations.push_back({{CATEGORY, COMMITTED, id}, std::vector<std::byte>(c.options_.bitmap_record_bytes_)});
+  impl_->metadata_.CheckBatch(mutations);
+}
 auto DataAllocator::Commit(const MetadataSnapshot &base, DataReservation &reservation,
                            const std::vector<MetadataMutation> &related) -> JournalResult {
   return impl_->Change(base, reservation.Extents(), related, COMMITTED, true, reservation.state_.get());

@@ -219,10 +219,23 @@ struct ObjectReferenceManager::Impl {
       }
       cursor = page.next_offset_;
     }
+    return Register(std::move(protection), ranges);
+  }
+  auto ProtectOwned(ObjectKey owner, const ObjectSpan &span) -> std::shared_ptr<ObjectReadProtection> {
+    Call call(*state_);
+    auto p = std::make_shared<ObjectReadProtection>(state_);
+    p->spans_.push_back(span);
+    const auto unit = context_->unit_;
+    const auto begin = span.data_->offset_ / unit * unit;
+    const auto end = End(span.data_->offset_, span.size_);
+    return Register(std::move(p), {{owner, span.data_->allocation_, {begin, End(end, (unit - end % unit) % unit)}}});
+  }
+  auto Register(std::shared_ptr<ObjectReadProtection> protection, const std::vector<ProtectedRange> &ranges)
+      -> std::shared_ptr<ObjectReadProtection> {
     {
       std::lock_guard<std::mutex> lock(state_->mutex_);
       if (state_->pins_.size() == state_->options_.max_leases_) {
-        Fail(ObjectMappingErrorCode::ResourceUnavailable, "object read lease budget full");
+        ReferenceFail(ObjectReferenceErrorCode::Busy, "object read lease budget full");
       }
       for (const auto &[id, gate] : state_->gates_) {
         for (const auto &a : gate) {
@@ -362,6 +375,10 @@ struct ObjectReferenceManager::Impl {
       }
       result.pinned_bytes_ = BytesIn(candidates) - BytesIn(eligible);
       auto remaining_bytes = state_->options_.max_reclaim_bytes_;
+      if (context_->format_ >= 5) {
+        const auto records = context_->options_.max_update_entries_ / 4;
+        remaining_bytes = std::min(remaining_bytes, records * context_->unit_);
+      }
       for (const auto range : eligible) {
         if (remaining_bytes == 0 || released.size() == state_->options_.max_reclaim_ranges_) break;
         const auto size = std::min(range.end_ - range.begin_, remaining_bytes);
@@ -434,6 +451,11 @@ struct ObjectReferenceManager::Impl {
     for (const auto range : released) {
       ranges.push_back(*StorageByteRange::Create(range.begin_, range.end_ - range.begin_));
     }
+    if (context_->format_ >= 5) {
+      for (const auto range : released)
+        for (auto pos = range.begin_; pos < range.end_; pos += context_->unit_)
+          changes.Put(Key(Checksum, object, pos / context_->unit_), std::nullopt);
+    }
     const auto bytes = BytesIn(released);
     result.commit_ = context_->allocator_.Release(base, ranges, changes.Take());
     if (result.commit_->outcome_ == JournalOutcome::Durable) {
@@ -462,6 +484,9 @@ auto ObjectReferenceManager::ProtectRead(const ObjectMappingSnapshot &view, Obje
     throw MetadataError(MetadataErrorCode::Conflict, "foreign object mapping view");
   }
   return ObjectReadLease(impl_->Protect(view, object, offset, length));
+}
+auto ObjectReferenceManager::ProtectOwned(ObjectKey owner, const ObjectSpan &span) -> ObjectReadLease {
+  return ObjectReadLease(impl_->ProtectOwned(owner, span));
 }
 auto ObjectReferenceManager::Reclaim(const ObjectMappingSnapshot &base, ObjectKey object, uint64_t allocation)
     -> ObjectReclaimResult {

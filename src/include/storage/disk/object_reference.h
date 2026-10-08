@@ -14,7 +14,7 @@
 
 namespace bustub {
 struct ObjectReferenceOptions {
-  size_t max_leases_;
+  size_t max_leases_;  // Busy until another retained read protection is released.
   size_t max_ranges_per_lease_;
   size_t max_scan_entries_;
   size_t max_reclaim_ranges_;
@@ -79,6 +79,8 @@ class ObjectReferenceManager {
   void Close();
 
  private:
+  friend class ObjectIO;
+  auto ProtectOwned(ObjectKey owner, const ObjectSpan &span) -> ObjectReadLease;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

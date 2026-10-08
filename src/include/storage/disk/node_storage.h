@@ -24,7 +24,8 @@ enum class NodeStorageCondition : uint32_t {
   IOFault = 1U << 1,
   ResourcePressure = 1U << 2,
   BootstrapRedundancyLost = 1U << 3,
-  BootstrapRepairFailed = 1U << 4
+  BootstrapRepairFailed = 1U << 4,
+  Corruption = 1U << 5
 };
 
 struct NodeStorageView {
@@ -38,6 +39,7 @@ struct NodeStorageView {
   bool object_read_{false};
   bool object_data_write_{false};  // New data IO, not a complete S7 transaction API.
   bool object_transaction_{false};
+  IntegrityScanStatus integrity_;
   std::exception_ptr object_error_;
   std::exception_ptr error_;
   std::exception_ptr repair_error_;

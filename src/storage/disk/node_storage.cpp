@@ -16,6 +16,22 @@
 namespace bustub {
 namespace {
 
+auto FailureCondition(const std::exception_ptr &error) -> NodeStorageCondition {
+  if (error) {
+    try {
+      std::rethrow_exception(error);
+    } catch (const MetadataError &e) {
+      if (e.Code() == MetadataErrorCode::Corrupt) return NodeStorageCondition::Corruption;
+    } catch (const ObjectMappingError &e) {
+      if (e.Code() == ObjectMappingErrorCode::Corrupt) return NodeStorageCondition::Corruption;
+    } catch (const JournalError &e) {
+      if (e.Code() == JournalErrorCode::Corrupt) return NodeStorageCondition::Corruption;
+    } catch (...) {
+    }
+  }
+  return NodeStorageCondition::IOFault;
+}
+
 // Only the lifecycle owner calls this controller, under its short state lock.
 // No IO, callbacks, background thread or per-IO event queue is owned here.
 class NodeStateController {
@@ -82,9 +98,9 @@ class NodeStateController {
     result.object_read_ = result.object_read_ && result.metadata_read_;
     result.object_data_write_ = result.object_data_write_ && result.metadata_write_;
     result.object_transaction_ = result.object_transaction_ && result.metadata_write_;
-    for (auto condition : {NodeStorageCondition::RecoveryFailed, NodeStorageCondition::IOFault,
-                           NodeStorageCondition::BootstrapRepairFailed, NodeStorageCondition::ResourcePressure,
-                           NodeStorageCondition::BootstrapRedundancyLost}) {
+    for (auto condition : {NodeStorageCondition::RecoveryFailed, NodeStorageCondition::Corruption,
+                           NodeStorageCondition::IOFault, NodeStorageCondition::BootstrapRepairFailed,
+                           NodeStorageCondition::ResourcePressure, NodeStorageCondition::BootstrapRedundancyLost}) {
       if ((result.conditions_ & static_cast<uint32_t>(condition)) != 0) {
         result.primary_condition_ = condition;
         break;
@@ -275,7 +291,7 @@ struct NodeStorage::Impl {
       if (error) {
         auto view = state_.View();
         const auto generation = view.phase_ == NodeStoragePhase::Draining ? view.generation_ - 1 : view.generation_;
-        state_.Fail(generation, NodeStorageCondition::IOFault, error);
+        state_.Fail(generation, FailureCondition(error), error);
       }
     }
   }
@@ -294,6 +310,15 @@ struct NodeStorage::Impl {
     } catch (const MetadataError &error) {
       if (error.Code() == MetadataErrorCode::ResourceUnavailable) {
         Pressure(call.generation_, true);
+      } else if (error.Code() == MetadataErrorCode::Corrupt) {
+        std::lock_guard lock(mutex_);
+        state_.Fail(call.generation_, NodeStorageCondition::Corruption, std::current_exception());
+      }
+      throw;
+    } catch (const ObjectMappingError &error) {
+      if (error.Code() == ObjectMappingErrorCode::Corrupt) {
+        std::lock_guard lock(mutex_);
+        state_.Fail(call.generation_, NodeStorageCondition::Corruption, std::current_exception());
       }
       throw;
     }
@@ -337,7 +362,7 @@ struct NodeStorage::Impl {
   }
   void Failure(uint64_t generation, const std::exception_ptr &error) {
     std::lock_guard<std::mutex> lock(mutex_);
-    state_.Fail(generation, NodeStorageCondition::IOFault, error);
+    state_.Fail(generation, FailureCondition(error), error);
   }
   void Pressure(uint64_t generation, bool pressure) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -461,6 +486,8 @@ struct NodeStorage::Impl {
       state_.Repair(context_->RepairStatus());
     }
     auto view = state_.View();
+    if (context_ && context_->objects_ && context_->objects_->transactions_)
+      view.integrity_ = context_->objects_->transactions_->IntegrityStatus();
     if (view.phase_ == NodeStoragePhase::Serving && options_.io_.memory_budget_ &&
         options_.io_.memory_budget_->Pressure()) {
       view.conditions_ |= static_cast<uint32_t>(NodeStorageCondition::ResourcePressure);
@@ -772,9 +799,7 @@ auto NodeStorage::SubmitObjects(ObjectTransaction &transaction) -> ObjectTransac
     return result;
   });
 }
-auto NodeStorage::MemoryBudget() const -> std::shared_ptr<ResourceBudget> {
-  return impl_->options_.io_.memory_budget_;
-}
+auto NodeStorage::MemoryBudget() const -> std::shared_ptr<ResourceBudget> { return impl_->options_.io_.memory_budget_; }
 void NodeStorage::SetStoreMaintenance(std::function<void()> step) {
   std::shared_ptr<StorageContext> context;
   {

@@ -4,10 +4,13 @@
 #include "storage/disk/object_io.h"
 
 #include <algorithm>
+#include <array>
 #include <condition_variable>  // NOLINT(build/c++11)
 #include <cstring>
 #include <mutex>  // NOLINT(build/c++11)
+#include <sstream>
 #include <utility>
+#include "common/byte_codec.h"
 
 #include "object_change_internal.h"  // NOLINT(build/include_subdir): private sibling component.
 #include "object_io_internal.h"      // NOLINT(build/include_subdir): private sibling component.
@@ -81,6 +84,73 @@ void Successful(const IOBatchResult &result) {
     std::rethrow_exception(result.flush_error_);
   }
 }
+auto UnitChecksums(const void *source, size_t size, uint64_t unit) -> std::vector<uint32_t> {
+  const auto *p = static_cast<const std::byte *>(source);
+  static constexpr std::array<std::byte, 256> zeros{};
+  std::vector<uint32_t> result;
+  result.reserve((size + unit - 1) / unit);
+  for (size_t pos = 0; pos < size; pos += unit) {
+    auto length = std::min<uint64_t>(unit, size - pos);
+    auto crc = Crc32c(p + pos, length);
+    for (auto tail = unit - length; tail;) {
+      const auto take = std::min<uint64_t>(tail, zeros.size());
+      crc = Crc32cExtend(crc, zeros.data(), take);
+      tail -= take;
+    }
+    result.push_back(crc);
+  }
+  return result;
+}
+struct ReadValidation {
+  struct Unit {
+    ObjectUnitChecksum expected_;
+    const std::byte *bytes_;
+  };
+  ResourceCharge memory_;
+  std::vector<Unit> units_;
+  void Reserve(std::shared_ptr<ResourceAccount> account, size_t count) {
+    const auto bytes = count * (sizeof(Unit) + sizeof(ObjectUnitChecksum));
+    const auto progress = ProgressWork::Active();
+    if (!account->Reserve(bytes, progress)) throw MetadataCommitBusy("integrity descriptor credits held");
+    memory_ = ResourceCharge(std::move(account), bytes, progress);
+    units_.reserve(count);
+  }
+  uint64_t unit_;
+  std::shared_ptr<ObjectIOState> state_;
+  std::exception_ptr error_;
+  void Add(const std::vector<ObjectUnitChecksum> &checksums, const void *buffer) {
+    const auto *p = static_cast<const std::byte *>(buffer);
+    for (const auto &crc : checksums) {
+      units_.push_back({crc, p});
+      p += unit_;
+    }
+  }
+  // F02 has drained all writes into these bytes. The completion owner keeps
+  // the original buffer/content permission alive until verification finishes.
+  void Complete(const IOBatchResult &result) noexcept {
+    try {
+      Successful(result);
+      for (const auto &u : units_) {
+        const auto actual = Crc32c(u.bytes_, unit_);
+        const auto &e = u.expected_;
+        if (actual != e.crc_) {
+          std::ostringstream message;
+          message << "Data checksum mismatch: owner=" << e.owner_.space_ << '/' << e.owner_.number_
+                  << " allocation=" << e.allocation_ << " offset=" << e.offset_ << " length=" << unit_
+                  << " expected=" << e.crc_ << " actual=" << actual;
+          throw MetadataError(MetadataErrorCode::Corrupt, message.str());
+        }
+      }
+    } catch (...) {
+      error_ = std::current_exception();
+      std::lock_guard lock(state_->mutex_);
+      if (!state_->error_) state_->error_ = error_;
+    }
+  }
+  void Check() const {
+    if (error_) std::rethrow_exception(error_);
+  }
+};
 struct Piece {
   size_t size_;
   size_t skip_;
@@ -90,6 +160,7 @@ struct Piece {
 }  // namespace
 struct ObjectReadData {
   size_t size_{0};
+  std::shared_ptr<ReadValidation> validation_;
   std::vector<Piece> pieces_;
   std::vector<JournalPayloadRead> journals_;
   std::optional<IOBatch> batch_;
@@ -103,6 +174,8 @@ struct ObjectWriteData {
   IOBatch batch_;
   size_t size_;
   bool published_{false};
+  ResourceCharge checksum_memory_;
+  std::vector<uint32_t> checksums_;
 };
 ObjectRead::ObjectRead(std::unique_ptr<ObjectReadData> data) : data_(std::move(data)) {}
 ObjectRead::~ObjectRead() = default;
@@ -138,6 +211,7 @@ void ObjectRead::Finish() const {
   if (data_->external_) {
     if (data_->batch_) {
       Successful(data_->batch_->Result());
+      data_->validation_->Check();
     }
   } else {
     CopyTo(data_->target_->data_, data_->target_->capacity_);
@@ -154,10 +228,17 @@ void ObjectRead::CopyTo(void *destination, size_t capacity) const {
   }
   if (data_->batch_) {
     Successful(data_->batch_->Result());
+    data_->validation_->Check();
   }
   std::vector<std::vector<std::byte>> journal_bytes;
   for (const auto &read : data_->journals_) {
-    journal_bytes.push_back(DecodeMetadataPayload(read));
+    try {
+      journal_bytes.push_back(DecodeMetadataPayload(read));
+    } catch (...) {
+      std::lock_guard lock(data_->validation_->state_->mutex_);
+      if (!data_->validation_->state_->error_) data_->validation_->state_->error_ = std::current_exception();
+      throw;
+    }
   }
   auto *out = static_cast<char *>(destination);
   for (const auto &piece : data_->pieces_) {
@@ -196,6 +277,7 @@ ObjectIO::ObjectIO(RegionManager &regions, IOExecutor &executor, DataAllocator &
       max_write_bytes_(max_write_bytes),
       io_limits_(io_limits),
       external_bytes_(external_bytes),
+      memory_(ResourceAccount::Create(io_limits.memory_budget_)),
       state_(std::make_shared<ObjectIOState>()) {
   if (max_read_bytes == 0 || max_write_bytes == 0) {
     throw std::invalid_argument("object IO requires positive request budgets");
@@ -224,11 +306,25 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
   if (length > max_read_bytes_) {
     throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object read exceeds request budget");
   }
+  return ReadProtected(view, key, references_.ProtectRead(view, key, offset, length), std::move(ready));
+}
+auto ObjectIO::ReadProtected(const ObjectMappingSnapshot &view, ObjectKey key, ObjectReadLease lease,
+                             std::function<void()> ready) -> ObjectRead {
   auto activity = std::make_shared<Activity>(state_);
-  activity->read_.emplace(references_.ProtectRead(view, key, offset, length));
+  activity->read_.emplace(std::move(lease));
   auto data = std::make_unique<ObjectReadData>();
+  data->validation_ = std::make_shared<ReadValidation>();
+  data->validation_->unit_ = ObjectMappingAccess::Unit(mapping_);
+  data->validation_->state_ = state_;
+  size_t check_count = 0;
+  const auto unit = data->validation_->unit_;
+  for (const auto &span : activity->read_->Spans())
+    if (span.data_ && !span.journal_) check_count += (span.data_->offset_ % unit + span.size_ + unit - 1) / unit;
+  if (ObjectMappingAccess::Checksummed(mapping_)) data->validation_->Reserve(memory_, check_count);
+  std::vector<std::vector<ObjectUnitChecksum>> checks;
   std::vector<RegionIORequest> requests;
-  const uint64_t align = regions_.Describe(region_).offset_alignment_;
+  const uint64_t align = ObjectMappingAccess::Checksummed(mapping_) ? ObjectMappingAccess::Unit(mapping_)
+                                                                    : regions_.Describe(region_).offset_alignment_;
   for (const auto &span : activity->read_->Spans()) {
     Piece piece{static_cast<size_t>(span.size_), 0, std::nullopt};
     if (span.journal_) {
@@ -240,6 +336,8 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
       piece.skip_ = skip;
       piece.member_ = requests.size();
       requests.push_back({region_, IOOperation::Read, start, amount});
+      checks.push_back(ObjectMappingAccess::Checksums(view, span.data_->owner_.value_or(key), span.data_->allocation_,
+                                                      start, amount));
     }
     data->pieces_.push_back(piece);
     data->size_ += piece.size_;
@@ -248,8 +346,7 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
   // read whose combined results cannot fit could retry forever as "busy".
   IOReadBudget budget;
   for (const auto &request : requests) {
-    if (!executor_.AccumulateReadBudget(
-            &budget, 1, request.size_ + executor_.DeviceInfo().memory_alignment_ - 1)) {
+    if (!executor_.AccumulateReadBudget(&budget, 1, request.size_ + executor_.DeviceInfo().memory_alignment_ - 1)) {
       throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object read exceeds total executor capacity");
     }
   }
@@ -266,8 +363,13 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
     auto prepared = regions_.TryPrepare(requests, false);
     Accepted(prepared);
     data->batch_ = std::move(prepared.batch_);
-    data->batch_->RetainUntilComplete([activity](const IOBatchResult &result) { activity->Complete(result); },
-                                      std::move(ready));
+    for (size_t i = 0; i < checks.size(); ++i) data->validation_->Add(checks[i], data->batch_->Buffer(i));
+    data->batch_->RetainUntilComplete(
+        [activity, validation = data->validation_](const IOBatchResult &result) {
+          activity->Complete(result);
+          validation->Complete(result);
+        },
+        std::move(ready));
     Accepted(executor_.TrySubmit(*data->batch_));
   }
   return ObjectRead(std::move(data));
@@ -300,6 +402,13 @@ auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, ui
   std::vector<RegionIORequest> requests;
   std::vector<IOBufferLease> leases;
   const auto info = regions_.Describe(region_);
+  const auto check_align =
+      ObjectMappingAccess::Checksummed(mapping_) ? ObjectMappingAccess::Unit(mapping_) : info.offset_alignment_;
+  auto validation = std::make_shared<ReadValidation>();
+  validation->unit_ = ObjectMappingAccess::Unit(mapping_);
+  validation->state_ = state_;
+  if (ObjectMappingAccess::Checksummed(mapping_))
+    validation->Reserve(memory_, (length + check_align - 1) / check_align + activity->read_->Spans().size());
   size_t cursor = 0;
   bool direct = true;
   const auto &spans = activity->read_->Spans();
@@ -315,12 +424,15 @@ auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, ui
       break;
     }
     if (span.data_) {
-      if (span.data_->offset_ % info.offset_alignment_ || span.size_ % info.offset_alignment_ ||
+      if (span.data_->offset_ % check_align || span.size_ % check_align ||
           reinterpret_cast<uintptr_t>(out) % info.memory_alignment_) {
         direct = false;
         break;
       }
       requests.push_back({region_, IOOperation::Read, span.data_->offset_, span.size_});
+      validation->Add(ObjectMappingAccess::Checksums(view, span.data_->owner_.value_or(key), span.data_->allocation_,
+                                                     span.data_->offset_, span.size_),
+                      out);
       const auto capacity = &span == &spans.back() ? target.capacity_ - cursor : span.size_;
       leases.push_back(IOBufferLease::ForRead(out, capacity, [owner = target.owner_] {}));
     }
@@ -332,6 +444,8 @@ auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, ui
     }
     // Physical edge alignment genuinely requires a working buffer. The caller
     // completes the copy before releasing its parent page content permission.
+    validation.reset();
+    activity.reset();
     auto read = Read(view, key, offset, length);
     read.data_->target_ = std::move(target);
     return read;
@@ -339,6 +453,7 @@ auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, ui
   auto data = std::make_unique<ObjectReadData>();
   data->size_ = cursor;
   data->external_ = true;
+  data->validation_ = validation;
   data->target_ = target;
   cursor = 0;
   for (const auto &span : activity->read_->Spans()) {
@@ -361,22 +476,24 @@ auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, ui
     }
     Accepted(prepared);
     data->batch_ = std::move(prepared.batch_);
-    data->batch_->RetainUntilComplete(
-        [activity, complete = std::move(complete), cursor, length](const IOBatchResult &r) {
-          activity->Complete(r);
-          if (complete) {
-            std::exception_ptr error;
-            try {
-              Successful(r);
-              if (cursor != length) {
-                throw std::runtime_error("short prefetched page");
-              }
-            } catch (...) {
-              error = std::current_exception();
-            }
-            complete(error);
+    data->batch_->RetainUntilComplete([activity, validation, owner = target.owner_, complete = std::move(complete),
+                                       cursor, length](const IOBatchResult &r) {
+      activity->Complete(r);
+      validation->Complete(r);
+      if (complete) {
+        std::exception_ptr error;
+        try {
+          Successful(r);
+          validation->Check();
+          if (cursor != length) {
+            throw std::runtime_error("short prefetched page");
           }
-        });
+        } catch (...) {
+          error = std::current_exception();
+        }
+        complete(error);
+      }
+    });
     Accepted(executor_.TrySubmit(*data->batch_));
   }
   if (requests.empty() && complete) {
@@ -407,7 +524,14 @@ auto ObjectIO::Write(const void *source, size_t size) -> ObjectWrite {
   auto prepared = regions_.TryPrepare(requests, true);
   Accepted(prepared);
   auto data = std::make_unique<ObjectWriteData>(
-      ObjectWriteData{state_, std::move(reservation), std::move(*prepared.batch_), size, false});
+      ObjectWriteData{state_, std::move(reservation), std::move(*prepared.batch_), size, false, {}, {}});
+  if (ObjectMappingAccess::Checksummed(mapping_)) {
+    const auto bytes =
+        (size + ObjectMappingAccess::Unit(mapping_) - 1) / ObjectMappingAccess::Unit(mapping_) * sizeof(uint32_t);
+    if (!memory_->Reserve(bytes, ProgressWork::Active())) throw MetadataCommitBusy("write checksum credits held");
+    data->checksum_memory_ = ResourceCharge(memory_, bytes, ProgressWork::Active());
+    data->checksums_ = UnitChecksums(source, size, ObjectMappingAccess::Unit(mapping_));
+  }
   size_t cursor = 0;
   for (size_t i = 0; i < requests.size(); ++i) {
     auto *buffer = data->batch_.Buffer(i);
@@ -431,17 +555,29 @@ auto ObjectIO::Publish(const ObjectMappingSnapshot &base, ObjectKey key, uint64_
   if (!data.batch_.Result().writes_durable_) {
     throw std::logic_error("object publication requires durable data");
   }
-  auto result = mapping_.Replace(base, key, offset, data.size_, data.reservation_);
+  auto result =
+      ObjectMappingAccess::ReplaceChecked(mapping_, base, key, offset, data.size_, data.reservation_, data.checksums_);
   // Any submitted commit consumes this publication attempt. Stale-base exceptions
   // before submission still allow an explicit retry with a new base.
   data.published_ = true;
   return result;
 }
+auto ObjectIO::ScrubRead(const ObjectMappingSnapshot &view, const ObjectScrubCandidate &candidate) -> ObjectRead {
+  return ReadProtected(view, candidate.owner_, references_.ProtectOwned(candidate.owner_, *candidate.span_), {});
+}
+void ObjectIO::FinishScrub(const ObjectRead &read) {
+  if (read.data_->batch_) {
+    Successful(read.data_->batch_->Result());
+    read.data_->validation_->Check();
+  }
+  for (const auto &journal : read.data_->journals_) journal.Verify();
+}
 auto ObjectIO::Error() const -> std::exception_ptr {
   std::lock_guard<std::mutex> lock(state_->mutex_);
   return state_->error_;
 }
-auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector<CommonInput> &bytes,
+auto ObjectIO::WriteCommon(const ObjectMappingSnapshot &base, std::vector<ObjectChange> *changes,
+                           const std::vector<CommonInput> &bytes, const std::vector<ObjectControlMutation> &controls,
                            std::function<void()> ready) -> CommonDataWrite {
   CommonDataWrite data;
   auto activity = std::make_shared<Activity>(state_);
@@ -473,6 +609,9 @@ auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector
     if (bytes[i].Size() == 0) {
       continue;
     }
+    op.checksums_.clear();
+    if (ObjectMappingAccess::Checksummed(mapping_))
+      op.checksums_ = UnitChecksums(bytes[i].Data(), bytes[i].Size(), unit);
     uint64_t remaining = (op.length_ + unit - 1) / unit * unit;
     size_t cursor = 0;
     while (remaining != 0) {
@@ -493,6 +632,7 @@ auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector
       }
     }
   }
+  ObjectMappingAccess::Preflight(mapping_, base, *changes, data.reservation_ ? &*data.reservation_ : nullptr, controls);
   if (requests.empty()) {
     data.durable_ = true;  // Metadata-only request, no data Flush to invent.
     return data;

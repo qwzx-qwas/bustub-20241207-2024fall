@@ -1,5 +1,7 @@
 # F12 Allocator
 
+> **2026-10-08 F30 已完成：** [共同协议](../s12_integrity_protocol.md)。分配仍归 F12；新增提交容量预检计算实际 bitmap 记录，释放与对应 CRC 的退出同事务。验收见 [执行记录](../s12_integrity_execution_20261008.md)。
+
 更新时间：2026-10-02（Asia/Shanghai）
 
 [主方案与阶段顺序](../README.md) · [测试设计议题](../testing_plan.md) · [子模块模板](../module_template.md)

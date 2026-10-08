@@ -62,6 +62,7 @@ struct ObjectTransactionData {
     bytes_.clear();
     payloads_.clear();
     input_.controls_.clear();
+    for (auto &change : changes_) std::vector<uint32_t>().swap(change.checksums_);
     memory_.Reset();
     result_ = std::move(result);
     done_.notify_all();
@@ -207,6 +208,7 @@ struct ObjectTransactionPipeline::Impl {
       account(op.Size());
       // Borrowed frame capacity is retention pressure, not another allocation.
       ram = End(ram, End(op.source_ ? 0 : op.bytes_.capacity(), write ? 2 * End(op.Size(), End(unit_, unit_)) : 0));
+      if (write) ram = End(ram, ((op.Size() + 3 * unit_ - 1) / unit_) * sizeof(uint32_t));
       // Charge the moved input's retained capacity, plus worst-case assembly.
       // F02 owns its separate IO-buffer budget; operation/result slots are bounded
       // independently by max_requests/max_operations.
@@ -452,7 +454,7 @@ struct ObjectTransactionPipeline::Impl {
                 task.payloads_[i].assign(bytes, bytes + task.bytes_[i].Size());
               }
             }
-            task.write_ = io_.WriteCommon(&task.changes_, task.bytes_, Notify());
+            task.write_ = io_.WriteCommon(*task.view_, &task.changes_, task.bytes_, task.input_.controls_, Notify());
             // Transfer assembled ownership; do not keep a second uncharged body.
             // Borrowed frames were copied before any Common IO was accepted.
             for (size_t i = 0; i < task.changes_.size(); ++i) {
@@ -599,6 +601,64 @@ struct ObjectTransactionPipeline::Impl {
   // F22 execution role. The persisted retirement directory remains the work
   // authority. One candidate per round bounds competition for B; cursor progress
   // includes pinned/blocked candidates, so one old reader cannot starve others.
+  void ScrubRound() {
+    if (!options_.integrity_scan_) return;
+    try {
+      if (scrub_metadata_) {
+        if (ObjectMappingAccess::ScrubMetadata(mapping_)) scrub_metadata_ = false;
+        return;
+      }
+      if (scrub_) {
+        if (!scrub_->WaitFor(std::chrono::milliseconds(0))) return;
+        io_.FinishScrub(*scrub_);
+        {
+          std::lock_guard lock(state_->mutex_);
+          if (scrub_journal_)
+            integrity_.journal_bytes_ += scrub_->Size();
+          else
+            integrity_.data_bytes_ += scrub_->Size();
+        }
+        scrub_.reset();
+        scrub_metadata_ = true;
+        return;
+      }
+      const auto view = mapping_.Read();
+      const auto candidate = ObjectMappingAccess::ScrubCandidate(view, scrub_cursor_);
+      if (candidate.end_ || (!candidate.covered_ && !candidate.span_->journal_)) {
+        scrub_cursor_ = candidate.next_;
+        std::lock_guard lock(state_->mutex_);
+        scrub_metadata_ = true;
+        if (candidate.end_)
+          ++integrity_.passes_;
+        else
+          integrity_.uncovered_bytes_ += unit_;
+        return;
+      }
+      try {
+        scrub_.emplace(io_.ScrubRead(view, candidate));
+      } catch (const ObjectReferenceError &e) {
+        if (e.Code() != ObjectReferenceErrorCode::Stale) throw;
+        // GC won before this scanner pinned the original allocation.
+      }
+      scrub_cursor_ = candidate.next_;
+      scrub_journal_ = candidate.span_->journal_.has_value();
+    } catch (const ObjectIOBusy &) {
+      ScrubYield();
+    } catch (const MetadataCommitBusy &) {
+      ScrubYield();
+    } catch (const ObjectReferenceError &e) {
+      if (e.Code() == ObjectReferenceErrorCode::Busy)
+        ScrubYield();
+      else
+        RecordError(std::current_exception());
+    } catch (...) {
+      RecordError(std::current_exception());
+    }
+  }
+  void ScrubYield() {
+    std::lock_guard lock(state_->mutex_);
+    ++integrity_.yielded_;
+  }
   void GarbageLoop() {
     MetadataKey cursor{0, 0, 0};
     ObjectGCPage page{cursor, {}};
@@ -610,6 +670,7 @@ struct ObjectTransactionPipeline::Impl {
                                       [&] { return !state_->accepting_ || state_->error_; }))
           return;
       }
+      ScrubRound();  // Optional work uses ordinary credits, never ProgressWork reserves.
       StoreRound();
       {
         std::lock_guard lock(state_->mutex_);
@@ -747,6 +808,11 @@ struct ObjectTransactionPipeline::Impl {
       garbage_.join();
     });
   }
+  MetadataKey scrub_cursor_{0, 0, 0};
+  std::optional<ObjectRead> scrub_;
+  bool scrub_journal_{false};
+  bool scrub_metadata_{false};
+  IntegrityScanStatus integrity_;
   ObjectIO &io_;
   ObjectMappingStore &mapping_;
   ObjectReferenceManager &references_;
@@ -770,6 +836,10 @@ ObjectTransactionPipeline::ObjectTransactionPipeline(ObjectIO &io, ObjectMapping
 ObjectTransactionPipeline::~ObjectTransactionPipeline() = default;
 auto ObjectTransactionPipeline::Submit(ObjectTransaction &transaction) -> ObjectTransactionSubmission {
   return impl_->Submit(transaction);
+}
+auto ObjectTransactionPipeline::IntegrityStatus() const -> IntegrityScanStatus {
+  std::lock_guard lock(impl_->state_->mutex_);
+  return impl_->integrity_;
 }
 auto ObjectTransactionPipeline::Error() const -> std::exception_ptr {
   std::lock_guard<std::mutex> lock(impl_->state_->mutex_);

@@ -53,6 +53,14 @@ struct ObjectTransactionOptions {
   uint64_t deferred_max_bytes_{0};  // Explicit threshold on assembled object bytes; zero selects Common.
   uint64_t deferred_pending_bytes_{0};
   size_t deferred_pending_tasks_{0};
+  bool integrity_scan_{false};  // Optional cold Data/retained-payload check, one unit per GC round.
+};
+struct IntegrityScanStatus {
+  uint64_t data_bytes_{0};
+  uint64_t journal_bytes_{0};
+  uint64_t uncovered_bytes_{0};
+  uint64_t passes_{0};
+  uint64_t yielded_{0};
 };
 struct ObjectTransactionData;
 class ObjectTransactionPipeline;

@@ -28,7 +28,7 @@ struct ObjectMappingContext {
 namespace object_mapping_detail {
 constexpr uint64_t CONTROL = 13;
 constexpr uint64_t MAGIC = 0x4253544f424a4d50ULL;  // BSTOBJMP
-constexpr uint64_t FORMAT = 4;                     // v4 adds durable shared content ownership.
+constexpr uint64_t FORMAT = 5;                     // v5 binds Data checksums to original allocation units.
 constexpr uint64_t SPACE_LIMIT = (uint64_t{1} << 56) - 1;
 enum Kind : uint64_t {
   Space = 1,
@@ -39,7 +39,8 @@ enum Kind : uint64_t {
   OwnedRange = 6,
   Control = 7,
   Deferred = 8,
-  SharedUnit = 9
+  SharedUnit = 9,
+  Checksum = 10
 };
 using Bytes = std::vector<std::byte>;
 [[noreturn]] inline void Fail(ObjectMappingErrorCode code, const char *message) {
