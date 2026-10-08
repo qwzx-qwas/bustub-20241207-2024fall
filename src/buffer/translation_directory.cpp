@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <limits>
 #include <mutex>
 #include <new>
 #include <thread>
@@ -126,29 +127,31 @@ class Charge {
 };
 }  // namespace
 
-struct TranslationEntry {
-  std::atomic<uint64_t> word_{0};
-
-  void Lock() {
-    auto value = word_.load(std::memory_order_relaxed);
-    for (;;) {
-      if ((value & kLatchMask) == 0 && word_.compare_exchange_weak(value, value | kLatchMask, std::memory_order_acquire,
-                                                                   std::memory_order_relaxed)) {
-        return;
-      }
-      std::this_thread::yield();
-      value = word_.load(std::memory_order_relaxed);
-    }
-  }
-  void Unlock() { word_.fetch_and(~kLatchMask, std::memory_order_release); }
-};
-static_assert(sizeof(TranslationEntry) == 8, "F26 translation must occupy eight bytes");
-static_assert(std::atomic<uint64_t>::is_always_lock_free, "F26 requires lock-free 64-bit atomic entries");
+// Scalar objects begin life without touching their mmap storage. Every access
+// to the representation is atomic, including the exclusive mapping latch.
+#if !defined(__cpp_lib_start_lifetime_as) || __cpp_lib_start_lifetime_as < 202207L
+#error "F26 needs C++23 std::start_lifetime_as_array; no eager-initialization fallback"
+#endif
+static_assert(sizeof(uint64_t) == 8);
+static_assert(std::atomic_ref<uint64_t>::is_always_lock_free);
+static_assert(std::atomic_ref<uint64_t>::required_alignment <= sizeof(uint64_t));
 
 struct TranslationGroup {
-  std::shared_mutex gate_;
-  bool constructed_{false};  // Under gate_, never stored in reclaimable RAM.
+  std::mutex mutex_;
+  std::atomic<uint64_t> epoch_{0};  // Even: open. Odd: maintenance excludes newcomers.
+  bool charged_{false};             // Under mutex_, outside reclaimable memory.
   std::atomic<size_t> live_entries_{0};
+};
+
+// A thread normally writes only its own record, not a group's shared reader
+// count. Records survive until the directory closes and are reused across threads.
+struct alignas(64) TranslationReader {
+  TranslationReader(Charge charge, TranslationReader *next) : charge_(std::move(charge)), next_(next) {}
+  Charge charge_;
+  TranslationReader *next_;
+  std::atomic<bool> claimed_{true};
+  bool reserved_{false};  // Only the claiming thread touches this call-scope flag.
+  std::atomic<TranslationGroup *> group_{nullptr};
 };
 
 namespace {
@@ -164,77 +167,69 @@ struct Leaf {
       : control_charge_(std::move(charge)),
         budget_(budget),
         page_bytes_(os_page),
-        entries_per_group_(os_page / sizeof(TranslationEntry)),
-        memory_(kLeafEntries * sizeof(TranslationEntry), os_page, os_page),
+        entries_per_group_(os_page / sizeof(uint64_t)),
+        memory_(kLeafEntries * sizeof(uint64_t), os_page, os_page),
         groups_(std::make_unique<TranslationGroup[]>(GroupCount(os_page))),
         candidates_(GroupCount(os_page)) {
     memory_.UseBasePages();
+    words_ = std::start_lifetime_as_array<uint64_t>(memory_.Data(), kLeafEntries);
   }
   ~Leaf() {
     for (size_t group = 0; group < GroupCount(page_bytes_); ++group) {
-      if (groups_[group].constructed_) {
-        const auto end = std::min((group + 1) * entries_per_group_, kLeafEntries);
-        for (size_t i = group * entries_per_group_; i < end; ++i) {
-          At(i)->~TranslationEntry();
-        }
-        budget_->Return(page_bytes_);
-      }
+      if (groups_[group].charged_) budget_->Return(page_bytes_);
     }
   }
   static auto GroupCount(size_t os_page) -> size_t {
-    return buffer_memory::RoundUp(kLeafEntries * sizeof(TranslationEntry), os_page) / os_page;
+    return buffer_memory::RoundUp(kLeafEntries * sizeof(uint64_t), os_page) / os_page;
   }
-  auto At(size_t index) -> TranslationEntry * {
-    return std::launder(reinterpret_cast<TranslationEntry *>(memory_.Data() + index * sizeof(TranslationEntry)));
-  }
-  void Construct(size_t index) {
-    const auto end = std::min((index + 1) * entries_per_group_, kLeafEntries);
-    for (size_t i = index * entries_per_group_; i < end; ++i) {
-      new (memory_.Data() + i * sizeof(TranslationEntry)) TranslationEntry();
-    }
-    groups_[index].constructed_ = true;
-  }
-  auto OpenGroup(size_t index) -> std::shared_lock<std::shared_mutex> {
+  auto At(size_t index) -> uint64_t * { return words_ + index; }
+  void ReserveWrite(size_t index) {
     auto &group = groups_[index];
-    for (;;) {
-      std::shared_lock read(group.gate_);
-      if (group.constructed_) {
-        return read;
-      }
-      read.unlock();
-      {
-        std::unique_lock write(group.gate_);
-        if (!group.constructed_) {
-          budget_->Take(page_bytes_);
-          Construct(index);  // Construction cannot throw.
-        }
-      }
-      // Recheck after reacquiring the shared gate: maintenance may have reclaimed
-      // this empty group between the exclusive unlock and this new access.
+    std::lock_guard lock(group.mutex_);
+    if (!group.charged_) {
+      budget_->Take(page_bytes_);  // Before even the first latch CAS, which is a write.
+      group.charged_ = true;
     }
   }
-  auto Reclaim(size_t index) -> bool {
+  auto Reclaim(size_t index, const std::atomic<TranslationReader *> &readers) -> bool {
     auto &group = groups_[index];
-    std::unique_lock gate(group.gate_, std::try_to_lock);
-    if (!gate.owns_lock()) {
+    std::unique_lock lock(group.mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
       candidates_.Mark(index);
       return false;
     }
-    if (!group.constructed_ || group.live_entries_.load(std::memory_order_relaxed) != 0) {
+    if (!group.charged_ || group.live_entries_.load(std::memory_order_relaxed) != 0) return false;
+    const auto epoch = group.epoch_.load();
+    if (epoch > std::numeric_limits<uint64_t>::max() - 2) {
+      candidates_.Mark(index);
+      throw std::overflow_error("translation group epoch exhausted");
+    }
+    group.epoch_.store(epoch + 1);
+    // SC order: an access either published before this scan, or its second
+    // epoch load sees the closed/new generation and retries before touching RAM.
+    for (auto *r = readers.load(); r; r = r->next_) {
+      if (r->group_.load() == &group) {
+        group.epoch_.store(epoch + 2);
+        candidates_.Mark(index);
+        return false;  // Never wait for a reader while holding the slow-path lock.
+      }
+    }
+    // A writer may have published and left between the first count check and
+    // our scan. Its cleared SC registration makes that publication visible.
+    if (group.live_entries_.load(std::memory_order_relaxed) != 0) {
+      group.epoch_.store(epoch + 2);
       return false;
     }
-    const auto end = std::min((index + 1) * entries_per_group_, kLeafEntries);
-    for (size_t i = index * entries_per_group_; i < end; ++i) {
-      At(i)->~TranslationEntry();
-    }
-    group.constructed_ = false;
     if (madvise(memory_.Data() + index * page_bytes_, page_bytes_, MADV_DONTNEED) != 0) {
       const auto error = errno;
-      Construct(index);  // Empty group remains charged and has valid C++ objects.
+      group.epoch_.store(epoch + 2);
       candidates_.Mark(index);
       throw std::system_error(error, std::generic_category(), "reclaim translation memory");
     }
+    // Scalar lifetimes and virtual addresses survive; no reconstruction writes.
+    group.charged_ = false;
     budget_->Return(page_bytes_);
+    group.epoch_.store(epoch + 2);
     return true;
   }
 
@@ -243,6 +238,7 @@ struct Leaf {
   size_t page_bytes_;
   size_t entries_per_group_;
   buffer_memory::Region memory_;
+  uint64_t *words_{nullptr};
   std::unique_ptr<TranslationGroup[]> groups_;
   Candidates candidates_;
 };
@@ -291,9 +287,30 @@ struct TranslationDirectoryState {
         charge_(&budget_, sizeof(TranslationDirectoryState) + Candidates::Bytes(256)),
         os_page_(buffer_memory::PageBytes()),
         candidates_(256) {
-    if (os_page_ % sizeof(TranslationEntry) != 0) {
+    if (os_page_ % sizeof(uint64_t) != 0) {
       throw std::runtime_error("OS page cannot hold aligned translation groups");
     }
+  }
+  ~TranslationDirectoryState() {
+    auto *reader = readers_.load();
+    while (reader) {
+      auto *next = reader->next_;
+      delete reader;
+      reader = next;
+    }
+  }
+  auto ClaimReader(TranslationReader *cached) -> TranslationReader * {
+    bool free = false;
+    if (cached && cached->claimed_.compare_exchange_strong(free, true, std::memory_order_acquire)) return cached;
+    std::lock_guard lock(reader_creation_);
+    for (auto *r = readers_.load(); r; r = r->next_) {
+      free = false;
+      if (r->claimed_.compare_exchange_strong(free, true, std::memory_order_acquire)) return r;
+    }
+    Charge charge(&budget_, sizeof(TranslationReader));
+    auto *reader = new TranslationReader(std::move(charge), readers_.load());
+    readers_.store(reader);
+    return reader;
   }
   auto Resolve(uint32_t prefix) -> Leaf * {
     auto *middle = roots_[prefix >> 7].Get(&budget_);
@@ -324,7 +341,7 @@ struct TranslationDirectoryState {
         auto *leaf = middle->leaves_[*child].published_.load(std::memory_order_acquire);
         const auto group = leaf->candidates_.Pop();
         try {
-          if (group && leaf->Reclaim(*group)) {
+          if (group && leaf->Reclaim(*group, readers_)) {
             reclaimed += os_page_;
           }
         } catch (...) {
@@ -348,6 +365,8 @@ struct TranslationDirectoryState {
   std::array<Slot<Middle>, 256> roots_;
   Candidates candidates_;
   std::mutex maintenance_;
+  std::mutex reader_creation_;
+  std::atomic<TranslationReader *> readers_{nullptr};
 };
 
 namespace {
@@ -396,23 +415,49 @@ struct PathCache {
 struct ThreadPaths {
   std::unique_ptr<PathCache> cache_;
   size_t calls_{0};
+  std::weak_ptr<TranslationDirectoryState> reader_owner_;
+  TranslationReader *reader_{nullptr};
+  auto Claim(const std::shared_ptr<TranslationDirectoryState> &owner) -> TranslationReader * {
+    if (reader_owner_.lock() != owner) {
+      reader_ = nullptr;
+      reader_owner_ = owner;
+    }
+    reader_ = owner->ClaimReader(reader_);
+    return reader_;
+  }
   auto For(const std::shared_ptr<TranslationDirectoryState> &owner) -> PathCache * {
     if (cache_ && cache_->owner_.lock() != owner) {
       cache_.reset();
     }
-    if (!cache_ && owner->budget_.TryTake(sizeof(PathCache))) {
-      try {
+    bool charged = false;
+    try {
+      if (!cache_ && owner->budget_.TryTake(sizeof(PathCache))) {
+        charged = true;
         cache_ = std::make_unique<PathCache>(owner);
-      } catch (const std::bad_alloc &) {
-        owner->budget_.Return(sizeof(PathCache));
-        return nullptr;  // Optional cache; the bounded array lookup still works.
       }
+    } catch (const std::bad_alloc &) {
+      if (charged) owner->budget_.Return(sizeof(PathCache));
+      // Credit acquisition can allocate while reclaiming idle grants too.
+      // Neither optional-cache failure may prevent access to existing mappings.
+      return nullptr;
     }
     return cache_.get();
   }
 };
 thread_local ThreadPaths thread_paths;
+thread_local TranslationContext *active_context = nullptr;
 }  // namespace
+
+TranslationContext::TranslationContext(TranslationDirectory &directory)
+    : owner_(directory.state_), reader_(thread_paths.Claim(owner_)), previous_(active_context) {
+  reader_->reserved_ = true;
+  active_context = this;
+}
+TranslationContext::~TranslationContext() {
+  active_context = previous_;
+  reader_->reserved_ = false;
+  reader_->claimed_.store(false, std::memory_order_release);
+}
 
 TranslationDirectory::TranslationDirectory(const TranslationDirectoryOptions &options) : state_(nullptr) {
   // Check the fixed root allocation before allocating it; descendants reserve
@@ -449,12 +494,14 @@ void TranslationDirectory::Prefetch(const page_id_t *pages, size_t count) const 
     __builtin_prefetch(&middle->leaves_[prefix & 0x7fU], 0, 1);
     auto *leaf = middle->leaves_[prefix & 0x7fU].published_.load(std::memory_order_acquire);
     if (leaf) {
-      __builtin_prefetch(leaf->memory_.Data() + (pages[i] & 0xffffU) * sizeof(TranslationEntry), 0, 1);
+      __builtin_prefetch(leaf->memory_.Data() + (pages[i] & 0xffffU) * sizeof(uint64_t), 0, 1);
     }
   }
 }
 
-auto TranslationDirectory::Access(page_id_t page) -> TranslationAccess {
+auto TranslationDirectory::Lookup(page_id_t page) -> TranslationAccess { return Open(page, false); }
+auto TranslationDirectory::Access(page_id_t page) -> TranslationAccess { return Open(page, true); }
+auto TranslationDirectory::Open(page_id_t page, bool write) -> TranslationAccess {
   if (page < 0) {
     throw std::invalid_argument("negative translation page id");
   }
@@ -474,8 +521,33 @@ auto TranslationDirectory::Access(page_id_t page) -> TranslationAccess {
       }
       const auto suffix = id & 0xffffU;
       const auto group = suffix / leaf->entries_per_group_;
-      auto gate = leaf->OpenGroup(group);
-      return TranslationAccess(std::move(owner), id, &leaf->groups_[group], leaf->At(suffix), std::move(gate));
+      TranslationReader *reader = nullptr;
+      for (auto *context = active_context; context; context = context->previous_) {
+        if (context->owner_ == owner && context->reader_->group_.load() == nullptr) {
+          reader = context->reader_;
+          break;
+        }
+      }
+      if (!reader) reader = thread_paths.Claim(owner);
+      auto &control = leaf->groups_[group];
+      for (;;) {
+        const auto epoch = control.epoch_.load();
+        if (epoch & 1) {
+          std::this_thread::yield();
+          continue;
+        }
+        reader->group_.store(&control);
+        if (control.epoch_.load() == epoch) break;
+        reader->group_.store(nullptr);
+      }
+      try {
+        if (write) leaf->ReserveWrite(group);
+      } catch (...) {
+        reader->group_.store(nullptr);
+        if (!reader->reserved_) reader->claimed_.store(false, std::memory_order_release);
+        throw;
+      }
+      return TranslationAccess(std::move(owner), id, &control, leaf->At(suffix), reader, write);
     } catch (const std::bad_alloc &) {
       if (retried) {
         throw;
@@ -491,43 +563,53 @@ auto TranslationDirectory::Access(page_id_t page) -> TranslationAccess {
 }
 
 TranslationAccess::TranslationAccess(std::shared_ptr<TranslationDirectoryState> owner, uint32_t page,
-                                     TranslationGroup *group, TranslationEntry *entry,
-                                     std::shared_lock<std::shared_mutex> gate)
-    : owner_(std::move(owner)), page_(page), group_(group), entry_(entry), gate_(std::move(gate)) {
-  entry_->Lock();
+                                     TranslationGroup *group, uint64_t *entry, TranslationReader *reader, bool write)
+    : owner_(std::move(owner)), page_(page), group_(group), entry_(entry), reader_(reader), write_(write) {
+  if (!write_) return;
+  auto word = std::atomic_ref<uint64_t>(*entry_);
+  auto value = word.load(std::memory_order_relaxed);
+  for (;;) {
+    if ((value & kLatchMask) == 0 &&
+        word.compare_exchange_weak(value, value | kLatchMask, std::memory_order_acquire, std::memory_order_relaxed))
+      return;
+    std::this_thread::yield();
+    value = word.load(std::memory_order_relaxed);
+  }
 }
 TranslationAccess::~TranslationAccess() {
-  if (entry_ != nullptr) {
-    entry_->Unlock();
-    if (group_->live_entries_.load(std::memory_order_relaxed) == 0) {
-      owner_->Mark(page_);
-    }
+  if (!entry_) return;
+  if (write_) {
+    std::atomic_ref<uint64_t>(*entry_).fetch_and(~kLatchMask, std::memory_order_release);
+    if (group_->live_entries_.load(std::memory_order_relaxed) == 0) owner_->Mark(page_);
   }
-  // Member order releases gate before the retained owner can be destroyed.
+  reader_->group_.store(nullptr);
+  if (!reader_->reserved_) reader_->claimed_.store(false, std::memory_order_release);
 }
 TranslationAccess::TranslationAccess(TranslationAccess &&other) noexcept
     : owner_(std::move(other.owner_)),
       page_(other.page_),
       group_(other.group_),
       entry_(std::exchange(other.entry_, nullptr)),
-      gate_(std::move(other.gate_)) {}
+      reader_(other.reader_),
+      write_(other.write_) {}
 
 auto TranslationAccess::Frame() const -> std::optional<frame_id_t> {
-  const auto code = entry_->word_.load(std::memory_order_relaxed) & kFrameMask;
+  const auto code = std::atomic_ref<uint64_t>(*entry_).load(std::memory_order_acquire) & kFrameMask;
   if (code == 0) {
     return std::nullopt;
   }
   return static_cast<frame_id_t>(code - 1);
 }
 auto TranslationAccess::Version() const -> uint32_t {
-  return (entry_->word_.load(std::memory_order_relaxed) >> 32) & kVersionMask;
+  return (std::atomic_ref<uint64_t>(*entry_).load(std::memory_order_acquire) >> 32) & kVersionMask;
 }
 void TranslationAccess::SetFrame(std::optional<frame_id_t> frame) {
+  if (!write_) throw std::logic_error("mapping mutation requires exclusive translation access");
   if (frame.has_value() && *frame < 0) {
     throw std::invalid_argument("negative translation frame id");
   }
   const auto code = frame.has_value() ? static_cast<uint64_t>(*frame) + 1 : 0;
-  const auto old = entry_->word_.load(std::memory_order_relaxed);
+  const auto old = std::atomic_ref<uint64_t>(*entry_).load(std::memory_order_acquire);
   if ((old & kFrameMask) == code) {
     return;
   }
@@ -537,7 +619,7 @@ void TranslationAccess::SetFrame(std::optional<frame_id_t> frame) {
   } else if (code == 0) {
     group_->live_entries_.fetch_sub(1, std::memory_order_relaxed);
   }
-  entry_->word_.store(kLatchMask | (version << 32) | code, std::memory_order_relaxed);
+  std::atomic_ref<uint64_t>(*entry_).store(kLatchMask | (version << 32) | code, std::memory_order_release);
 }
 
 }  // namespace bustub

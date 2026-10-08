@@ -1,0 +1,19 @@
+{
+  "old_F26_result_deleted": true,
+  "old_result_exists": false,
+  "only_current_source_package": "test/archives/F26-array-buffer-pool.tar.gz",
+  "normal_tests": 35,
+  "tsan_tests": 6,
+  "assertion_mutations": 8,
+  "expanded_tests_in_repository": false,
+  "binary_or_device_in_archive": false,
+  "temporary_builds_devices_and_expanded_tests_removed": true,
+  "external_development_toolchain": "/tmp/bustub-gcc16",
+  "notes": "Precommit audit removed Python bytecode from both F26 archives. Production/C++ scenarios and raw evidence unchanged. No old package backup, expanded sources, binaries or device images retained; external compiler retained.",
+  "latest_review_rerun_normal_tests": 6,
+  "latest_review_reused_normal_tests": 29,
+  "latest_review_reused_tsan_tests": 6,
+  "unrelated_failure_counterexamples_rejected": 8,
+  "precommit_archive_bytecode_removed": true,
+  "precommit_cpp_tests_rerun": false
+}

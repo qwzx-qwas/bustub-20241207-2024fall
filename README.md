@@ -16,6 +16,15 @@ We make the autograder for each assignment available to non-CMU students on Grad
 
 **WARNING: IF YOU ARE A STUDENT OUTSIDE CMU, DO NOT MAKE YOUR SOLUTION PUBLICLY AVAILABLE, AND DO SUBMIT YOUR OWN WORK. OTHERWISE, YOU WILL BE BANNED FROM USING THE AUTOGRADER.** Thank you for creating a fair learning environment.
 
+## Storage redesign toolchain
+
+The Linux F26 translation directory requires C++23 library support for
+`std::start_lifetime_as_array` and lock-free `std::atomic_ref<uint64_t>`
+(for example, GCC with libstdc++ 16). Other targets retain C++17. CMake 3.20 or newer checks
+these capabilities; the original course Clang 14 setup below is insufficient
+for this branch. See [the F26 protocol](docs/storage_redesign/s12_translation_zero_page.md)
+for the memory-lifetime rationale and stage validation.
+
 ## Cloning this Repository
 
 The following instructions are adapted from the Github documentation on [duplicating a repository](https://docs.github.com/en/github/creating-cloning-and-archiving-repositories/creating-a-repository-on-github/duplicating-a-repository). The procedure below walks you through creating a private BusTub repository that you can use for development.

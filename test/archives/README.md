@@ -1,5 +1,8 @@
 # 阶段测试源码归档
 
+2026-10-08（F26 共享零页接续）：[唯一源码包](F26-array-buffer-pool.tar.gz) 原位替换，基础 6 项、实际页/SQL 10 项，复用课程 11 项与 S8 8 项，共 35 个不同正常场景；组件 TSan 6 项、当前变异 8 个。旧 S9.1e 的 32/25 是历史结果，不作为本轮证据。旧 F26 结果包已删除，其他模块有效依赖保留；见[审查](../../docs/storage_redesign/s12_translation_execution_20261008.md)和[当前结果](../../test-results/storage-f26-zero-20261008/README.md)。 最新复审仅加强变异失败内容判据，重跑组件六项和八个变异；其余结果沿用源码匹配的上轮证据，见审查 §9。
+
+
 2026-10-08：[F29-log-cleaning.tar.gz](F29-log-cleaning.tar.gz) 为 S12.3 唯一源码包：10 项新集成、82 项复用回归、7 个指定变异；测试仅压缩保存。先 Unmap、净收益连续尾部、旧格式及完成额度隔离，见 [八项审查](../../docs/storage_redesign/s12_log_cleaning_execution_20261008.md) 和 [结果/清理](../../test-results/storage-f29-20261008/README.md)。本次复审原位替换旧 F29 包、无备份；前置模块有效依赖保留。
 
 2026-10-08（S12.2）：原位替换唯一 [F31-F22-resource-gc.tar.gz](F31-F22-resource-gc.tar.gz)。82 项正常场景（8 新增、74 复用）通过，13 个指定变异检出；原 S12.1 风险仍在同包，旧版不另留。新增帧/目录/快照/网络共享预算、Store 进展与关闭/错误；没有新常驻目标。其他模块有效依赖包保留。见 [八项审查](../../docs/storage_redesign/s12_integration_execution_20261008.md) 与 [结果](../../test-results/storage-s12-resource-gc-20261007/README.md)。

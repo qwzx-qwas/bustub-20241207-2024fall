@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <shared_mutex>
 
 #include "common/config.h"
 
@@ -16,10 +15,28 @@ class ResourceBudget;
 
 struct TranslationDirectoryState;
 struct TranslationGroup;
-struct TranslationEntry;
+struct TranslationReader;
+class TranslationDirectory;
+
+/** Thread-affine call scope: reserve one reusable access record before side
+ * effects. It protects no group while idle, and must outlive borrowed accesses.
+ * Nested accesses still use separate records. */
+class TranslationContext {
+ public:
+  explicit TranslationContext(TranslationDirectory &directory);
+  ~TranslationContext();
+  TranslationContext(const TranslationContext &) = delete;
+  auto operator=(const TranslationContext &) -> TranslationContext & = delete;
+
+ private:
+  friend class TranslationDirectory;
+  std::shared_ptr<TranslationDirectoryState> owner_;
+  TranslationReader *reader_;
+  TranslationContext *previous_;
+};
 
 /** Short, thread-affine access to ONE translation. Retains its directory owner
- * and group gate. Never hold across content waits or IO. No raw entry escapes.
+ * and a private access registration. Never hold across content waits or IO. No raw entry escapes.
  * Frame() is only a lookup: F26/c must validate/pin the FrameHeader before this
  * access ends. Version() is a wrapping translation tag, not an IO identity. */
 class TranslationAccess {
@@ -37,12 +54,13 @@ class TranslationAccess {
  private:
   friend class TranslationDirectory;
   TranslationAccess(std::shared_ptr<TranslationDirectoryState> owner, uint32_t page, TranslationGroup *group,
-                    TranslationEntry *entry, std::shared_lock<std::shared_mutex> gate);
+                    uint64_t *entry, TranslationReader *reader, bool write);
   std::shared_ptr<TranslationDirectoryState> owner_;
   uint32_t page_;
   TranslationGroup *group_;
-  TranslationEntry *entry_;
-  std::shared_lock<std::shared_mutex> gate_;
+  uint64_t *entry_;
+  TranslationReader *reader_;
+  bool write_;
 };
 
 struct TranslationDirectoryOptions {
@@ -65,6 +83,10 @@ class TranslationDirectory {
   TranslationDirectory(const TranslationDirectory &) = delete;
   auto operator=(const TranslationDirectory &) -> TranslationDirectory & = delete;
 
+  /** Read-only atomic lookup; does not materialize an empty translation page.
+   * Before using a candidate, lock the frame and recheck Frame() and page identity. */
+  auto Lookup(page_id_t page) -> TranslationAccess;
+  /** Exclusive mapping access, reserving backing memory before the first CAS. */
   auto Access(page_id_t page) -> TranslationAccess;
   /** Bounded maintenance at a BufferPool call boundary, before taking entry or
    * frame rights. Busy groups are skipped; actual OS reclaim errors propagate. */
@@ -72,6 +94,8 @@ class TranslationDirectory {
   void Prefetch(const page_id_t *pages, size_t count) const;
 
  private:
+  friend class TranslationContext;
+  auto Open(page_id_t page, bool write) -> TranslationAccess;
   std::shared_ptr<TranslationDirectoryState> state_;
 };
 

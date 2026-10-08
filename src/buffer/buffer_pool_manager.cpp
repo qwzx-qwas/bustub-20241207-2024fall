@@ -30,6 +30,7 @@ class Call {
       ++s_.calls_;
     }
     try {
+      context_.emplace(s_.directory_);
       s_.directory_.Maintain();
     } catch (...) {
       Finish();
@@ -40,12 +41,14 @@ class Call {
 
  private:
   void Finish() {
+    context_.reset();
     std::lock_guard<std::mutex> lock(s_.mutex_);
     --s_.calls_;
     s_.changed_.notify_all();
   }
 
   BufferPoolState &s_;
+  std::optional<TranslationContext> context_;
 };
 void PageNumber(page_id_t p) {
   if (p < 0) {
@@ -63,7 +66,8 @@ BufferPoolState::BufferPoolState(size_t count, std::shared_ptr<PageStorage> stor
       max_prefetch_(options.prefetch_pages_),
       storage_(std::move(storage)),
       capture_memory_(ResourceAccount::Create(options.memory_budget_)),
-      arena_({count, BUSTUB_PAGE_SIZE, storage_->MemoryAlignment(), options.arena_bytes_, options.advise_huge_pages_, options.memory_budget_}),
+      arena_({count, BUSTUB_PAGE_SIZE, storage_->MemoryAlignment(), options.arena_bytes_, options.advise_huge_pages_,
+              options.memory_budget_}),
       directory_({options.directory_bytes_, options.memory_budget_}),
       replacer_(count, k) {
   if (max_tasks_ == 0 || storage_->MaxBatchPages() == 0 || max_prefetch_ >= count || max_prefetch_ >= max_tasks_) {
@@ -240,10 +244,13 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
     std::shared_ptr<PageTask> waiting;
     std::unique_lock<std::mutex> content;
     {
-      auto entry = directory_.Access(page);
+      auto entry = directory_.Lookup(page);
       if (auto id = entry.Frame()) {
         hit = frames_[*id].get();
         content = std::unique_lock<std::mutex>(hit->mutex_);
+        if (hit->page_ != page || entry.Frame() != id || hit->phase_ == FramePhase::Free) {
+          continue;  // Candidate changed before we acquired the frame lock.
+        }
         if (hit->phase_ == FramePhase::Loading || hit->phase_ == FramePhase::Evicting ||
             hit->phase_ == FramePhase::Failed) {
           waiting = hit->task_;
@@ -274,7 +281,7 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
     auto loading = std::make_shared<PageTask>();
     auto *prepared = PrepareFrame(page, type, false, loading);
     if (!prepared) {
-      auto entry = directory_.Access(page);
+      auto entry = directory_.Lookup(page);
       if (entry.Frame()) {
         continue;
       }
@@ -394,13 +401,15 @@ auto BufferPoolManager::WritePage(page_id_t page, AccessType type) -> WritePageG
 auto BufferPoolManager::GetPinCount(page_id_t page) -> std::optional<size_t> {
   PageNumber(page);
   Call call(*state_);
-  auto e = state_->directory_.Access(page);
-  if (auto id = e.Frame()) {
+  for (;;) {
+    auto e = state_->directory_.Lookup(page);
+    auto id = e.Frame();
+    if (!id) return std::nullopt;
     auto &f = *state_->frames_[*id];
     std::lock_guard<std::mutex> lock(f.mutex_);
+    if (f.page_ != page || e.Frame() != id || f.phase_ == FramePhase::Free) continue;
     return f.pins_;
   }
-  return std::nullopt;
 }
 auto BufferPoolManager::DeletePage(page_id_t page) -> bool {
   PageNumber(page);
@@ -529,10 +538,13 @@ void BufferPoolState::Flush(const std::vector<std::pair<page_id_t, uint64_t>> &p
         FrameHeader *f = nullptr;
         std::unique_lock<std::mutex> content;
         {
-          auto e = directory_.Access(page);
+          auto e = directory_.Lookup(page);
           if (auto id = e.Frame()) {
             f = frames_[*id].get();
             content = std::unique_lock<std::mutex>(f->mutex_);
+            if (f->page_ != page || e.Frame() != id || f->phase_ == FramePhase::Free) {
+              continue;
+            }
           }
         }
         if (!f || f->generation_ != generation || f->page_ != page || f->phase_ == FramePhase::Failed) {
@@ -638,10 +650,13 @@ void BufferPoolManager::PrefetchPages(const std::vector<page_id_t> &pages) {
     FrameHeader *f = nullptr;
     try {
       {
-        auto entry = state_->directory_.Access(page);
+        auto entry = state_->directory_.Lookup(page);
         if (auto id = entry.Frame()) {
           auto &frame = *state_->frames_[*id];
           std::lock_guard<std::mutex> lock(frame.mutex_);
+          if (frame.page_ != page || entry.Frame() != id || frame.phase_ == FramePhase::Free) {
+            continue;  // A hint may be skipped; demand will resolve this page again.
+          }
           if (frame.phase_ == FramePhase::Resident) {
             __builtin_prefetch(frame.memory_.data_, 0, 1);
           }
@@ -678,15 +693,15 @@ auto BufferPoolManager::FlushPage(page_id_t page) -> bool {
   PageNumber(page);
   Call call(*state_);
   uint64_t generation;
-  {
-    auto e = state_->directory_.Access(page);
+  for (;;) {
+    auto e = state_->directory_.Lookup(page);
     auto id = e.Frame();
-    if (!id) {
-      return false;
-    }
+    if (!id) return false;
     auto &f = *state_->frames_[*id];
     std::lock_guard<std::mutex> lock(f.mutex_);
+    if (f.page_ != page || e.Frame() != id || f.phase_ == FramePhase::Free) continue;
     generation = f.generation_;
+    break;
   }
   state_->Flush({{page, generation}});
   return true;

@@ -1,14 +1,14 @@
 # F26 翻译访问性能补充：SS / RS / PL / GT
 
-更新时间：2026-10-06（Asia/Shanghai）。**本轮已授权收录评测方向；具体场景卡、参数和执行命令待讨论，尚未编写或运行新增评测。** 不改变原 C1–C5/P1–P4 内容及结果，不因此推进 F25 或其他生产实现。
+更新时间：2026-10-08（Asia/Shanghai）。**已授权收录评测方向；具体场景卡、参数和执行命令待讨论，尚未编写或运行新增评测。** 本次仅同步 F26 零页接续后的生产路径，不改变原 C1–C5/P1–P4 内容及结果，不因此推进 F25 或其他生产实现。
 
 [总方案](README.md) · [总体测试约束](testing_plan.md) · [F26 数组方案](modules/array-buffer-pool.md) · [S9 共同协议](s9_buffer_pool_protocol.md) · [原性能执行证据](testing_execution_20260921.md)
 
 ## 1. 当前实现与证据边界
 
-F26 已在正式取页路径采用数组翻译：`BufferPoolState::Fetch` → `TranslationDirectory::Access` → PathCache 命中或多级目录 → `Leaf[suffix]` → frame → 帧访问保护及正文。31 位非负 PID 按 8/7/16 分级；PathCache 最多 8 项。它优化 PID 到驻留帧的查询，SQL 找记录仍由表/索引执行。
+F26 已在正式取页路径采用数组翻译：`BufferPoolState::Fetch` → `TranslationDirectory::Lookup` → PathCache 命中或多级目录 → `Leaf[suffix]` 原子读取 → frame → 帧访问保护及正文。31 位非负 PID 按 8/7/16 分级；PathCache 最多 8 项。它优化 PID 到驻留帧的查询，SQL 找记录仍由表/索引执行。
 
-数组接入不等于没有同步成本：组访问门、条目锁、帧锁/pin、替换器更新仍在路径上。现有索引 RID 窗口调用 `PrefetchPages`，CPU 翻译/正文提示与设备预取分别处理；唯一主键的一条 RID 不保证有多个独立候选。S9 功能和寿命测试通过不能证明加速。
+数组接入不等于没有同步成本：[零页接续](s12_translation_zero_page.md)已将查询的组共享锁/条目独占替换为访问登记与代次核对；映射修改仍走 Access 的独占协议，帧锁/pin、替换器更新、调用保护仍在。现有索引 RID 窗口调用 `PrefetchPages`，CPU 翻译/正文提示与设备预取分别处理；唯一主键的一条 RID 不保证有多个独立候选。功能、寿命及零页私有内存观察不能证明命中加速。
 
 代码核对入口：[目录访问](../../src/buffer/translation_directory.cpp)、[BufferPool 取页/预取](../../src/buffer/buffer_pool_manager.cpp)、[索引 RID 消费者](../../src/execution/index_scan_executor.cpp)。这里只记录正式路径，不把内部字段或函数名变成测试 Oracle。
 
