@@ -53,6 +53,7 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
   const size_t max_prefetch_;
   size_t prefetch_{0};
   std::shared_ptr<PageStorage> storage_;
+  std::shared_ptr<ResourceAccount> capture_memory_;
   FrameArena arena_;
   TranslationDirectory directory_;
   LRUKReplacer replacer_;

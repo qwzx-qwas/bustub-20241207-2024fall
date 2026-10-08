@@ -29,6 +29,7 @@ namespace bustub {
 
 class RaftNodeTestPeer;
 class SnapshotTasks;
+class ResourceBudget;
 
 /** Draws one election timeout from the inclusive bounds supplied by RaftNode. */
 using ElectionTimeoutSource = std::function<uint64_t(uint64_t, uint64_t)>;
@@ -47,6 +48,7 @@ struct RaftNodeConfig {
   uint64_t heartbeat_interval_ms_{50};
   std::string group_id_;
   ElectionTimeoutSource election_timeout_source_{MakeRandomElectionTimeoutSource()};
+  std::shared_ptr<ResourceBudget> memory_budget_{};
 };
 
 /** Single-threaded, explicitly ticked Raft core for one static voter group. */
@@ -151,8 +153,8 @@ class RaftNode {
     SnapshotInput input_;
     std::optional<SnapshotDeltaOffer> offer_{std::nullopt};
     std::optional<SnapshotDelta> delta_{std::nullopt};
-    std::optional<InstallSnapshotRequest> chunk_{std::nullopt};
-    std::optional<std::future<InstallSnapshotRequest>> work_{std::nullopt};
+    std::shared_ptr<InstallSnapshotRequest> chunk_{};
+    std::optional<std::future<std::shared_ptr<InstallSnapshotRequest>>> work_{std::nullopt};
     bool extended_{true}, compression_{false};
     uint64_t offer_id_{0}, offer_deadline_{0};
     bool offering_{false};
@@ -170,7 +172,7 @@ class RaftNode {
     uint64_t request_id_;
     uint64_t encoding_session_;
     std::string snapshot_id_;
-    std::future<InstallSnapshotRequest> work_;
+    std::future<std::shared_ptr<InstallSnapshotRequest>> work_;
   };
   std::optional<IncomingDecode> incoming_decode_;
   // Destroyed explicitly before stores and input leases. Workers never access this node.

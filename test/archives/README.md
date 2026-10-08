@@ -1,6 +1,8 @@
 # 阶段测试源码归档
 
-2026-10-07（S12.1）：新增唯一 [F31-F22-resource-gc.tar.gz](F31-F22-resource-gc.tar.gz)，7 个新集成＋32 个复用回归通过，8 个指定变异检出。真实 IO/B/对象回收、完成压力及引用调用暂满；没有新增常驻目标。S5/F27/F19/F26 有效依赖不变。见 [八项审查](../../docs/storage_redesign/s12_execution_20261007.md) 与 [结果](../../test-results/storage-s12-resource-gc-20261007/README.md)。
+2026-10-08：[F29-log-cleaning.tar.gz](F29-log-cleaning.tar.gz) 为 S12.3 唯一源码包：10 项新集成、82 项复用回归、7 个指定变异；测试仅压缩保存。先 Unmap、净收益连续尾部、旧格式及完成额度隔离，见 [八项审查](../../docs/storage_redesign/s12_log_cleaning_execution_20261008.md) 和 [结果/清理](../../test-results/storage-f29-20261008/README.md)。本次复审原位替换旧 F29 包、无备份；前置模块有效依赖保留。
+
+2026-10-08（S12.2）：原位替换唯一 [F31-F22-resource-gc.tar.gz](F31-F22-resource-gc.tar.gz)。82 项正常场景（8 新增、74 复用）通过，13 个指定变异检出；原 S12.1 风险仍在同包，旧版不另留。新增帧/目录/快照/网络共享预算、Store 进展与关闭/错误；没有新常驻目标。其他模块有效依赖包保留。见 [八项审查](../../docs/storage_redesign/s12_integration_execution_20261008.md) 与 [结果](../../test-results/storage-s12-resource-gc-20261007/README.md)。
 
 2026-10-07（F25 当前压缩接续）：唯一 [F25-shared-snapshot.tar.gz](F25-shared-snapshot.tar.gz) 原位更新，本次复查 59 个正常场景、3 个定向变异；含真实 SQL/TCP 压缩/旧协议追赶与阶段队列/锁外读取证据。旧 F25 包无备份，测试仅压缩保存。详见 [八项审查](../../docs/storage_redesign/s11_compression_execution_20261007.md)。下文旧日期的 47/19 等保留历史事实。
 

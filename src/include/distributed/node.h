@@ -87,7 +87,6 @@ class DistributedNode {
   DistributedNode(DistributedNodeConfig config, std::shared_ptr<DurableStorage> storage);
   void Initialize();
   void TickLoop();
-  void StorageMaintenanceLoop();
   void ClientLoop();
   void HandleConnection(int socket_fd);
   void MaybeCreateSnapshot();
@@ -126,7 +125,6 @@ class DistributedNode {
   TcpEndpoint bound_client_endpoint_;
   std::atomic<bool> running_{false};
   std::thread tick_thread_;
-  std::thread storage_thread_;
   std::thread client_thread_;
   std::mutex client_workers_mutex_;
   struct ClientWorker {

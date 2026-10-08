@@ -44,7 +44,7 @@ struct ObjectTransaction {
   std::vector<ObjectControlMutation> controls_;
 };
 struct ObjectTransactionOptions {
-  size_t max_requests_;  // Includes pending, executing and retained result tickets.
+  size_t max_requests_;  // Ordinary pending/executing/retained tickets; one additional maintenance slot.
   size_t max_operations_;
   uint64_t max_request_bytes_;
   uint64_t max_pending_bytes_;

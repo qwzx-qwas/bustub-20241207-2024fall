@@ -1,6 +1,7 @@
 {
-  "scope": "S12.1 F31/F22",
+  "scope": "S12.1/S12.2 F31/F22",
   "temporary_work_directory_removed": true,
+  "temporary_work_directory": "/tmp/bustub-s122",
   "source_archives": [
     "test/archives/F31-F22-resource-gc.tar.gz"
   ],
@@ -11,27 +12,18 @@
   "valid_dependency_archives_preserved": true,
   "expanded_stage_tests_in_repo": false,
   "production_test_hooks_added": false,
-  "normal_tests": 39,
-  "mutations_detected": 8,
+  "normal_tests": 82,
+  "mutations_detected": 13,
+  "previous_archives_replaced": {
+    "source": "dad5d06507d76634070369fe9c4e91495978e38f6b3f2821fdfa5648f90132e1",
+    "result": "a68b29108e1405fea9362a9e7613c7ed29b3600b2a4a7b4a33609bc3b434121e"
+  },
   "not_run": [
     "LeakSanitizer (environment unsupported)",
     "TSan",
     "performance/E2E baseline",
+    "SS/RS/PL/GT",
     "real power loss"
   ],
-  "previous_archives_replaced": {
-    "source": "c93454695639d96bf89225c63bfa70f8b54558ec1b32afe96a547c3292195936",
-    "result": "7da40b23c0dfdcc968c0c5289eb795e311b2586a9d2fcb881cbe16a6ae99dc6e"
-  },
-  "temporary_work_directory": "/tmp/bustub-s12-review4",
-  "production_changes_in_this_review": true,
-  "test_oracle_refined": "Explicit NoSpace for GC retry retained; F14 active call limit must report Busy",
-  "commit_review_20261008": {
-    "production_or_tests_changed": false,
-    "tests_rerun": false,
-    "prior_result_replaced_for_document_sync": "3e6090147b7a3b2609f9c15a456cf86d48e008f57b3ab7aa6d5e3e1199a3a569",
-    "same_module_backup_retained": false,
-    "temporary_work_created": false,
-    "source_archives_verified": 25
-  }
+  "production_changes_in_this_review": true
 }

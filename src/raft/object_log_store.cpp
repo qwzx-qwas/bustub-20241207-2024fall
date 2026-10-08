@@ -15,8 +15,42 @@ auto Encode(std::initializer_list<uint64_t> fields) -> std::vector<std::byte> {
   return w.Take();
 }
 }  // namespace
-ObjectLogStore::ObjectLogStore(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, bool verified_rebuild)
-    : commit_(commit), storage_(std::move(storage)) {
+struct ObjectLogStore::Cleaning {
+  enum class Step { Read, Create, Write, Publish, Retire };
+  ResourceCharge memory_;  // Released after all copied buffers and directory vectors.
+  std::vector<std::shared_ptr<void>> leases_;
+  std::vector<Segment> sources_;
+  std::vector<Segment> segments_;
+  std::vector<Location> index_;
+  std::vector<std::byte> body_;
+  uint64_t generation_, base_, object_{0};
+  size_t first_;
+  Step step_{Step::Read};
+};
+ObjectLogStore::~ObjectLogStore() = default;
+namespace {
+// Only choose one existing mapping; holes are already progress. A second page
+// is needed when the first bounded Resolve contains only its leading hole.
+auto DeadSpan(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t begin, uint64_t end, uint64_t maximum)
+    -> std::optional<ObjectMutation> {
+  for (int page = 0; page != 2 && begin < end; ++page) {
+    const auto found = view.Resolve(key, begin, end - begin);
+    for (const auto &span : found.spans_) {
+      if (span.data_) {
+        ObjectMutation out{ObjectOperation::Unmap, key, span.offset_, ObjectSizeMode::Variable, {}};
+        out.length_ = std::min(span.size_, maximum);
+        return out;
+      }
+    }
+    if (found.complete_) break;
+    begin = found.next_offset_;
+  }
+  return std::nullopt;
+}
+}  // namespace
+ObjectLogStore::ObjectLogStore(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit,
+                               std::shared_ptr<std::mutex> mutex, bool verified_rebuild)
+    : commit_(commit), storage_(std::move(storage)), mutex_(std::move(mutex)) {
   const auto root = storage_->Control(1, 0);
   if (!root) {
     if (commit != 0 && !verified_rebuild) {
@@ -257,6 +291,165 @@ void ObjectLogStore::Replace(uint64_t from, const std::vector<ReplicatedLogEntry
     }
     std::rethrow_exception(error);
   }
+}
+auto ObjectLogStore::PlanCleaning() -> std::unique_ptr<Cleaning> {
+  // Called under the log mutex; only metadata inspection/preflight, no body IO.
+  if (segments_.empty() || index_.empty() || storage_->owned_objects_ >= storage_->options_.max_owned_objects_)
+    return {};
+  const auto view = storage_->storage_->Objects();
+  uint64_t read_bytes = 0, old_bytes = 0;
+  uint64_t best_gain = 0, best_cost = 1, body_bytes = 0;
+  size_t best_segment = segments_.size(), best_entry = 0;
+  for (size_t count = 1; count <= segments_.size() && count <= storage_->options_.max_batch_entries_; ++count) {
+    const auto n = segments_.size() - count;
+    const auto &segment = segments_[n];
+    read_bytes += segment.end_ - segment.begin_;
+    if (read_bytes > storage_->options_.io_chunk_bytes_ || read_bytes > storage_->options_.max_batch_bytes_) break;
+    const auto key = storage_->Key(segment.object_);
+    const auto size = view.Describe(key).size_;
+    // Do cheap unmapping first; never count those dead bytes as relocation gain.
+    if (DeadSpan(view, key, 0, segment.begin_, read_bytes) || DeadSpan(view, key, segment.end_, size, read_bytes))
+      break;
+    const auto estimate = view.EstimateRewrite(key);
+    if (!estimate) break;  // Optional planning exceeded its bounded query budget.
+    old_bytes += estimate->unshared_mapped_bytes_;
+    const auto first =
+        std::lower_bound(index_.begin(), index_.end(), std::make_pair(segment.object_, segment.begin_),
+                         [](const Location &l, const auto &p) { return std::make_pair(l.object_, l.offset_) < p; });
+    // A continuation alone is not a complete entry; include its preceding segment.
+    if (first == index_.end() || first->object_ != segment.object_ || first->offset_ != segment.begin_) continue;
+    const auto entries = static_cast<size_t>(index_.end() - first);
+    if (entries > storage_->options_.max_batch_entries_) break;
+    uint64_t written = 0;
+    for (auto it = first; it != index_.end(); ++it) written += HEADER + it->size_;
+    const auto unit = estimate->allocation_bytes_;
+    const auto allocated = (written + unit - 1) / unit * unit;
+    if (old_bytes <= allocated) continue;
+    const auto gain = old_bytes - allocated;
+    const auto cost = read_bytes + allocated;
+    if (static_cast<long double>(gain) / cost <= static_cast<long double>(best_gain) / best_cost) continue;
+    auto candidate = std::vector<Segment>(segments_.begin(), segments_.begin() + static_cast<ptrdiff_t>(n));
+    candidate.push_back({UINT64_MAX, 0, written});
+    const auto controls = Controls(candidate, index_.size(), base_, base_term_);
+    try {
+      // A larger tail can exceed the atomic publication budget even when its
+      // body fits. Keep an earlier feasible tail instead of faulting the node.
+      storage_->Check(controls);
+    } catch (const std::invalid_argument &) {
+      continue;  // Check only validates configured publication capacities.
+    }
+    best_gain = gain;
+    best_cost = cost;
+    best_segment = n;
+    best_entry = first - index_.begin();
+    body_bytes = written;
+  }
+  if (best_segment == segments_.size()) return {};
+  auto account = ResourceAccount::Create(storage_->storage_->MemoryBudget());
+  const auto bytes = 4 * body_bytes + index_.size() * sizeof(Location) + 2 * segments_.size() * sizeof(Segment) +
+                     segments_.size() * sizeof(std::shared_ptr<void>);
+  // Optional relocation must not hold the credits reserved for finishing
+  // already committed work. Keep them available while this candidate waits.
+  if (!account->Reserve(bytes, false)) return {};
+  ResourceCharge charge(account, bytes, false);
+  auto job = std::make_unique<Cleaning>();
+  job->memory_ = std::move(charge);
+  job->generation_ = generation_;
+  job->base_ = base_;
+  job->first_ = best_entry;
+  job->sources_.assign(segments_.begin() + static_cast<ptrdiff_t>(best_segment), segments_.end());
+  job->segments_.assign(segments_.begin(), segments_.begin() + static_cast<ptrdiff_t>(best_segment));
+  job->segments_.push_back({UINT64_MAX, 0, body_bytes});
+  job->index_ = index_;
+  job->body_.reserve(body_bytes);
+  for (const auto &segment : job->sources_) job->leases_.push_back(storage_->Lease(segment.object_));
+  return job;
+}
+auto ObjectLogStore::Maintain() -> bool {
+  std::unique_lock lock(*mutex_, std::try_to_lock);
+  if (!lock.owns_lock()) return false;  // Yield when a foreground operation already owns the log.
+  if (!cleaning_) {
+    if (!segments_.empty()) {
+      const auto &segment = segments_[clean_cursor_++ % segments_.size()];
+      const auto key = storage_->Key(segment.object_);
+      const auto view = storage_->storage_->Objects();
+      auto dead = DeadSpan(view, key, 0, segment.begin_, storage_->options_.io_chunk_bytes_);
+      if (!dead) dead = DeadSpan(view, key, segment.end_, view.Describe(key).size_, storage_->options_.io_chunk_bytes_);
+      if (dead) {
+        // Retired prefix/suffix bytes are never republished. Append reuses an object only when its
+        // length equals the published end; this Unmap keeps that length intact.
+        // Thus a selected dead range cannot become a future append destination.
+        lock.unlock();
+        ProgressWork progress(true);
+        storage_->Commit({{std::move(*dead)}, {}});
+        return true;
+      }
+    }
+    cleaning_ = PlanCleaning();
+    return cleaning_ != nullptr;
+  }
+  auto &job = *cleaning_;
+  if (job.generation_ != generation_) job.step_ = Cleaning::Step::Retire;
+  if (job.step_ == Cleaning::Step::Publish) {
+    // Only the small final control publication serializes with foreground
+    // mutation. All body reads and writes ran outside the log mutex.
+    ProgressWork progress(true);
+    auto controls = Controls(job.segments_, job.index_.size(), base_, base_term_);
+    storage_->Check(controls);
+    storage_->Commit({{}, std::move(controls)});
+    segments_.swap(job.segments_);
+    index_.swap(job.index_);
+    ++generation_;
+    cleaning_.reset();
+    return true;
+  }
+  lock.unlock();
+  switch (job.step_) {
+    case Cleaning::Step::Read: {
+      job.body_.clear();
+      std::vector<Location> rewritten;
+      rewritten.reserve(job.index_.size() - job.first_);
+      for (size_t i = job.first_; i < job.index_.size(); ++i) {
+        auto entry = ReadEntry(job.index_[i], job.sources_);
+        if (entry.index_ != job.base_ + i + 1) throw std::runtime_error("cleaning log identity mismatch");
+        auto encoded = LogCodec::Encode(entry);
+        rewritten.push_back({entry.term_, UINT64_MAX, job.body_.size(), encoded.size()});
+        ByteWriter header;
+        header.PutU8(1);  // FULL: the entire chosen tail fits one segment.
+        header.PutU32(encoded.size());
+        header.PutU32(Crc32cExtend(Crc32c(header.Data()), encoded.data(), encoded.size()));
+        job.body_.insert(job.body_.end(), header.Data().begin(), header.Data().end());
+        job.body_.insert(job.body_.end(), encoded.begin(), encoded.end());
+      }
+      std::copy(rewritten.begin(), rewritten.end(), job.index_.begin() + static_cast<ptrdiff_t>(job.first_));
+      job.step_ = Cleaning::Step::Create;
+      break;
+    }
+    case Cleaning::Step::Create:
+      job.object_ = storage_->Candidate(1);
+      job.segments_.back().object_ = job.object_;
+      for (size_t i = job.first_; i < job.index_.size(); ++i) job.index_[i].object_ = job.object_;
+      job.step_ = Cleaning::Step::Write;
+      break;
+    case Cleaning::Step::Write:
+      try {
+        storage_->Append(job.object_, job.body_);  // At most one configured IO chunk.
+        job.step_ = Cleaning::Step::Publish;
+      } catch (const AllocationError &e) {
+        if (e.Code() != AllocationErrorCode::NoSpace) throw;
+        job.step_ = Cleaning::Step::Retire;  // Optional relocation lacks staging space.
+      }
+      break;
+    case Cleaning::Step::Retire: {
+      ProgressWork progress(true);
+      if (job.object_ != 0) storage_->Commit({{}, {storage_->Own(job.object_, 1, 2)}});
+      cleaning_.reset();
+      break;
+    }
+    case Cleaning::Step::Publish:
+      break;
+  }
+  return true;
 }
 auto ObjectLogStore::ReadEntry(const Location &loc, const std::vector<Segment> &segments) const -> ReplicatedLogEntry {
   auto it = std::find_if(segments.begin(), segments.end(), [&](const auto &s) { return s.object_ == loc.object_; });

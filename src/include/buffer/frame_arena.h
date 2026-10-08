@@ -10,6 +10,7 @@
 #include "common/config.h"
 
 namespace bustub {
+class ResourceBudget;
 
 struct FrameArenaOptions {
   size_t frame_count_;
@@ -17,6 +18,7 @@ struct FrameArenaOptions {
   size_t memory_alignment_;  // From the actual backend, not a fixed IO granularity.
   size_t max_bytes_;         // Includes page rounding and alignment slack.
   bool advise_huge_pages_;
+  std::shared_ptr<ResourceBudget> memory_budget_{};
 };
 
 enum class HugePageAdvice { Disabled, Accepted, Unavailable };

@@ -31,6 +31,24 @@
 namespace bustub {
 namespace {
 
+// Conservative peak encoding allowance: body, envelope and framed copies,
+// including vector growth. Queue retention is reduced to actual frame capacity.
+// Uses message lengths, never serializes once merely to size another encoding.
+auto EncodeMemory(const RaftEnvelope &envelope) -> size_t {
+  size_t bytes = envelope.group_id_.capacity() + 256;
+  std::visit([&](const auto &message) {
+    using T = std::decay_t<decltype(message)>;
+    if constexpr (std::is_same_v<T, AppendEntriesRequest>) {
+      for (const auto &entry : message.entries_) bytes += entry.payload_.capacity() + 128;
+    } else if constexpr (std::is_same_v<T, InstallSnapshotRequest>) {
+      bytes += message.data_.capacity() + message.snapshot_id_.capacity();
+    } else if constexpr (std::is_same_v<T, SnapshotOfferRequest>) {
+      bytes += message.target_.snapshot_id_.capacity() + message.base_.snapshot_id_.capacity();
+    }
+  }, envelope.message_);
+  return 4096 + 8 * bytes;
+}
+
 class SocketGuard {
  public:
   explicit SocketGuard(int socket_fd) : socket_fd_(socket_fd) {}
@@ -208,13 +226,14 @@ auto TcpEndpoint::ToString() const -> std::string { return host_ + ":" + std::to
 
 TcpRaftTransport::TcpRaftTransport(NodeId local_node_id, std::string group_id, TcpEndpoint listen_endpoint,
                                    std::map<NodeId, TcpEndpoint> peers, uint64_t connect_timeout_ms,
-                                   size_t maximum_pending)
+                                   size_t maximum_pending, std::shared_ptr<ResourceBudget> memory)
     : local_node_id_(local_node_id),
       group_id_(std::move(group_id)),
       listen_endpoint_(std::move(listen_endpoint)),
       peers_(std::move(peers)),
       connect_timeout_ms_(connect_timeout_ms),
-      maximum_pending_(maximum_pending) {
+      maximum_pending_(maximum_pending),
+      memory_(ResourceAccount::Create(std::move(memory))) {
   if (local_node_id_ == 0 || group_id_.empty() || group_id_.size() > 128 || listen_endpoint_.host_.empty() ||
       peers_.empty() || connect_timeout_ms_ == 0 || maximum_pending_ == 0 || peers_.count(local_node_id_) != 0 ||
       peers_.count(0) != 0) {
@@ -281,7 +300,14 @@ void TcpRaftTransport::Send(RaftEnvelope envelope) {
       envelope.group_id_ != group_id_) {
     throw std::runtime_error("invalid or inactive TCP Raft send");
   }
+  const auto bytes = EncodeMemory(envelope);
+  if (!memory_->Reserve(bytes, false)) {
+    ++dropped_messages_;  // Raft retries transport loss; never wait under its protocol lock.
+    return;
+  }
+  ResourceCharge charge(memory_, bytes, false);
   auto frame = RaftRpcCodec::Encode(envelope);
+  charge.ShrinkTo(frame.capacity());
   {
     std::lock_guard lock(mutex_);
     // Pair the running-state check with queue insertion so Stop() either
@@ -294,7 +320,7 @@ void TcpRaftTransport::Send(RaftEnvelope envelope) {
       dropped_messages_++;
       return;
     }
-    outbound_.push_back({envelope.to_, std::move(frame)});
+    outbound_.push_back({envelope.to_, std::move(charge), std::move(frame)});
   }
   send_cv_.notify_one();
 }
@@ -334,6 +360,14 @@ void TcpRaftTransport::HandleConnection(int socket_fd) {
     throw std::runtime_error("truncated TCP Raft prefix");
   }
   const auto payload_size = RaftRpcCodec::PayloadSizeFromPrefix(prefix);
+  // Decode also verifies canonical framing through the existing encoder.
+  // Include its temporary copies and the receiver's immediate handoff copy.
+  const auto bytes = 4096 + 12 * (prefix.size() + payload_size + sizeof(uint32_t));
+  if (!memory_->Reserve(bytes, false)) {
+    ++dropped_messages_;
+    return;
+  }
+  ResourceCharge charge(memory_, bytes, false);
   std::vector<std::byte> frame = prefix;
   frame.resize(prefix.size() + payload_size + sizeof(uint32_t));
   if (!ReadExact(socket_fd, frame.data() + prefix.size(), payload_size + sizeof(uint32_t))) {

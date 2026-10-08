@@ -20,8 +20,8 @@ namespace bustub {
 namespace {
 struct RequestBudget {
   std::mutex mutex_;
-  size_t requests_{0};
-  uint64_t bytes_{0};
+  size_t requests_[2]{0, 0};
+  uint64_t bytes_[2]{0, 0};
 };
 enum class Step { Pending, Reading, Writing, Ready, Committing, Done };
 auto Same(ObjectKey a, ObjectKey b) -> bool { return a.space_ == b.space_ && a.number_ == b.number_; }
@@ -49,8 +49,8 @@ struct ObjectTransactionData {
   ~ObjectTransactionData() {
     if (budget_) {
       std::lock_guard<std::mutex> lock(budget_->mutex_);
-      --budget_->requests_;
-      budget_->bytes_ -= charge_;
+      --budget_->requests_[progress_];
+      budget_->bytes_[progress_] -= charge_;
     }
   }
   void Finish(JournalResult result) {
@@ -76,6 +76,7 @@ struct ObjectTransactionData {
   std::shared_ptr<RequestBudget> budget_;
   uint64_t charge_{0};
   ResourceCharge memory_;
+  bool progress_{false};
   ObjectTransaction input_;
   Step step_{Step::Pending};  // Written only by the coordinator.
   std::optional<ObjectMappingSnapshot> view_;
@@ -225,22 +226,29 @@ struct ObjectTransactionPipeline::Impl {
     if (charge > options_.max_pending_bytes_) {
       throw std::invalid_argument("one object transaction exceeds pending byte budget");
     }
-    if (!memory_->Reserve(ram, false)) return {IOAdmission::Full, std::nullopt};
-    ResourceCharge memory(memory_, ram, false);
+    const bool progress = ProgressWork::Active();
+    if (!memory_->Reserve(ram, progress)) return {IOAdmission::Full, std::nullopt};
+    ResourceCharge memory(memory_, ram, progress);
     auto task = std::make_shared<ObjectTransactionData>();
     task->memory_ = std::move(memory);
     task->charge_ = charge;
+    task->progress_ = progress;
     std::lock_guard<std::mutex> lock(state_->mutex_);
     if (!state_->accepting_ || state_->error_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
     {
       std::lock_guard<std::mutex> budget_lock(budget_->mutex_);
-      if (budget_->requests_ == options_.max_requests_ || charge > options_.max_pending_bytes_ - budget_->bytes_) {
+      // One serialized maintenance source can need one submission while all
+      // ordinary result tickets are retained. Both lanes retain the existing
+      // per-request byte/operation limits and share actual node memory.
+      const auto requests = progress ? size_t{1} : options_.max_requests_;
+      if (budget_->requests_[progress] == requests ||
+          charge > options_.max_pending_bytes_ - budget_->bytes_[progress]) {
         return {IOAdmission::Full, std::nullopt};
       }
-      ++budget_->requests_;
-      budget_->bytes_ += charge;
+      ++budget_->requests_[progress];
+      budget_->bytes_[progress] += charge;
       task->budget_ = budget_;
     }
     // Queue storage and result ownership exist BEFORE consuming the caller's input.
@@ -413,6 +421,7 @@ struct ObjectTransactionPipeline::Impl {
       }
       for (auto it = live.begin(); it != live.end(); ++it) {
         auto &task = **it;
+        ProgressWork progress(task.progress_);
         try {
           if (task.step_ == Step::Committing) {
             if (task.Finished()) {
@@ -504,6 +513,7 @@ struct ObjectTransactionPipeline::Impl {
         task = state_->commit_;
       }
       if (task) {
+        ProgressWork progress(task->progress_);
         JournalResult result{JournalOutcome::NotCommitted, 0, 0, nullptr};
         try {
           if (!task->write_.durable_) {
@@ -556,11 +566,40 @@ struct ObjectTransactionPipeline::Impl {
       }
     }
   }
+  void SetStoreMaintenance(std::function<void()> step, bool stop = false) {
+    std::unique_lock lock(store_mutex_);
+    if (step && store_stopped_) throw std::logic_error("storage maintenance is closed");
+    if (step && store_step_) throw std::logic_error("storage already has a Store maintenance owner");
+    store_step_ = {};  // No new invocation can acquire the old owner.
+    store_idle_.wait(lock, [&] { return !store_running_; });
+    if (stop) store_stopped_ = true;
+    store_step_ = std::move(step);
+  }
+  void StoreRound() {
+    std::function<void()> step;
+    {
+      std::lock_guard lock(store_mutex_);
+      step = store_step_;
+      if (!step) return;
+      store_running_ = true;
+    }
+    try {
+      step();  // One bounded Store visit. Never hold registration/state locks across IO.
+    } catch (const MetadataCommitBusy &) {
+      // Not admitted / explicitly not committed: durable owner remains discoverable.
+    } catch (...) {
+      RecordError(std::current_exception());
+    }
+    {
+      std::lock_guard lock(store_mutex_);
+      store_running_ = false;
+      store_idle_.notify_all();
+    }
+  }
   // F22 execution role. The persisted retirement directory remains the work
   // authority. One candidate per round bounds competition for B; cursor progress
   // includes pinned/blocked candidates, so one old reader cannot starve others.
   void GarbageLoop() {
-    ProgressWork progress(true);
     MetadataKey cursor{0, 0, 0};
     ObjectGCPage page{cursor, {}};
     size_t next = 0;
@@ -571,7 +610,13 @@ struct ObjectTransactionPipeline::Impl {
                                       [&] { return !state_->accepting_ || state_->error_; }))
           return;
       }
+      StoreRound();
+      {
+        std::lock_guard lock(state_->mutex_);
+        if (!state_->accepting_ || state_->error_) return;
+      }
       try {
+        ProgressWork progress(true);
         if (next == page.candidates_.size()) {
           page = ObjectMappingAccess::Garbage(mapping_.Read(), cursor);
           cursor = page.next_;
@@ -585,8 +630,7 @@ struct ObjectTransactionPipeline::Impl {
       } catch (const MetadataCommitBusy &) {
         // The durable candidate remains discoverable on the next sweep.
       } catch (const MetadataError &e) {
-        if (e.Code() != MetadataErrorCode::Conflict && e.Code() != MetadataErrorCode::ResourceUnavailable)
-          RecordError(std::current_exception());
+        if (e.Code() != MetadataErrorCode::Conflict) RecordError(std::current_exception());
       } catch (const ObjectReferenceError &e) {
         if (e.Code() != ObjectReferenceErrorCode::Busy) RecordError(std::current_exception());
       } catch (...) {
@@ -690,6 +734,7 @@ struct ObjectTransactionPipeline::Impl {
   }
   void Close() {
     std::call_once(close_, [&] {
+      SetStoreMaintenance({}, true);
       {
         std::lock_guard<std::mutex> lock(state_->mutex_);
         state_->accepting_ = false;
@@ -710,6 +755,10 @@ struct ObjectTransactionPipeline::Impl {
   std::shared_ptr<ResourceAccount> memory_;
   std::shared_ptr<State> state_{std::make_shared<State>()};
   std::shared_ptr<RequestBudget> budget_{std::make_shared<RequestBudget>()};
+  std::mutex store_mutex_;
+  std::condition_variable store_idle_;
+  std::function<void()> store_step_;
+  bool store_running_{false}, store_stopped_{false};
   std::thread metadata_, coordinator_, deferred_, garbage_;
   std::once_flag close_;
 };
@@ -726,5 +775,9 @@ auto ObjectTransactionPipeline::Error() const -> std::exception_ptr {
   std::lock_guard<std::mutex> lock(impl_->state_->mutex_);
   return impl_->state_->error_;
 }
+void ObjectTransactionPipeline::SetStoreMaintenance(std::function<void()> step) {
+  impl_->SetStoreMaintenance(std::move(step));
+}
+void ObjectTransactionPipeline::StopStoreMaintenance() { impl_->SetStoreMaintenance({}, true); }
 void ObjectTransactionPipeline::Close() { impl_->Close(); }
 }  // namespace bustub

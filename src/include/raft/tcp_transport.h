@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "raft/transport.h"
+#include "storage/disk/resource_budget.h"
 
 namespace bustub {
 
@@ -45,7 +46,7 @@ class TcpRaftTransport : public RaftTransport {
 
   TcpRaftTransport(NodeId local_node_id, std::string group_id, TcpEndpoint listen_endpoint,
                    std::map<NodeId, TcpEndpoint> peers, uint64_t connect_timeout_ms = 250,
-                   size_t maximum_pending = 10000);
+                   size_t maximum_pending = 10000, std::shared_ptr<ResourceBudget> memory = nullptr);
   ~TcpRaftTransport() override;
 
   void Start(Receiver receiver);
@@ -61,6 +62,7 @@ class TcpRaftTransport : public RaftTransport {
   void HandleConnection(int socket_fd);
   struct PendingFrame {
     NodeId to_;
+    ResourceCharge memory_;
     std::vector<std::byte> bytes_;
   };
   auto SendOne(const PendingFrame &frame) -> bool;
@@ -71,6 +73,7 @@ class TcpRaftTransport : public RaftTransport {
   std::map<NodeId, TcpEndpoint> peers_;
   uint64_t connect_timeout_ms_;
   size_t maximum_pending_;
+  std::shared_ptr<ResourceAccount> memory_;
 
   mutable std::mutex mutex_;
   std::condition_variable send_cv_;

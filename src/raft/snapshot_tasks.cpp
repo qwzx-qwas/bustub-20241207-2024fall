@@ -7,7 +7,8 @@
 
 namespace bustub {
 
-SnapshotTasks::SnapshotTasks() {
+SnapshotTasks::SnapshotTasks(std::shared_ptr<ResourceBudget> memory)
+    : memory_(ResourceAccount::Create(std::move(memory))) {
   try {
     for (size_t i = 0; i < 2; ++i) threads_.emplace_back([this] { Run(); });
   } catch (...) {
@@ -28,11 +29,40 @@ SnapshotTasks::~SnapshotTasks() {
   ready_.notify_all();
   for (auto &thread : threads_) thread.join();
 }
-auto SnapshotTasks::Submit(std::function<InstallSnapshotRequest()> work)
-    -> std::optional<std::future<InstallSnapshotRequest>> {
+auto SnapshotTasks::Reserve() -> std::shared_ptr<ResourceCharge> {
+  // The wire protocol caps one block at 64 KiB. Own the original/read block,
+  // LZ4's worst-case output, and one protocol handoff copy. This reservation
+  // remains with the result until its final ACK/cancel, including future storage.
+  constexpr size_t block = 64U * 1024U;
+  const auto bytes = 2 * block + static_cast<size_t>(LZ4_compressBound(block));
+  if (!memory_->Reserve(bytes, false)) return {};
+  ResourceCharge charge(memory_, bytes, false);
+  return std::make_shared<ResourceCharge>(std::move(charge));
+}
+auto SnapshotTasks::Submit(std::function<InstallSnapshotRequest()> work) -> Future {
+  auto charge = Reserve();
+  if (!charge) return std::nullopt;
+  return Enqueue(std::move(charge), std::move(work));
+}
+auto SnapshotTasks::Decode(const InstallSnapshotRequest &request) -> Future {
+  if (request.data_.size() > 64U * 1024U) throw std::runtime_error("snapshot input exceeded block limit");
+  auto charge = Reserve();
+  if (!charge) return std::nullopt;
+  // Reserve before copying the incoming body, rather than copying a lambda
+  // argument before discovering the worker/byte budget is full.
+  return Enqueue(std::move(charge), [decoded = InstallSnapshotRequest(request)]() mutable {
+    DecompressSnapshotChunk(&decoded);
+    return std::move(decoded);
+  });
+}
+auto SnapshotTasks::Enqueue(std::shared_ptr<ResourceCharge> charge,
+                            std::function<InstallSnapshotRequest()> work) -> Future {
   std::lock_guard lock(mutex_);
   if (closing_ || outstanding_ == 4) return std::nullopt;
-  std::packaged_task<InstallSnapshotRequest()> task(std::move(work));
+  std::packaged_task<Result()> task([charge = std::move(charge), work = std::move(work)] {
+    auto result = work();
+    return Result(new InstallSnapshotRequest(std::move(result)), [charge](InstallSnapshotRequest *p) { delete p; });
+  });
   auto result = task.get_future();
   queue_.push_back(std::move(task));
   ++outstanding_;
@@ -41,7 +71,7 @@ auto SnapshotTasks::Submit(std::function<InstallSnapshotRequest()> work)
 }
 void SnapshotTasks::Run() {
   for (;;) {
-    std::packaged_task<InstallSnapshotRequest()> task;
+    std::packaged_task<Result()> task;
     {
       std::unique_lock lock(mutex_);
       ready_.wait(lock, [this] { return closing_ || !queue_.empty(); });

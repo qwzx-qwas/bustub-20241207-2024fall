@@ -98,6 +98,11 @@ class NodeStorage {
   void Create(const BootstrapLayout &layout);
   void Open();
   auto State() const -> NodeStorageView;
+  /** Shared assembly dependency for page caches and Raft work. May be absent. */
+  auto MemoryBudget() const -> std::shared_ptr<ResourceBudget>;
+  /** One Store owner joins the existing bounded GC role. Empty detaches and
+   * waits for its accepted callback, without holding the node state lock. */
+  void SetStoreMaintenance(std::function<void()> step);
   auto Read() -> MetadataSnapshot;
   auto Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations) -> JournalResult;
   auto Writeback(size_t max_pages) -> MetadataWritebackResult;

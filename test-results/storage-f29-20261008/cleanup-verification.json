@@ -1,0 +1,32 @@
+{
+  "scope": "S12.3 / F29 review",
+  "temporary_work_directory": "/tmp/bustub-f29-review",
+  "temporary_work_directory_removed": true,
+  "temporary_size_before_cleanup": "1.3G (du -sh rounded)",
+  "prior_temporary_work_directory_removed": true,
+  "source_archives": [
+    "test/archives/F29-log-cleaning.tar.gz"
+  ],
+  "result_archives": [
+    "test-results/storage-f29-20261008/F29-results.tar.gz"
+  ],
+  "replaced_archive_sha256": {
+    "source": "2c93bc61d9f08a4f327d21b2ae5b88ecf338840d87f8d285097083b646b5fe6a",
+    "result": "b0ea16a2ab84ecad6bab9d0dc994624a79971cf7bb8756370ca66281bba0b5f8"
+  },
+  "old_same_module_archive_backups": [],
+  "valid_other_module_dependency_archives_preserved": true,
+  "expanded_stage_tests_in_repo": false,
+  "production_test_hooks_added": false,
+  "normal_tests": 92,
+  "mutations_detected": 7,
+  "not_run": [
+    "TSan",
+    "LeakSanitizer",
+    "real power loss",
+    "raw device",
+    "C/P performance baseline",
+    "SS/RS/PL/GT"
+  ],
+  "commit_performed": false
+}

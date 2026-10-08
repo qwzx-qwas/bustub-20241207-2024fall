@@ -6,7 +6,11 @@
 namespace bustub {
 class ObjectLogStore {
  public:
-  ObjectLogStore(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, bool verified_rebuild = false);
+  ObjectLogStore(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, std::shared_ptr<std::mutex> mutex,
+                 bool verified_rebuild = false);
+  ~ObjectLogStore();
+  // One bounded F29 step, scheduled by the existing Store maintenance owner.
+  auto Maintain() -> bool;
   void Replace(uint64_t from, const std::vector<ReplicatedLogEntry> &entries);
   void Base(uint64_t index, uint64_t term, bool retain);
   void Rebuild(uint64_t index, uint64_t term);
@@ -23,6 +27,8 @@ class ObjectLogStore {
   struct Location {
     uint64_t term_, object_, offset_, size_;
   };
+  struct Cleaning;
+  auto PlanCleaning() -> std::unique_ptr<Cleaning>;
   auto ReadEntry(const Location &location, const std::vector<Segment> &segments) const -> ReplicatedLogEntry;
   void Publish(std::vector<Segment> segments, std::vector<Location> index, uint64_t base, uint64_t term);
   auto Controls(const std::vector<Segment> &segments, size_t entries, uint64_t base, uint64_t term)
@@ -31,5 +37,9 @@ class ObjectLogStore {
   uint64_t generation_{0};
   std::vector<Segment> segments_;
   std::vector<Location> index_;
+  // Foreground is serialized by LogStore using this same mutex.
+  std::shared_ptr<std::mutex> mutex_;
+  std::unique_ptr<Cleaning> cleaning_;
+  size_t clean_cursor_{0};
 };
 }  // namespace bustub

@@ -21,8 +21,10 @@
 #include "buffer/page_storage.h"
 #include "common/config.h"
 #include "storage/disk/disk_manager.h"
+#include "storage/disk/resource_budget.h"
 #include "storage/page/page_guard.h"
 namespace bustub {
+class ResourceBudget;
 class DiskManager;
 class LogManager;
 struct BufferPoolState;
@@ -32,12 +34,14 @@ struct BufferPoolOptions {
   size_t max_inflight_pages_;
   bool advise_huge_pages_;
   size_t prefetch_pages_;  // Explicit quota/window; zero disables speculative IO.
+  std::shared_ptr<ResourceBudget> memory_budget_{};
 };
 struct CapturedPage {
   page_id_t page_;
   std::array<char, BUSTUB_PAGE_SIZE> bytes_;
 };
 struct PageCapture {
+  ResourceCharge memory_;  // Follows the immutable copied pages, independently of the cache.
   uint64_t next_page_;
   std::vector<CapturedPage> dirty_;
 };

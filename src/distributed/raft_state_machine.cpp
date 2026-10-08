@@ -750,6 +750,7 @@ auto BusTubRaftStateMachine::OpenObjectPages(NodeDirectory *directory, std::shar
   }
   auto result =
       std::shared_ptr<BusTubRaftStateMachine>(new BusTubRaftStateMachine(directory, std::move(storage), frames));
+  deployment.cache_.memory_budget_ = deployment.storage_->MemoryBudget();
   result->page_deployment_ = std::move(deployment);
   if (result->page_deployment_->storage_->SupportsObjectSharing()) {
     result->OpenLocalCheckpoint();

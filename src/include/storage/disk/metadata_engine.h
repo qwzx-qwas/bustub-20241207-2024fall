@@ -74,7 +74,7 @@ class MetadataViewConflict final : public MetadataError {
   MetadataViewConflict() : MetadataError(MetadataErrorCode::Conflict, "stale or foreign metadata view") {}
 };
 
-/** A checkpoint or another admitted IO temporarily owns commit capacity.
+/** Shared memory, a checkpoint or admitted IO temporarily owns commit capacity.
  * Unlike an oversized batch or exhausted persistent space, this may be retried. */
 class MetadataCommitBusy final : public MetadataError {
  public:

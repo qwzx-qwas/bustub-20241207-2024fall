@@ -12,6 +12,7 @@
 #include "common/config.h"
 
 namespace bustub {
+class ResourceBudget;
 
 struct TranslationDirectoryState;
 struct TranslationGroup;
@@ -48,6 +49,7 @@ struct TranslationDirectoryOptions {
   // Owned directory/control/path-cache allocations + materialized OS pages. Leaf virtual
   // reservations and kernel page tables are not falsely counted as resident RAM.
   size_t max_bytes_;
+  std::shared_ptr<ResourceBudget> memory_budget_{};
 };
 
 /** Each constructed directory is a distinct opened-instance context. No copy,

@@ -64,7 +64,7 @@ void Accepted(IOAdmission admission) {
 }
 void Accepted(const IOPreparation &prepared) {
   if (prepared.shared_memory_limited_) {
-    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object IO shared memory is held");
+    throw MetadataCommitBusy("object IO shared memory is held");
   }
   Accepted(prepared.admission_);
 }

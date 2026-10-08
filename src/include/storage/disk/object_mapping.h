@@ -76,6 +76,10 @@ struct ObjectControlEntry {
   uint64_t item_;
   std::vector<std::byte> value_;
 };
+struct ObjectRewriteEstimate {
+  uint64_t allocation_bytes_;
+  uint64_t unshared_mapped_bytes_;
+};
 struct ObjectMappingContext;
 /** Immutable metadata view. It is NOT a physical-data pin. F14 must protect
  * actual reads before physical release is enabled. Pagination uses this same
@@ -89,6 +93,12 @@ class ObjectMappingSnapshot {
    * one tail mapping (or hole) and at most maximum_bytes. Empty objects return
    * zero. The caller serializes mutations; this neither retires nor pins data. */
   auto PlanTailTrim(ObjectKey key, uint64_t maximum_bytes) const -> uint64_t;
+  /** Bounded planning hint for replacing a whole object. Counts allocation
+   * units touched by its own mappings, excluding persistent shared references.
+   * Includes padding within those units, not already-unmapped units. RAM pins
+   * may delay actual release; this grants no permission to free space.
+   * nullopt means the estimate exceeds this view's query budget. */
+  auto EstimateRewrite(ObjectKey key) const -> std::optional<ObjectRewriteEstimate>;
   /** F14 handoff, inclusive id cursor (starts at zero), also valid for tombstones. */
   auto Retired(ObjectKey key, uint64_t from_id) const -> RetiredRangePage;
   auto Control(ObjectKey owner, uint64_t item) const -> std::optional<std::vector<std::byte>>;

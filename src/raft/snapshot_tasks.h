@@ -10,21 +10,28 @@
 #include <vector>
 
 #include "raft/raft_types.h"
+#include "storage/disk/resource_budget.h"
 
 namespace bustub {
 
 /** Internal bounded executor. Admission owns both work and its completion cell. */
 class SnapshotTasks {
  public:
-  SnapshotTasks();
+  explicit SnapshotTasks(std::shared_ptr<ResourceBudget> memory);
   ~SnapshotTasks();
-  auto Submit(std::function<InstallSnapshotRequest()> work) -> std::optional<std::future<InstallSnapshotRequest>>;
+  using Result = std::shared_ptr<InstallSnapshotRequest>;
+  using Future = std::optional<std::future<Result>>;
+  auto Submit(std::function<InstallSnapshotRequest()> work) -> Future;
+  auto Decode(const InstallSnapshotRequest &request) -> Future;
 
  private:
   void Run();
+  auto Reserve() -> std::shared_ptr<ResourceCharge>;
+  auto Enqueue(std::shared_ptr<ResourceCharge> charge, std::function<InstallSnapshotRequest()> work) -> Future;
+  std::shared_ptr<ResourceAccount> memory_;
   std::mutex mutex_;
   std::condition_variable ready_;
-  std::deque<std::packaged_task<InstallSnapshotRequest()>> queue_;
+  std::deque<std::packaged_task<Result()>> queue_;
   size_t outstanding_{0};
   bool closing_{false};
   std::vector<std::thread> threads_;

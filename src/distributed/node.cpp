@@ -213,11 +213,13 @@ void DistributedNode::Initialize() {
     raft_peers.emplace(peer_id, peer.raft_endpoint_);
   }
   transport_ = std::make_shared<TcpRaftTransport>(config_.node_id_, config_.group_id_, config_.raft_listen_,
-                                                  std::move(raft_peers));
+                                                  std::move(raft_peers), 250, 10000,
+                                                  local_storage_ ? local_storage_->MemoryBudget() : nullptr);
   raft_node_ =
       std::make_unique<RaftNode>(RaftNodeConfig{config_.node_id_, std::move(voters), config_.election_timeout_min_ms_,
                                                 config_.election_timeout_max_ms_, config_.heartbeat_interval_ms_,
-                                                config_.group_id_, MakeRandomElectionTimeoutSource()},
+                                                config_.group_id_, MakeRandomElectionTimeoutSource(),
+                                                local_storage_ ? local_storage_->MemoryBudget() : nullptr},
                                  transport_, std::move(recovered.stable_store_), std::move(recovered.log_store_),
                                  state_machine_, std::move(recovered.snapshot_store_));
 }
@@ -249,7 +251,10 @@ void DistributedNode::Start() {
     tick_thread_ = std::thread([this] { TickLoop(); });
     client_thread_ = std::thread([this] { ClientLoop(); });
     if (object_storage_) {
-      storage_thread_ = std::thread([this] { StorageMaintenanceLoop(); });
+      std::weak_ptr<RaftObjectStorage> owner = object_storage_;
+      local_storage_->SetStoreMaintenance([owner] {
+        if (auto store = owner.lock()) store->Collect(1);
+      });
     }
   } catch (...) {
     const auto error = std::current_exception();
@@ -276,9 +281,7 @@ void DistributedNode::Stop() {
   if (tick_thread_.joinable()) {
     tick_thread_.join();
   }
-  if (storage_thread_.joinable()) {
-    storage_thread_.join();
-  }
+  if (local_storage_) local_storage_->SetStoreMaintenance({});
   if (client_thread_.joinable()) {
     client_thread_.join();
   }
@@ -302,26 +305,6 @@ void DistributedNode::Stop() {
   }
 }
 
-void DistributedNode::StorageMaintenanceLoop() {
-  const auto interval = config_.object_storage_->storage_.transactions_->gc_interval_;
-  while (running_) {
-    std::unique_lock lock(mutex_);
-    state_changed_.wait_for(lock, interval, [&] { return !running_ || fatal_error_; });
-    if (!running_ || fatal_error_) {
-      return;
-    }
-    lock.unlock();
-    try {
-      object_storage_->Collect(1);
-    } catch (...) {
-      std::lock_guard guard(mutex_);
-      fatal_error_ = std::current_exception();
-      state_changed_.notify_all();
-      return;
-    }
-  }
-}
-
 void DistributedNode::TickLoop() {
   while (running_) {
     std::this_thread::sleep_for(std::chrono::milliseconds(config_.tick_interval_ms_));
@@ -331,6 +314,11 @@ void DistributedNode::TickLoop() {
         // Keep Raft's logical clock monotonic across Stop()/Start() on the same
         // production assembly. Wall-clock epochs restart; this counter does not.
         logical_now_ms_ += config_.tick_interval_ms_;
+        if (local_storage_) {
+          const auto state = local_storage_->State();
+          if (state.error_) std::rethrow_exception(state.error_);
+          if (state.object_error_) std::rethrow_exception(state.object_error_);
+        }
         raft_node_->Tick(logical_now_ms_);
         ReconcileActiveWrite();
         MaybeCreateSnapshot();

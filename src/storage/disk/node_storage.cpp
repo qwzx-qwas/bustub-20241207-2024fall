@@ -486,6 +486,14 @@ struct NodeStorage::Impl {
       }
       closing_ = true;
       close_error_ = nullptr;
+      context = context_;
+      lock.unlock();
+      // A Store step re-enters the ordinary NodeStorage API. Let its accepted
+      // work finish before changing readiness, otherwise Close could manufacture
+      // a NotReady error in an otherwise healthy maintenance operation.
+      if (context && context->objects_ && context->objects_->transactions_)
+        context->objects_->transactions_->StopStoreMaintenance();
+      lock.lock();
       state_.Drain();
       idle_.wait(lock, [&] { return active_ == 0; });
       context = context_;
@@ -763,6 +771,22 @@ auto NodeStorage::SubmitObjects(ObjectTransaction &transaction) -> ObjectTransac
     impl_->Pressure(generation, result.admission_ == IOAdmission::Full);
     return result;
   });
+}
+auto NodeStorage::MemoryBudget() const -> std::shared_ptr<ResourceBudget> {
+  return impl_->options_.io_.memory_budget_;
+}
+void NodeStorage::SetStoreMaintenance(std::function<void()> step) {
+  std::shared_ptr<StorageContext> context;
+  {
+    std::lock_guard lock(impl_->mutex_);
+    context = impl_->context_;
+    if (step && (impl_->closing_ || !context || !context->objects_ || !context->objects_->transactions_))
+      throw MetadataError(MetadataErrorCode::NotReady, "Store maintenance is unavailable");
+  }
+  // Detachment remains valid after a storage failure and during shutdown.
+  // Shared context keeps the existing role alive while it drains this source.
+  if (context && context->objects_ && context->objects_->transactions_)
+    context->objects_->transactions_->SetStoreMaintenance(std::move(step));
 }
 void NodeStorage::Close() { impl_->Close(); }
 

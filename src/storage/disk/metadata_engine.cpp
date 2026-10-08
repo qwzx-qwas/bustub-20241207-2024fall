@@ -102,7 +102,7 @@ auto NewImage(const std::shared_ptr<PageBudget> &budget) -> std::shared_ptr<Page
   PageImage *image;
   try {
     if (!budget->memory_->Reserve(sizeof(PageImage), progress)) {
-      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "shared metadata memory exhausted");
+      throw MetadataCommitBusy("shared metadata memory exhausted");
     }
     ResourceCharge memory(budget->memory_, sizeof(PageImage), progress);
     image = new PageImage();

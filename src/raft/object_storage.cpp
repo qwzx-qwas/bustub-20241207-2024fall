@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include "common/byte_codec.h"
+#include "object_log_store.h"
 
 namespace bustub {
 namespace {
@@ -129,9 +130,9 @@ void RaftObjectStorage::Commit(ObjectTransaction transaction) {
     }
   }
   auto submitted = storage_->SubmitObjects(transaction);
-  if (submitted.admission_ != IOAdmission::Accepted) {
-    throw std::runtime_error("Raft object submission not admitted");
-  }
+  if (submitted.admission_ == IOAdmission::Full) throw MetadataCommitBusy("Raft object admission is full");
+  if (submitted.admission_ != IOAdmission::Accepted)
+    throw MetadataError(MetadataErrorCode::NotReady, "Raft object submission stopped");
   submitted.ticket_->Wait();
   const auto result = submitted.ticket_->Result();
   if (result.outcome_ != JournalOutcome::Durable) {
@@ -153,7 +154,7 @@ auto RaftObjectStorage::Candidate(uint64_t kind) -> uint64_t {
     throw std::runtime_error("Raft object identities exhausted");
   }
   if (owned_objects_ >= options_.max_owned_objects_) {
-    throw std::runtime_error("Raft object ownership budget exhausted; maintenance or retention must make progress");
+    throw MetadataCommitBusy("Raft object ownership budget occupied; maintenance or retention must make progress");
   }
   const auto id = next_object_;
   Commit({{{ObjectOperation::Create, Key(id), 0, ObjectSizeMode::Variable, {}}},
@@ -224,11 +225,33 @@ auto RaftObjectStorage::Read(uint64_t object, uint64_t offset, size_t size) -> s
   }
   return out;
 }
+void RaftObjectStorage::AttachLog(const std::shared_ptr<ObjectLogStore> &log) {
+  std::lock_guard lock(state_->mutex_);
+  log_ = log;
+}
 auto RaftObjectStorage::Collect(size_t limit) -> size_t {
   size_t count = 0;
   // Bound examined records as well as deletes. The owning node serializes
   // maintenance; cursor is only a search hint, durable ownership is authority.
   for (size_t examined = 0; examined < limit; ++examined) {
+    // Alternate optional log work with ownership retirement. A copied candidate
+    // must not prevent the old objects it replaces from leaving this directory.
+    const bool log_turn = log_turn_;
+    log_turn_ = !log_turn_;
+    if (log_turn) {
+      std::shared_ptr<ObjectLogStore> log;
+      { std::lock_guard lock(state_->mutex_); log = log_.lock(); }
+      try {
+        if (log && log->Maintain()) continue;
+      } catch (const MetadataCommitBusy &) {
+        break;
+      } catch (const ObjectIOBusy &) {
+        // Ordinary IO slots/buffers are held, not a failed device operation.
+        // Maintain keeps its current step and retries on a later Store turn.
+        break;
+      }
+    }
+    ProgressWork progress(true);
     auto page = storage_->Objects().Controls(Key(OWNERS), gc_cursor_, 1);
     if (page.empty()) {
       gc_cursor_ = 0;
@@ -249,16 +272,23 @@ auto RaftObjectStorage::Collect(size_t limit) -> size_t {
       // Retired state already prevents acquiring a new lease.
     }
     const auto remaining = storage_->Objects().PlanTailTrim(Key(e.item_), options_.io_chunk_bytes_);
-    if (remaining != 0) {
-      // Small receive chunks can create many mappings within one IO chunk.
-      // Bound both bytes and mapping work; persisted length is the restart
-      // cursor. Keep ownership until the final remove, so no orphan is lost.
-      Commit({{{ObjectOperation::Resize, Key(e.item_), remaining, ObjectSizeMode::Variable, {}}}, {}});
+    try {
+      if (remaining != 0) {
+        // Small receive chunks can create many mappings within one IO chunk.
+        // Bound both bytes and mapping work; persisted length is the restart
+        // cursor. Keep ownership until the final remove, so no orphan is lost.
+        Commit({{{ObjectOperation::Resize, Key(e.item_), remaining, ObjectSizeMode::Variable, {}}}, {}});
+        gc_cursor_ = e.item_;
+        continue;
+      }
+      Commit({{{ObjectOperation::Remove, Key(e.item_), 0, ObjectSizeMode::Variable, {}}},
+              {Change(OWNERS, e.item_, std::nullopt)}});
+    } catch (const MetadataCommitBusy &) {
+      // A completed predecessor can still be releasing its internal owners.
+      // Preserve this durable candidate and yield the bounded maintenance turn.
       gc_cursor_ = e.item_;
-      continue;
+      break;
     }
-    Commit({{{ObjectOperation::Remove, Key(e.item_), 0, ObjectSizeMode::Variable, {}}},
-            {Change(OWNERS, e.item_, std::nullopt)}});
     --owned_objects_;
     ++count;
   }

@@ -178,6 +178,11 @@ class ResourceCharge {
     }
     return *this;
   }
+  void ShrinkTo(size_t bytes) {
+    if (bytes > bytes_) throw std::logic_error("resource charge cannot grow without admission");
+    if (account_) account_->Release(bytes_ - bytes, progress_);
+    bytes_ = bytes;
+  }
   void Reset() {
     if (account_) account_->Release(bytes_, progress_);
     account_.reset();

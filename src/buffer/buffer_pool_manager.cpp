@@ -62,8 +62,9 @@ BufferPoolState::BufferPoolState(size_t count, std::shared_ptr<PageStorage> stor
     : max_tasks_(options.max_inflight_pages_),
       max_prefetch_(options.prefetch_pages_),
       storage_(std::move(storage)),
-      arena_({count, BUSTUB_PAGE_SIZE, storage_->MemoryAlignment(), options.arena_bytes_, options.advise_huge_pages_}),
-      directory_({options.directory_bytes_}),
+      capture_memory_(ResourceAccount::Create(options.memory_budget_)),
+      arena_({count, BUSTUB_PAGE_SIZE, storage_->MemoryAlignment(), options.arena_bytes_, options.advise_huge_pages_, options.memory_budget_}),
+      directory_({options.directory_bytes_, options.memory_budget_}),
       replacer_(count, k) {
   if (max_tasks_ == 0 || storage_->MaxBatchPages() == 0 || max_prefetch_ >= count || max_prefetch_ >= max_tasks_) {
     throw std::invalid_argument("no page task capacity");
@@ -720,9 +721,16 @@ auto BufferPoolManager::CapturePages(const std::vector<page_id_t> &selected, siz
     std::lock_guard<std::mutex> lock(state_->mutex_);
     capture.next_page_ = state_->next_page_;
   }
+  const auto count = std::min({selected.size(), state_->frames_.size(), max_bytes / sizeof(CapturedPage)});
+  const auto bytes = count * sizeof(CapturedPage);
+  if (!state_->capture_memory_->Reserve(bytes, false)) throw std::bad_alloc();
+  capture.memory_ = ResourceCharge(state_->capture_memory_, bytes, false);
+  const auto index_bytes = selected.size() * sizeof(page_id_t);
+  if (!state_->capture_memory_->Reserve(index_bytes, false)) throw std::bad_alloc();
+  ResourceCharge index_memory(state_->capture_memory_, index_bytes, false);
   auto pages = selected;
   std::sort(pages.begin(), pages.end());
-  capture.dirty_.reserve(std::min({pages.size(), state_->frames_.size(), max_bytes / sizeof(CapturedPage)}));
+  capture.dirty_.reserve(count);
   for (const auto &f : state_->frames_) {
     std::lock_guard<std::mutex> lock(f->mutex_);
     if (!std::binary_search(pages.begin(), pages.end(), f->page_) || f->dirty_version_ == f->clean_version_) continue;

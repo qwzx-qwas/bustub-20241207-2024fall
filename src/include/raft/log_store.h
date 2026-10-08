@@ -153,7 +153,8 @@ class LogStore {
   uint64_t effective_commit_index_;
   LogStoreOptions options_;
 
-  mutable std::mutex mutex_;
+  // Shared lifetime with the object backend while accepted maintenance drains.
+  std::shared_ptr<std::mutex> mutex_{std::make_shared<std::mutex>()};
   uint64_t snapshot_base_index_{0};
   uint64_t snapshot_base_term_{0};
   std::vector<ReplicatedLogEntry> entries_;

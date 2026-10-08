@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <set>
 #include <utility>
 
 #include "object_change_internal.h"   // NOLINT(build/include_subdir): private sibling component.
@@ -184,6 +185,32 @@ auto ObjectMappingSnapshot::PlanTailTrim(ObjectKey key, uint64_t maximum_bytes) 
   Require(mapped_end <= end, "object mapping exceeds logical length");
   // A trailing hole is trimmed separately from the mapping before it.
   return std::max(start, mapped_end < end ? mapped_end : span.offset_);
+}
+auto ObjectMappingSnapshot::EstimateRewrite(ObjectKey key) const -> std::optional<ObjectRewriteEstimate> {
+  Active active(*context_);
+  ReadDescription(base_, key);
+  const auto unit = context_->unit_;
+  const auto limit = context_->options_.max_query_spans_;
+  const auto lower = Key(Mapping, key, 0);
+  std::set<uint64_t> units;
+  size_t examined = 0;
+  for (const auto &entry : base_.Scan(lower, limit + 1)) {
+    if (!SamePrefix(entry.key_, lower)) break;
+    if (++examined > limit) return std::nullopt;
+    const auto span = ReadSpan(entry);
+    if (span.data_->owner_) continue;
+    const auto first = span.data_->offset_ / unit;
+    const auto end = (End(span.data_->offset_, span.size_) - 1) / unit + 1;
+    for (auto n = first; n < end; ++n) {
+      if (units.size() == limit && units.count(n) == 0) return std::nullopt;
+      units.insert(n);
+    }
+  }
+  uint64_t bytes = 0;
+  for (auto n : units) {
+    if (!base_.Get(Key(SharedUnit, key, n))) bytes += unit;
+  }
+  return ObjectRewriteEstimate{unit, bytes};
 }
 auto ObjectMappingSnapshot::Retired(ObjectKey key, uint64_t from_id) const -> RetiredRangePage {
   Active active(*context_);

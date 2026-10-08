@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "buffer_memory.h"
+#include "storage/disk/resource_budget.h"
 
 namespace bustub {
 
@@ -20,7 +21,8 @@ constexpr uint64_t kLatchMask = 0xff00000000000000ULL;
 
 class Budget {
  public:
-  explicit Budget(size_t limit) : limit_(limit) {}
+  explicit Budget(const TranslationDirectoryOptions &options)
+      : limit_(options.max_bytes_), memory_(ResourceAccount::Create(options.memory_budget_)) {}
   auto TryTake(size_t bytes) -> bool {
     auto used = used_.load(std::memory_order_relaxed);
     do {
@@ -28,18 +30,30 @@ class Budget {
         return false;
       }
     } while (!used_.compare_exchange_weak(used, used + bytes, std::memory_order_relaxed));
-    return true;
+    try {
+      if (memory_->Reserve(bytes, false)) return true;
+    } catch (...) {
+      used_.fetch_sub(bytes, std::memory_order_relaxed);
+      throw;
+    }
+    used_.fetch_sub(bytes, std::memory_order_relaxed);
+    return false;
   }
   void Take(size_t bytes) {
     if (!TryTake(bytes)) {
       throw std::bad_alloc();
     }
   }
-  void Return(size_t bytes) { used_.fetch_sub(bytes, std::memory_order_relaxed); }
+  void Return(size_t bytes) {
+    memory_->Release(bytes, false);
+    used_.fetch_sub(bytes, std::memory_order_relaxed);
+  }
+  auto Account() const -> std::shared_ptr<ResourceAccount> { return memory_; }
 
  private:
   size_t limit_;
   std::atomic<size_t> used_{0};
+  std::shared_ptr<ResourceAccount> memory_;
 };
 
 // Producers set hints; the one maintenance visitor consumes them. Pop rotates
@@ -272,8 +286,8 @@ struct Middle {
 }  // namespace
 
 struct TranslationDirectoryState {
-  explicit TranslationDirectoryState(size_t limit)
-      : budget_(limit),
+  explicit TranslationDirectoryState(const TranslationDirectoryOptions &options)
+      : budget_(options),
         charge_(&budget_, sizeof(TranslationDirectoryState) + Candidates::Bytes(256)),
         os_page_(buffer_memory::PageBytes()),
         candidates_(256) {
@@ -345,10 +359,13 @@ struct PathCache {
     uint32_t prefix_;
     Leaf *leaf_;
   };
-  explicit PathCache(const std::shared_ptr<TranslationDirectoryState> &owner) : owner_(owner) {}
+  explicit PathCache(const std::shared_ptr<TranslationDirectoryState> &owner)
+      : owner_(owner), account_(owner->budget_.Account()) {}
   ~PathCache() {
     if (auto owner = owner_.lock()) {
       owner->budget_.Return(sizeof(PathCache));
+    } else {
+      account_->Release(sizeof(PathCache), false);
     }
   }
   auto Find(uint32_t prefix) -> Leaf * {
@@ -372,6 +389,7 @@ struct PathCache {
     paths_[0] = {prefix, leaf};
   }
   std::weak_ptr<TranslationDirectoryState> owner_;
+  std::shared_ptr<ResourceAccount> account_;
   std::array<Path, 8> paths_{};
   size_t size_{0};
 };
@@ -403,7 +421,7 @@ TranslationDirectory::TranslationDirectory(const TranslationDirectoryOptions &op
     throw std::bad_alloc();
   }
   // Separate weak control block: an idle thread cache must not retain the large root allocation.
-  state_ = std::shared_ptr<TranslationDirectoryState>(new TranslationDirectoryState(options.max_bytes_));
+  state_ = std::shared_ptr<TranslationDirectoryState>(new TranslationDirectoryState(options));
 }
 TranslationDirectory::~TranslationDirectory() = default;
 

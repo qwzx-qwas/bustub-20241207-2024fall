@@ -6,6 +6,7 @@
 #include <string>
 
 #include "buffer_memory.h"
+#include "storage/disk/resource_budget.h"
 
 namespace bustub {
 
@@ -25,8 +26,15 @@ struct FrameArena::Impl {
     return {options.frame_count_, options.page_bytes_, stride, mapping, os_page, HugePageAdvice::Disabled, 0};
   }
 
+  static auto Charge(const FrameArenaOptions &options, size_t bytes) -> ResourceCharge {
+    auto account = ResourceAccount::Create(options.memory_budget_);
+    if (!account->Reserve(bytes, false)) throw std::bad_alloc();
+    return ResourceCharge(std::move(account), bytes, false);
+  }
+
   explicit Impl(const FrameArenaOptions &options)
       : layout_(Plan(options)),
+        charge_(Charge(options, layout_.mapping_bytes_)),
         memory_(buffer_memory::Multiply(layout_.frame_count_, layout_.stride_), options.memory_alignment_,
                 layout_.os_page_bytes_) {
     if (!options.advise_huge_pages_) {
@@ -48,6 +56,7 @@ struct FrameArena::Impl {
   }
 
   FrameArenaLayout layout_;
+  ResourceCharge charge_;  // Declared before RAM: released after munmap.
   buffer_memory::Region memory_;
 };
 

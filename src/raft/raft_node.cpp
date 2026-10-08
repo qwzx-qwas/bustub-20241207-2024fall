@@ -96,7 +96,7 @@ RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transpo
   published_applied_index_ = last_applied_;
   ApplyCommitted();
   ResetElectionDeadline();
-  if (snapshot_store_) snapshot_tasks_ = std::make_unique<SnapshotTasks>();
+  if (snapshot_store_) snapshot_tasks_ = std::make_unique<SnapshotTasks>(config_.memory_budget_);
 }
 
 RaftNode::~RaftNode() { snapshot_tasks_.reset(); }
@@ -572,10 +572,7 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     }
     // A duplicate waits for the same completion. No ACK until decoding and Stage finish.
     if (incoming_decode_) return;
-    auto work = snapshot_tasks_->Submit([decoded = InstallSnapshotRequest(request)]() mutable {
-      DecompressSnapshotChunk(&decoded);
-      return decoded;
-    });
+    auto work = snapshot_tasks_->Decode(request);
     if (work)
       incoming_decode_.emplace(IncomingDecode{from, request.term_, request.request_id_, request.encoding_session_,
                                               request.snapshot_id_, std::move(*work)});
@@ -947,7 +944,7 @@ void RaftNode::PollSnapshotTasks() {
     if (role_ == RaftRole::FOLLOWER && hard_state_.current_term_ == task.term_ && incoming_encoding_ &&
         incoming_encoding_->leader_ == task.from_ && incoming_encoding_->session_ == task.encoding_session_ &&
         incoming_encoding_->target_ == task.snapshot_id_) {
-      std::optional<InstallSnapshotRequest> decoded;
+      std::shared_ptr<InstallSnapshotRequest> decoded;
       try {
         decoded = task.work_.get();
       } catch (const std::exception &) {
