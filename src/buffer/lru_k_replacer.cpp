@@ -83,6 +83,16 @@ auto LRUKReplacer::CandidateLocked() -> std::optional<frame_id_t> {
 void LRUKReplacer::RecordAccess(frame_id_t frame_id, AccessType access_type) {
   // 加锁
   std::lock_guard<std::mutex> lock(latch_);
+  RecordAccessLocked(frame_id, access_type);
+}
+
+void LRUKReplacer::RecordPinnedAccess(frame_id_t frame_id, AccessType access_type, bool first_pin) {
+  std::lock_guard<std::mutex> lock(latch_);
+  RecordAccessLocked(frame_id, access_type);
+  if (first_pin) SetEvictableLocked(frame_id, false);
+}
+
+void LRUKReplacer::RecordAccessLocked(frame_id_t frame_id, AccessType access_type) {
   current_timestamp_++;
   // 检查frame_id是否合法
   if (frame_id >= static_cast<frame_id_t>(replacer_size_)) {
@@ -112,6 +122,10 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, AccessType access_type) {
 void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
   // 加锁
   std::lock_guard<std::mutex> lock(latch_);
+  SetEvictableLocked(frame_id, set_evictable);
+}
+
+void LRUKReplacer::SetEvictableLocked(frame_id_t frame_id, bool set_evictable) {
   if (frame_id >= static_cast<frame_id_t>(replacer_size_)) {
     throw Exception("Invalid frame_id");
   }

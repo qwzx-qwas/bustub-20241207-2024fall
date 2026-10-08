@@ -3,6 +3,8 @@
 //===----------------------------------------------------------------------===//
 #pragma once
 
+#include "storage/disk/resource_budget.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -50,6 +52,7 @@ struct MetadataOptions {
   uint32_t max_live_pages_;
   uint32_t max_value_bytes_;
   uint64_t max_batch_bytes_;
+  std::shared_ptr<ResourceBudget> memory_budget_{};
 };
 
 enum class MetadataErrorCode { InvalidFormat, Corrupt, ResourceUnavailable, Conflict, NotReady };

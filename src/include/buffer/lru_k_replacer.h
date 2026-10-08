@@ -135,6 +135,8 @@ class LRUKReplacer {
    * @param set_evictable whether the given frame is evictable or not
    */
   void SetEvictable(frame_id_t frame_id, bool set_evictable);
+  // One hit event plus the first-pin transition under one replacement lock.
+  void RecordPinnedAccess(frame_id_t frame_id, AccessType access_type, bool first_pin);
 
   /**
    * TODO(P1): Add implementation
@@ -165,6 +167,8 @@ class LRUKReplacer {
   auto Size() -> size_t;
 
  private:
+  void RecordAccessLocked(frame_id_t frame_id, AccessType access_type);
+  void SetEvictableLocked(frame_id_t frame_id, bool set_evictable);
   auto CandidateLocked() -> std::optional<frame_id_t>;
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.

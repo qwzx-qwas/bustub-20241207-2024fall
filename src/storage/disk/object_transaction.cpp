@@ -61,6 +61,8 @@ struct ObjectTransactionData {
     }
     bytes_.clear();
     payloads_.clear();
+    input_.controls_.clear();
+    memory_.Reset();
     result_ = std::move(result);
     done_.notify_all();
   }
@@ -73,6 +75,7 @@ struct ObjectTransactionData {
   std::optional<JournalResult> result_;
   std::shared_ptr<RequestBudget> budget_;
   uint64_t charge_{0};
+  ResourceCharge memory_;
   ObjectTransaction input_;
   Step step_{Step::Pending};  // Written only by the coordinator.
   std::optional<ObjectMappingSnapshot> view_;
@@ -117,12 +120,14 @@ struct ObjectTransactionPipeline::Impl {
       changed_.notify_all();
     }
   };
-  Impl(ObjectIO &io, ObjectMappingStore &mapping, ObjectReferenceManager &references, ObjectTransactionOptions options)
+  Impl(ObjectIO &io, ObjectMappingStore &mapping, ObjectReferenceManager &references, ObjectTransactionOptions options,
+       std::shared_ptr<ResourceBudget> memory)
       : io_(io),
         mapping_(mapping),
         references_(references),
         options_(options),
-        unit_(ObjectMappingAccess::Unit(mapping)) {
+        unit_(ObjectMappingAccess::Unit(mapping)),
+        memory_(ResourceAccount::Create(std::move(memory))) {
     if (options.max_requests_ == 0 || options.max_operations_ == 0 || options.max_request_bytes_ == 0 ||
         options.max_pending_bytes_ == 0 || options.retry_interval_.count() <= 0 || options.gc_interval_.count() <= 0) {
       throw std::invalid_argument("object transactions require positive explicit budgets");
@@ -137,6 +142,7 @@ struct ObjectTransactionPipeline::Impl {
     try {
       coordinator_ = std::thread([this] { Drive(); });
       deferred_ = std::thread([this] { DeferredLoop(); });
+      garbage_ = std::thread([this] { GarbageLoop(); });
     } catch (...) {
       {
         std::lock_guard<std::mutex> lock(state_->mutex_);
@@ -146,6 +152,7 @@ struct ObjectTransactionPipeline::Impl {
       state_->changed_.notify_all();
       state_->Notify();
       if (coordinator_.joinable()) coordinator_.join();
+      if (deferred_.joinable()) deferred_.join();
       metadata_.join();
       throw;
     }
@@ -166,6 +173,7 @@ struct ObjectTransactionPipeline::Impl {
     }
     uint64_t bytes = 0;
     uint64_t charge = 0;
+    uint64_t ram = 0;
     std::set<std::pair<uint64_t, uint64_t>> objects;
     std::set<std::tuple<uint64_t, uint64_t, uint64_t>> controls;
     auto account = [&](uint64_t size) {
@@ -196,6 +204,8 @@ struct ObjectTransactionPipeline::Impl {
         throw std::invalid_argument("invalid borrowed object source");
       }
       account(op.Size());
+      // Borrowed frame capacity is retention pressure, not another allocation.
+      ram = End(ram, End(op.source_ ? 0 : op.bytes_.capacity(), write ? 2 * End(op.Size(), End(unit_, unit_)) : 0));
       // Charge the moved input's retained capacity, plus worst-case assembly.
       // F02 owns its separate IO-buffer budget; operation/result slots are bounded
       // independently by max_requests/max_operations.
@@ -210,11 +220,15 @@ struct ObjectTransactionPipeline::Impl {
       const auto size = control.value_ ? control.value_->size() : 0;
       account(size);
       charge = End(charge, control.value_ ? control.value_->capacity() : 0);
+      ram = End(ram, control.value_ ? control.value_->capacity() : 0);
     }
     if (charge > options_.max_pending_bytes_) {
       throw std::invalid_argument("one object transaction exceeds pending byte budget");
     }
+    if (!memory_->Reserve(ram, false)) return {IOAdmission::Full, std::nullopt};
+    ResourceCharge memory(memory_, ram, false);
     auto task = std::make_shared<ObjectTransactionData>();
+    task->memory_ = std::move(memory);
     task->charge_ = charge;
     std::lock_guard<std::mutex> lock(state_->mutex_);
     if (!state_->accepting_ || state_->error_) {
@@ -479,19 +493,15 @@ struct ObjectTransactionPipeline::Impl {
     }
   }
   void CommitLoop() {
-    MetadataKey cursor{0, 0, 0};
-    auto next_gc = std::chrono::steady_clock::now() + options_.gc_interval_;
     for (;;) {
       std::shared_ptr<ObjectTransactionData> task;
-      bool gc = false;
       {
         std::unique_lock<std::mutex> lock(state_->mutex_);
-        state_->changed_.wait_until(lock, next_gc, [&] { return state_->commit_ || state_->coordinator_done_; });
+        state_->changed_.wait(lock, [&] { return state_->commit_ || state_->coordinator_done_; });
         if (state_->coordinator_done_) {
           return;
         }
         task = state_->commit_;
-        gc = state_->accepting_ && std::chrono::steady_clock::now() >= next_gc;
       }
       if (task) {
         JournalResult result{JournalOutcome::NotCommitted, 0, 0, nullptr};
@@ -544,34 +554,48 @@ struct ObjectTransactionPipeline::Impl {
           state_->changed_.notify_all();
         }
       }
-      if (gc) {
-        try {
-          auto page = ObjectMappingAccess::Garbage(mapping_.Read(), cursor);
-          cursor = page.next_;
-          for (const auto &[object, allocation] : page.candidates_) {
-            const auto result = references_.Reclaim(mapping_.Read(), object, allocation);
-            if (result.commit_ && result.commit_->outcome_ != JournalOutcome::Durable) {
-              std::rethrow_exception(result.commit_->error_);
-            }
-          }
-        } catch (const MetadataError &e) {
-          if (e.Code() != MetadataErrorCode::Conflict && e.Code() != MetadataErrorCode::ResourceUnavailable) {
-            RecordError(std::current_exception());
-          }
-        } catch (const ObjectReferenceError &e) {
-          if (e.Code() != ObjectReferenceErrorCode::Busy) {
-            RecordError(std::current_exception());
-          }
-        } catch (...) {
-          RecordError(std::current_exception());
-        }
+    }
+  }
+  // F22 execution role. The persisted retirement directory remains the work
+  // authority. One candidate per round bounds competition for B; cursor progress
+  // includes pinned/blocked candidates, so one old reader cannot starve others.
+  void GarbageLoop() {
+    ProgressWork progress(true);
+    MetadataKey cursor{0, 0, 0};
+    ObjectGCPage page{cursor, {}};
+    size_t next = 0;
+    for (;;) {
+      {
+        std::unique_lock<std::mutex> lock(state_->mutex_);
+        if (state_->changed_.wait_for(lock, options_.gc_interval_,
+                                      [&] { return !state_->accepting_ || state_->error_; }))
+          return;
       }
-      if (gc || std::chrono::steady_clock::now() >= next_gc) {
-        next_gc = std::chrono::steady_clock::now() + options_.gc_interval_;
+      try {
+        if (next == page.candidates_.size()) {
+          page = ObjectMappingAccess::Garbage(mapping_.Read(), cursor);
+          cursor = page.next_;
+          next = 0;
+        }
+        if (next == page.candidates_.size()) continue;
+        const auto candidate = page.candidates_[next++];
+        const auto result = references_.Reclaim(mapping_.Read(), candidate.first, candidate.second);
+        if (result.commit_ && result.commit_->outcome_ != JournalOutcome::Durable)
+          std::rethrow_exception(result.commit_->error_);
+      } catch (const MetadataCommitBusy &) {
+        // The durable candidate remains discoverable on the next sweep.
+      } catch (const MetadataError &e) {
+        if (e.Code() != MetadataErrorCode::Conflict && e.Code() != MetadataErrorCode::ResourceUnavailable)
+          RecordError(std::current_exception());
+      } catch (const ObjectReferenceError &e) {
+        if (e.Code() != ObjectReferenceErrorCode::Busy) RecordError(std::current_exception());
+      } catch (...) {
+        RecordError(std::current_exception());
       }
     }
   }
   void DeferredLoop() {
+    ProgressWork progress(true);
     for (;;) {
       {
         std::unique_lock<std::mutex> lock(state_->mutex_);
@@ -588,19 +612,28 @@ struct ObjectTransactionPipeline::Impl {
           const auto tasks = ObjectMappingAccess::Pending(mapping_.Read(), 1);
           if (tasks.empty()) break;
           const auto &task = tasks.front();
-          std::vector<std::byte> body;
-          {
-            IOReadBudget budget;
-            auto read = ObjectMappingAccess::ReadPayload(mapping_, task.payload_, budget, {}, {});
-            read.Wait();
-            body = DecodeMetadataPayload(read);
+          if (!memory_->Reserve(task.payload_.ref_.bytes_, true)) {
+            RetryDeferred();
+            break;
           }
-          // Release Journal read buffers before acquiring the Data batch.
-          auto batch = io_.WriteDeferred(task, body);
-          batch.Wait();
-          CommonDataWrite done;
-          done.batch_.emplace(std::move(batch));
-          io_.FinishCommon(&done);
+          {
+            ResourceCharge memory(memory_, task.payload_.ref_.bytes_, true);
+            std::vector<std::byte> body;
+            {
+              IOReadBudget budget;
+              auto read = ObjectMappingAccess::ReadPayload(mapping_, task.payload_, budget, {}, {});
+              read.Wait();
+              body = DecodeMetadataPayload(read);
+            }
+            // Release Journal read buffers before acquiring the Data batch.
+            auto batch = io_.WriteDeferred(task, body);
+            batch.Wait();
+            CommonDataWrite done;
+            done.batch_.emplace(std::move(batch));
+            io_.FinishCommon(&done);
+          }
+          // Data is durable. Completion metadata needs neither the decoded
+          // body nor its credits; retaining them here can block its own retry.
           for (;;) {
             try {
               const auto result = ObjectMappingAccess::Complete(mapping_, mapping_.Read(), task);
@@ -609,10 +642,15 @@ struct ObjectTransactionPipeline::Impl {
             } catch (const MetadataViewConflict &) {
               continue;  // Rebuild only completion metadata; never repeat accepted device IO.
             } catch (const MetadataCommitBusy &) {
-              RetryDeferred();
-              std::lock_guard<std::mutex> lock(state_->mutex_);
-              if (!state_->accepting_) return;
+              // Wait below, without repeating accepted device IO.
+            } catch (const MetadataError &e) {
+              if (e.Code() != MetadataErrorCode::ResourceUnavailable) throw;
+              // The Data write is already durable. Wait only for completion
+              // metadata; pressure is not corruption or permission to drop it.
             }
+            RetryDeferred();
+            std::lock_guard<std::mutex> lock(state_->mutex_);
+            if (!state_->accepting_) return;
           }
         }
       } catch (const JournalError &e) {
@@ -624,6 +662,12 @@ struct ObjectTransactionPipeline::Impl {
       } catch (const ObjectIOBusy &) {
         RetryDeferred();
       } catch (const MetadataCommitBusy &) {
+        RetryDeferred();
+      } catch (const MetadataError &e) {
+        if (e.Code() != MetadataErrorCode::ResourceUnavailable) {
+          RecordError(std::current_exception());
+          return;
+        }
         RetryDeferred();
       } catch (...) {
         RecordError(std::current_exception());
@@ -655,6 +699,7 @@ struct ObjectTransactionPipeline::Impl {
       coordinator_.join();
       metadata_.join();
       deferred_.join();
+      garbage_.join();
     });
   }
   ObjectIO &io_;
@@ -662,15 +707,17 @@ struct ObjectTransactionPipeline::Impl {
   ObjectReferenceManager &references_;
   ObjectTransactionOptions options_;
   uint64_t unit_;
+  std::shared_ptr<ResourceAccount> memory_;
   std::shared_ptr<State> state_{std::make_shared<State>()};
   std::shared_ptr<RequestBudget> budget_{std::make_shared<RequestBudget>()};
-  std::thread metadata_, coordinator_, deferred_;
+  std::thread metadata_, coordinator_, deferred_, garbage_;
   std::once_flag close_;
 };
 ObjectTransactionPipeline::ObjectTransactionPipeline(ObjectIO &io, ObjectMappingStore &mapping,
                                                      ObjectReferenceManager &references,
-                                                     ObjectTransactionOptions options)
-    : impl_(std::make_unique<Impl>(io, mapping, references, options)) {}
+                                                     ObjectTransactionOptions options,
+                                                     std::shared_ptr<ResourceBudget> memory)
+    : impl_(std::make_unique<Impl>(io, mapping, references, options, std::move(memory))) {}
 ObjectTransactionPipeline::~ObjectTransactionPipeline() = default;
 auto ObjectTransactionPipeline::Submit(ObjectTransaction &transaction) -> ObjectTransactionSubmission {
   return impl_->Submit(transaction);

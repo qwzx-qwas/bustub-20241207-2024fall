@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "storage/disk/block_device.h"
+#include "storage/disk/resource_budget.h"
 
 namespace bustub {
 
@@ -33,6 +34,10 @@ struct IOExecutorOptions {
   size_t max_operations_;
   // Includes alignment padding, prepared/in-flight buffers and retained results.
   size_t max_buffer_bytes_;
+  // Shared owned-memory credits; external leases retain their original owner.
+  std::shared_ptr<ResourceBudget> memory_budget_{};
+  size_t progress_operations_{0};
+  size_t progress_buffer_bytes_{0};
 };
 
 /** Planned owned-buffer cost across batches belonging to one logical read.
@@ -145,6 +150,9 @@ class IOBatch {
 struct IOPreparation {
   IOAdmission admission_;
   std::optional<IOBatch> batch_;
+  // Cause of this Full result, independent of later node pressure changes.
+  // Allows an uncommitted owner to release its input instead of waiting on it.
+  bool shared_memory_limited_{false};
 };
 
 /**

@@ -62,6 +62,12 @@ void Accepted(IOAdmission admission) {
     throw MetadataError(MetadataErrorCode::NotReady, "object IO admission rejected");
   }
 }
+void Accepted(const IOPreparation &prepared) {
+  if (prepared.shared_memory_limited_) {
+    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object IO shared memory is held");
+  }
+  Accepted(prepared.admission_);
+}
 void Successful(const IOBatchResult &result) {
   for (const auto &member : result.operations_) {
     if (member.error_) {
@@ -197,10 +203,11 @@ ObjectIO::ObjectIO(RegionManager &regions, IOExecutor &executor, DataAllocator &
 }
 ObjectIO::~ObjectIO() { Close(); }
 void ObjectIO::CheckBatchBudget(const std::vector<RegionIORequest> &requests) const {
-  if (requests.size() > io_limits_.max_operations_) {
+  const auto operations = io_limits_.max_operations_ - (ProgressWork::Active() ? 0 : io_limits_.progress_operations_);
+  if (requests.size() > operations) {
     throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object batch exceeds executor member limit");
   }
-  auto remaining = io_limits_.max_buffer_bytes_;
+  auto remaining = io_limits_.max_buffer_bytes_ - (ProgressWork::Active() ? 0 : io_limits_.progress_buffer_bytes_);
   const auto padding = executor_.DeviceInfo().memory_alignment_ - 1;
   for (const auto &request : requests) {
     if (request.size_ > remaining || padding > remaining - request.size_) {
@@ -257,7 +264,7 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
   }
   if (!requests.empty()) {
     auto prepared = regions_.TryPrepare(requests, false);
-    Accepted(prepared.admission_);
+    Accepted(prepared);
     data->batch_ = std::move(prepared.batch_);
     data->batch_->RetainUntilComplete([activity](const IOBatchResult &result) { activity->Complete(result); },
                                       std::move(ready));
@@ -266,7 +273,8 @@ auto ObjectIO::Read(const ObjectMappingSnapshot &view, ObjectKey key, uint64_t o
   return ObjectRead(std::move(data));
 }
 void ObjectIO::CheckExternalBudget(const std::vector<RegionIORequest> &requests, size_t capacity) const {
-  if (requests.size() > io_limits_.max_operations_ || capacity > external_bytes_) {
+  const auto operations = io_limits_.max_operations_ - (ProgressWork::Active() ? 0 : io_limits_.progress_operations_);
+  if (requests.size() > operations || capacity > external_bytes_) {
     throw MetadataError(MetadataErrorCode::ResourceUnavailable, "external object IO exceeds configured capacity");
   }
 }
@@ -351,7 +359,7 @@ auto ObjectIO::ReadIntoImpl(const ObjectMappingSnapshot &view, ObjectKey key, ui
     if (complete && prepared.admission_ == IOAdmission::Full) {
       return std::nullopt;
     }
-    Accepted(prepared.admission_);
+    Accepted(prepared);
     data->batch_ = std::move(prepared.batch_);
     data->batch_->RetainUntilComplete(
         [activity, complete = std::move(complete), cursor, length](const IOBatchResult &r) {
@@ -397,7 +405,7 @@ auto ObjectIO::Write(const void *source, size_t size) -> ObjectWrite {
   }
   CheckBatchBudget(requests);
   auto prepared = regions_.TryPrepare(requests, true);
-  Accepted(prepared.admission_);
+  Accepted(prepared);
   auto data = std::make_unique<ObjectWriteData>(
       ObjectWriteData{state_, std::move(reservation), std::move(*prepared.batch_), size, false});
   size_t cursor = 0;
@@ -513,12 +521,12 @@ auto ObjectIO::WriteCommon(std::vector<ObjectChange> *changes, const std::vector
           [owner = input.source_->owner_] {}));
     }
     auto prepared = regions_.TryPrepareExternal(requests, leases, true);
-    Accepted(prepared.admission_);
+    Accepted(prepared);
     data.batch_ = std::move(prepared.batch_);
   } else {
     CheckBatchBudget(requests);
     auto prepared = regions_.TryPrepare(requests, true);
-    Accepted(prepared.admission_);
+    Accepted(prepared);
     data.batch_ = std::move(prepared.batch_);
     for (size_t i = 0; i < requests.size(); ++i) {
       auto *buffer = data.batch_->Buffer(i);
@@ -549,7 +557,7 @@ auto ObjectIO::WriteDeferred(const DeferredTarget &target, const std::vector<std
   std::vector<RegionIORequest> requests{{region_, IOOperation::Write, target.offset_, target.capacity_}};
   CheckBatchBudget(requests);
   auto prepared = regions_.TryPrepare(requests, true);
-  Accepted(prepared.admission_);
+  Accepted(prepared);
   std::memcpy(prepared.batch_->Buffer(0), body.data(), body.size());
   std::memset(prepared.batch_->Buffer(0) + body.size(), 0, target.capacity_ - body.size());
   prepared.batch_->RetainUntilComplete(

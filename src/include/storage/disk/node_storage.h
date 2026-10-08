@@ -65,6 +65,7 @@ struct NodeStorageOptions {
   // Explicit S7 service; metadata-only and S6 deployments keep their contracts.
   std::optional<ObjectTransactionOptions> transactions_{std::nullopt};
   size_t external_buffer_bytes_{0};  // Explicit frame retention budget; zero disables it.
+  std::optional<ResourceBudgetOptions> memory_budget_{std::nullopt};
 };
 struct PageIOCapabilities {
   size_t memory_alignment_;

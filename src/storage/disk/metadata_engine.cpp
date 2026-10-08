@@ -78,15 +78,18 @@ auto DecodeKey(const TreeKey &key) -> MetadataKey {
 }
 
 struct PageBudget {
-  explicit PageBudget(uint32_t limit) : limit_(limit) {}
+  PageBudget(uint32_t limit, std::shared_ptr<ResourceBudget> memory)
+      : limit_(limit), memory_(ResourceAccount::Create(std::move(memory))) {}
   std::atomic<uint32_t> live_{0};
   uint32_t limit_;
+  std::shared_ptr<ResourceAccount> memory_;
 };
 struct PageImage {
   alignas(8) std::array<char, BUSTUB_PAGE_SIZE> data_{};
   PageKind kind_{PageKind::Tree};
   uint64_t generation_{1};
   uint64_t lsn_{0};
+  ResourceCharge memory_;
 };
 auto NewImage(const std::shared_ptr<PageBudget> &budget) -> std::shared_ptr<PageImage> {
   auto live = budget->live_.load();
@@ -95,9 +98,15 @@ auto NewImage(const std::shared_ptr<PageBudget> &budget) -> std::shared_ptr<Page
       throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata live-page budget exhausted");
     }
   } while (!budget->live_.compare_exchange_weak(live, live + 1));
+  const bool progress = ProgressWork::Active();
   PageImage *image;
   try {
+    if (!budget->memory_->Reserve(sizeof(PageImage), progress)) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "shared metadata memory exhausted");
+    }
+    ResourceCharge memory(budget->memory_, sizeof(PageImage), progress);
     image = new PageImage();
+    image->memory_ = std::move(memory);
   } catch (...) {
     budget->live_.fetch_sub(1);
     throw;
@@ -180,7 +189,10 @@ class MetadataPager {
     const auto &old = Image(id);
     if (!dirty_[id]) {
       auto copy = NewImage(budget_);
-      *copy = old;
+      copy->data_ = old.data_;
+      copy->kind_ = old.kind_;
+      copy->generation_ = old.generation_;
+      copy->lsn_ = old.lsn_;
       dirty_[id] = copy;
       working_->pages_[id] = copy;
     }
@@ -901,7 +913,7 @@ struct MetadataEngine::Impl {
         page_writer_(backend_, executor_),
         journal_(bootstrap, identity, journal_options),
         options_(options),
-        budget_(std::make_shared<PageBudget>(options.max_live_pages_)) {
+        budget_(std::make_shared<PageBudget>(options.max_live_pages_, options.memory_budget_)) {
     completion_units_ = 1 + (std::min(options.max_batch_bytes_, journal_options.max_batch_bytes_) +
                              uint64_t{journal_options.max_records_per_batch_} * 16 + journal_options.unit_bytes_ - 85) /
                                 (journal_options.unit_bytes_ - 84);
@@ -1268,6 +1280,8 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
 }
 auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<MetadataMutation> &mutations,
                             const std::vector<MetadataPayloadMutation> &payloads) -> JournalResult {
+  ProgressWork progress(!payloads.empty() && std::none_of(payloads.begin(), payloads.end(),
+                                                          [](const auto &p) { return p.bytes_.has_value(); }));
   auto &s = *impl_;
   std::lock_guard<std::mutex> writer(s.writer_mutex_);
   {
@@ -1361,6 +1375,7 @@ auto MetadataEngine::ReadPayload(const JournalPayload &payload, IOReadBudget &bu
   return impl_->journal_.ReadPayload(payload, budget, std::move(complete), std::move(ready));
 }
 auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
+  ProgressWork progress(true);
   if (max_pages == 0) {
     throw std::invalid_argument("metadata writeback limit must be positive");
   }
@@ -1380,6 +1395,7 @@ auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
   return s.page_writer_.Write(std::move(view), max_pages);
 }
 auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
+  ProgressWork progress(true);
   if (max_pages == 0) {
     throw std::invalid_argument("metadata checkpoint page limit must be positive");
   }

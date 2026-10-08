@@ -1,5 +1,7 @@
 # 阶段测试源码归档
 
+2026-10-07（S12.1）：新增唯一 [F31-F22-resource-gc.tar.gz](F31-F22-resource-gc.tar.gz)，7 个新集成＋32 个复用回归通过，8 个指定变异检出。真实 IO/B/对象回收、完成压力及引用调用暂满；没有新增常驻目标。S5/F27/F19/F26 有效依赖不变。见 [八项审查](../../docs/storage_redesign/s12_execution_20261007.md) 与 [结果](../../test-results/storage-s12-resource-gc-20261007/README.md)。
+
 2026-10-07（F25 当前压缩接续）：唯一 [F25-shared-snapshot.tar.gz](F25-shared-snapshot.tar.gz) 原位更新，本次复查 59 个正常场景、3 个定向变异；含真实 SQL/TCP 压缩/旧协议追赶与阶段队列/锁外读取证据。旧 F25 包无备份，测试仅压缩保存。详见 [八项审查](../../docs/storage_redesign/s11_compression_execution_20261007.md)。下文旧日期的 47/19 等保留历史事实。
 
 2026-10-07（F25 增量接续，整体未完成）：同一 F25 源码包包含五个真实 SQL/对象/接收节点场景，38 项正常场景通过，十三个相关变异检出；此前补齐提交预算拒绝和独立会话判据，本次扩展原 TCP 场景验证旧协商/旧全量块隔离、重复协商续期及新 term 编号重置。变异脚本拒绝空选择/未知名称。旧 F25 包原位替换。基础保留策略及 Leader 自动增量 E2E 待确认/接续。[当前审查](../../docs/storage_redesign/s11_incremental_execution_20261007.md)。下条 33/9 仅记录原共享轮，当前包/结果以本条为准。

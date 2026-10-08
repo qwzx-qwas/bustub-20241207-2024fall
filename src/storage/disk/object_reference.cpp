@@ -122,7 +122,7 @@ struct Call {
       Fail(ObjectMappingErrorCode::NotReady, "object references are closed");
     }
     if (state_.active_ == state_.options_.max_active_operations_) {
-      Fail(ObjectMappingErrorCode::ResourceUnavailable, "object reference operation budget full");
+      ReferenceFail(ObjectReferenceErrorCode::Busy, "object reference operation budget full");
     }
     ++state_.active_;
   }

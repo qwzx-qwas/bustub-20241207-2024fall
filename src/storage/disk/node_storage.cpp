@@ -164,8 +164,8 @@ auto OpenObjects(BootstrapStore &bootstrap, IOExecutor &executor, MetadataEngine
                                             *context->references_, options.max_read_bytes_, options.max_write_bytes_,
                                             io_limits, external_bytes);
   if (transactions) {
-    context->transactions_ = std::make_unique<ObjectTransactionPipeline>(*context->io_, *context->mapping_,
-                                                                         *context->references_, *transactions);
+    context->transactions_ = std::make_unique<ObjectTransactionPipeline>(
+        *context->io_, *context->mapping_, *context->references_, *transactions, io_limits.memory_budget_);
   }
   return context;
 }
@@ -232,6 +232,10 @@ struct StorageContext {
 
 struct NodeStorage::Impl {
   explicit Impl(NodeStorageOptions options) : options_(std::move(options)) {
+    if (options_.memory_budget_) {
+      options_.io_.memory_budget_ = std::make_shared<ResourceBudget>(*options_.memory_budget_);
+      options_.metadata_.memory_budget_ = options_.io_.memory_budget_;
+    }
     if (options_.transactions_ && !options_.objects_) {
       throw std::invalid_argument("object transactions require ordinary object storage");
     }
@@ -456,7 +460,14 @@ struct NodeStorage::Impl {
       // F03 Status only takes its short status lock, never waits for disk IO.
       state_.Repair(context_->RepairStatus());
     }
-    return state_.View();
+    auto view = state_.View();
+    if (view.phase_ == NodeStoragePhase::Serving && options_.io_.memory_budget_ &&
+        options_.io_.memory_budget_->Pressure()) {
+      view.conditions_ |= static_cast<uint32_t>(NodeStorageCondition::ResourcePressure);
+      if (!view.primary_condition_ || view.primary_condition_ == NodeStorageCondition::BootstrapRedundancyLost)
+        view.primary_condition_ = NodeStorageCondition::ResourcePressure;
+    }
+    return view;
   }
   void Close() {
     std::shared_ptr<StorageContext> context;
@@ -508,7 +519,7 @@ struct NodeStorage::Impl {
     }
   }
 
-  const NodeStorageOptions options_;
+  NodeStorageOptions options_;
   std::mutex mutex_;
   std::condition_variable idle_;
   NodeStateController state_;
@@ -703,7 +714,7 @@ auto NodeStorage::PageIO() const -> PageIOCapabilities {
     const auto stride =
         (BUSTUB_PAGE_SIZE + info.memory_alignment_ - 1) / info.memory_alignment_ * info.memory_alignment_;
     const auto charge = stride + BUSTUB_PAGE_SIZE + 2 * unit;
-    const auto limit = std::min({o.io_.max_operations_, o.transactions_->max_operations_,
+    const auto limit = std::min({o.io_.max_operations_ - o.io_.progress_operations_, o.transactions_->max_operations_,
                                  static_cast<size_t>(o.external_buffer_bytes_ / stride),
                                  static_cast<size_t>(o.transactions_->max_request_bytes_ / BUSTUB_PAGE_SIZE),
                                  static_cast<size_t>(o.transactions_->max_pending_bytes_ / charge),

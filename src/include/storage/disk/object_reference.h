@@ -19,7 +19,7 @@ struct ObjectReferenceOptions {
   size_t max_scan_entries_;
   size_t max_reclaim_ranges_;
   uint64_t max_reclaim_bytes_;
-  size_t max_active_operations_;
+  size_t max_active_operations_;  // Admission returns Busy while all call slots are in use.
 };
 enum class ObjectReferenceErrorCode { Busy, Stale, UnsupportedFormat };
 class ObjectReferenceError : public std::runtime_error {

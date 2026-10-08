@@ -247,9 +247,8 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
             hit->phase_ == FramePhase::Failed) {
           waiting = hit->task_;
         } else {
+          replacer_.RecordPinnedAccess(hit->id_, type, hit->pins_ == 0);
           ++hit->pins_;
-          replacer_.RecordAccess(hit->id_, type);
-          replacer_.SetEvictable(hit->id_, false);
         }
       }
     }

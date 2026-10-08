@@ -30,14 +30,30 @@ auto Terminal(IOBatchPhase phase) -> bool { return phase == IOBatchPhase::Succee
 // return its reservation while a worker finishes under the scheduling lock.
 struct IOBudget {
   IOBudget(const IOExecutorOptions &options, size_t external_limit)
-      : options_(options), external_limit_(external_limit) {}
+      : options_(options), external_limit_(external_limit), memory_(ResourceAccount::Create(options.memory_budget_)) {}
 
-  auto Reserve(size_t operations, size_t bytes, size_t external_bytes, bool read_ahead) -> bool {
+  auto Reserve(size_t operations, size_t bytes, size_t external_bytes, bool read_ahead,
+               bool &shared_memory_limited) -> bool {
     std::lock_guard<std::mutex> lock(mutex_);
     const size_t share = read_ahead ? 2 : 1;
+    if (!ProgressWork::Active() && (operations > options_.max_operations_ - options_.progress_operations_ ||
+                                    bytes > options_.max_buffer_bytes_ - options_.progress_buffer_bytes_))
+      throw std::invalid_argument("IO request exceeds ordinary capacity after progress reservation");
     if (operations > (options_.max_operations_ - operations_) / share || bytes > options_.max_buffer_bytes_ - bytes_ ||
         external_bytes > (external_limit_ - external_bytes_) / share) {
       return false;
+    }
+    const bool progress = ProgressWork::Active();
+    if (!progress && (operations > options_.max_operations_ - options_.progress_operations_ - ordinary_operations_ ||
+                      bytes > options_.max_buffer_bytes_ - options_.progress_buffer_bytes_ - ordinary_bytes_))
+      return false;
+    if (!memory_->Reserve(bytes, progress)) {
+      shared_memory_limited = true;
+      return false;
+    }
+    if (!progress) {
+      ordinary_operations_ += operations;
+      ordinary_bytes_ += bytes;
     }
     operations_ += operations;
     bytes_ += bytes;
@@ -45,8 +61,13 @@ struct IOBudget {
     return true;
   }
 
-  void Release(size_t operations, size_t bytes, size_t external_bytes) {
+  void Release(size_t operations, size_t bytes, size_t external_bytes, bool progress) {
     std::lock_guard<std::mutex> lock(mutex_);
+    memory_->Release(bytes, progress);
+    if (!progress) {
+      ordinary_operations_ -= operations;
+      ordinary_bytes_ -= bytes;
+    }
     operations_ -= operations;
     bytes_ -= bytes;
     external_bytes_ -= external_bytes;
@@ -58,6 +79,8 @@ struct IOBudget {
   size_t bytes_{0};
   size_t external_limit_;
   size_t external_bytes_{0};
+  size_t ordinary_operations_{0}, ordinary_bytes_{0};
+  std::shared_ptr<ResourceAccount> memory_;
 };
 
 struct FreeBuffer {
@@ -115,7 +138,7 @@ struct IOBatchData {
   ~IOBatchData() {
     ReturnExternal();
     buffers_.clear();
-    core_->budget_->Release(requests_.empty() ? 1 : requests_.size(), bytes_, 0);
+    core_->budget_->Release(requests_.empty() ? 1 : requests_.size(), bytes_, 0, progress_);
   }
 
   auto Address(size_t member) const -> const void * {
@@ -129,7 +152,7 @@ struct IOBatchData {
       return;
     }
     leases_.clear();
-    core_->budget_->Release(0, 0, std::exchange(external_bytes_, 0));
+    core_->budget_->Release(0, 0, std::exchange(external_bytes_, 0), progress_);
   }
 
   std::shared_ptr<IOCore> core_;
@@ -140,6 +163,7 @@ struct IOBatchData {
   size_t bytes_;
   size_t external_bytes_;
   bool external_;
+  bool progress_{ProgressWork::Active()};
   IOBatchResult result_;
   std::function<void(const IOBatchResult &)> completion_;
   std::function<void()> ready_;
@@ -424,8 +448,10 @@ auto IOBatch::Result() const -> const IOBatchResult & {
 
 struct IOExecutor::Impl {
   Impl(BlockDevice &device, const IOExecutorOptions &options, size_t external_limit) {
-    if (options.worker_count_ == 0 || options.max_operations_ == 0 ||
-        (options.max_buffer_bytes_ == 0 && external_limit == 0) || options.worker_count_ > options.max_operations_) {
+    if (options.progress_operations_ > options.max_operations_ ||
+        options.progress_buffer_bytes_ > options.max_buffer_bytes_ || options.worker_count_ == 0 ||
+        options.max_operations_ == 0 || (options.max_buffer_bytes_ == 0 && external_limit == 0) ||
+        options.worker_count_ > options.max_operations_) {
       throw std::invalid_argument("invalid IO executor limits");
     }
     core_ = std::make_shared<IOCore>(device, options, external_limit);
@@ -472,20 +498,21 @@ auto IOExecutor::TryPrepare(std::vector<IORequest> requests, bool flush_after_wr
   }
   const auto bytes = RequiredBytes(requests, flush_after_writes, core->info_, true);
   const auto count = requests.size();
+  bool shared_memory_limited = false;
   {
     std::lock_guard<std::mutex> lock(core->mutex_);
     if (!core->accepting_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
-    if (!core->budget_->Reserve(count, bytes, 0, false)) {
-      return {IOAdmission::Full, std::nullopt};
+    if (!core->budget_->Reserve(count, bytes, 0, false, shared_memory_limited)) {
+      return {IOAdmission::Full, std::nullopt, shared_memory_limited};
     }
   }
   std::shared_ptr<IOBatchData> data;
   try {
     data = std::make_shared<IOBatchData>(core, std::move(requests), flush_after_writes, bytes, 0);
   } catch (...) {
-    core->budget_->Release(count, bytes, 0);
+    core->budget_->Release(count, bytes, 0, ProgressWork::Active());
     throw;
   }
   return {IOAdmission::Accepted, IOBatch(std::move(data))};
@@ -493,12 +520,13 @@ auto IOExecutor::TryPrepare(std::vector<IORequest> requests, bool flush_after_wr
 
 auto IOExecutor::TryPrepareFlush() -> IOPreparation {
   const auto &core = impl_->core_;
+  bool shared_memory_limited = false;
   {
     std::lock_guard<std::mutex> lock(core->mutex_);
     if (!core->accepting_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
-    if (!core->budget_->Reserve(1, 0, 0, false)) {
+    if (!core->budget_->Reserve(1, 0, 0, false, shared_memory_limited)) {
       return {IOAdmission::Full, std::nullopt};
     }
   }
@@ -506,7 +534,7 @@ auto IOExecutor::TryPrepareFlush() -> IOPreparation {
   try {
     data = std::make_shared<IOBatchData>(core, std::vector<IORequest>{}, true, 0, 0);
   } catch (...) {
-    core->budget_->Release(1, 0, 0);
+    core->budget_->Release(1, 0, 0, ProgressWork::Active());
     throw;
   }
   return {IOAdmission::Accepted, IOBatch(std::move(data))};
@@ -568,12 +596,13 @@ auto IOExecutor::PrepareExternal(std::vector<IORequest> requests, std::vector<IO
     }
   }
   const auto count = requests.size();
+  bool shared_memory_limited = false;
   {
     std::lock_guard<std::mutex> lock(core->mutex_);
     if (!core->accepting_) {
       return {IOAdmission::Stopped, std::nullopt};
     }
-    if (!core->budget_->Reserve(count, 0, bytes, read_ahead)) {
+    if (!core->budget_->Reserve(count, 0, bytes, read_ahead, shared_memory_limited)) {
       return {IOAdmission::Full, std::nullopt};
     }
   }
@@ -581,7 +610,7 @@ auto IOExecutor::PrepareExternal(std::vector<IORequest> requests, std::vector<IO
   try {
     data = std::make_shared<IOBatchData>(core, std::move(requests), flush_after_writes, 0, bytes);
   } catch (...) {
-    core->budget_->Release(count, 0, bytes);
+    core->budget_->Release(count, 0, bytes, ProgressWork::Active());
     throw;
   }
   // No throwing work after transfer: rejected/failed preparation keeps leases.
@@ -617,8 +646,10 @@ auto IOExecutor::DeviceInfo() const -> const BlockDeviceInfo & { return impl_->c
 
 auto IOExecutor::AccumulateReadBudget(IOReadBudget *budget, size_t operations, size_t bytes) const -> bool {
   const auto &limits = impl_->core_->budget_->options_;
-  if (budget->operations_ > limits.max_operations_ || operations > limits.max_operations_ - budget->operations_ ||
-      budget->buffer_bytes_ > limits.max_buffer_bytes_ || bytes > limits.max_buffer_bytes_ - budget->buffer_bytes_) {
+  const auto max_operations = limits.max_operations_ - (ProgressWork::Active() ? 0 : limits.progress_operations_);
+  const auto max_bytes = limits.max_buffer_bytes_ - (ProgressWork::Active() ? 0 : limits.progress_buffer_bytes_);
+  if (budget->operations_ > max_operations || operations > max_operations - budget->operations_ ||
+      budget->buffer_bytes_ > max_bytes || bytes > max_bytes - budget->buffer_bytes_) {
     return false;
   }
   budget->operations_ += operations;
