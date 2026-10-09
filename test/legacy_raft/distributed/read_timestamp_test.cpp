@@ -26,6 +26,15 @@ TEST(DistributedReadTimestampTest, BeginReadAtUsesExactPublishedIndex) {
   EXPECT_EQ(read->GetTransactionState(), TransactionState::COMMITTED);
   EXPECT_EQ(read->GetCommitTs(), 42);
 
+  instance->txn_manager_->ReleaseRead(read);
+  // Both normal completion and an abandoned private read relinquish ownership.
+  for (int i = 0; i < 1024; ++i) {
+    auto *short_read = instance->txn_manager_->BeginReadAt(42 + i);
+    if (i % 2 == 0) instance->txn_manager_->EndRead(short_read);
+    instance->txn_manager_->ReleaseRead(short_read);
+  }
+  EXPECT_TRUE(instance->txn_manager_->txn_map_.empty());
+
   auto *local = instance->txn_manager_->Begin();
   EXPECT_EQ(local->GetReadTs(), 0);
   instance->txn_manager_->Abort(local);

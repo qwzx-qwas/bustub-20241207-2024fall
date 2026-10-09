@@ -802,7 +802,7 @@ TEST(RaftNodeTest, ProposalPayloadAdmissionRejectsMalformedAndWrongTypeWithoutAp
   EXPECT_TRUE(fixture.Storage().Events().empty());
 }
 
-TEST(RaftNodeTest, RejectsASecondProposalUntilTheFirstProposalIsResolved) {
+TEST(RaftNodeTest, IndependentProposalsCanBeDurableBeforeQuorum) {
   FaultInjectedNode fixture("single-unresolved-proposal");
   fixture.ElectReady();
 
@@ -811,13 +811,14 @@ TEST(RaftNodeTest, RejectsASecondProposalUntilTheFirstProposalIsResolved) {
       2);
   const auto messages_after_first = fixture.Transport().Pending();
   ASSERT_GT(messages_after_first, 0);
-  EXPECT_THROW(fixture.Node().Propose(EntryType::KV_COMMAND,
-                                      KvCommandCodec::Encode({1, KvOperation::PUT, "second", "must-wait"})),
-               std::runtime_error);
+  EXPECT_EQ(fixture.Node().Propose(EntryType::KV_COMMAND,
+                                   KvCommandCodec::Encode({1, KvOperation::PUT, "second", "pending-too"})),
+            3);
   EXPECT_EQ(fixture.Node().Role(), RaftRole::LEADER);
   EXPECT_EQ(fixture.Node().CommitIndex(), 1);
-  EXPECT_EQ(fixture.Node().Log().LastLogIndex(), 2);
-  EXPECT_EQ(fixture.Transport().Pending(), messages_after_first);
+  EXPECT_EQ(fixture.Node().Log().LastLogIndex(), 3);
+  EXPECT_EQ(fixture.Node().LastApplied(), 1);
+  EXPECT_GT(fixture.Transport().Pending(), messages_after_first);
 }
 
 TEST(RaftNodeTest, InstallSnapshotCrashMatrixRecoversOnlyCompleteOldOrNewState) {

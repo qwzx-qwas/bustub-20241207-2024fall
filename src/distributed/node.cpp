@@ -153,7 +153,9 @@ void DistributedNodeConfig::Validate() const {
       election_timeout_min_ms_ == 0 || election_timeout_min_ms_ >= election_timeout_max_ms_ ||
       heartbeat_interval_ms_ == 0 || heartbeat_interval_ms_ > (election_timeout_min_ms_ - 1) / 2 ||
       tick_interval_ms_ == 0 || tick_interval_ms_ > heartbeat_interval_ms_ || client_timeout_ms_ == 0 ||
-      buffer_pool_size_ == 0 || snapshot_threshold_entries_ == 0) {
+      buffer_pool_size_ == 0 || snapshot_threshold_entries_ == 0 || max_write_requests_ == 0 ||
+      max_write_command_bytes_ == 0 || max_write_command_bytes_ > CommandBatchCodec::MAX_ENCODED_BATCH_BYTES ||
+      max_write_bytes_ < 4 * max_write_command_bytes_) {
     throw std::runtime_error("invalid distributed node configuration");
   }
   std::set<std::string> raft_addresses{raft_listen_.ToString()};
@@ -216,6 +218,7 @@ void DistributedNode::Initialize() {
   transport_ = std::make_shared<TcpRaftTransport>(config_.node_id_, config_.group_id_, config_.raft_listen_,
                                                   std::move(raft_peers), 250, 10000,
                                                   local_storage_ ? local_storage_->MemoryBudget() : nullptr);
+  write_memory_ = ResourceAccount::Create(local_storage_ ? local_storage_->MemoryBudget() : nullptr);
   raft_node_ = std::make_unique<RaftNode>(
       RaftNodeConfig{config_.node_id_, std::move(voters), config_.election_timeout_min_ms_,
                      config_.election_timeout_max_ms_, config_.heartbeat_interval_ms_, config_.group_id_,
@@ -223,7 +226,9 @@ void DistributedNode::Initialize() {
                      [this] {
                        work_ready_.store(true);
                        state_changed_.notify_all();
-                     }},
+                     },
+                     config_.object_storage_ ? config_.object_storage_->raft_.max_batch_entries_ : 128,
+                     config_.object_storage_ ? config_.object_storage_->raft_.max_batch_bytes_ : 1024U * 1024U},
       transport_, std::move(recovered.stable_store_), std::move(recovered.log_store_), state_machine_,
       std::move(recovered.snapshot_store_));
 }
@@ -341,85 +346,247 @@ void DistributedNode::TickLoop() {
   }
 }
 
+auto DistributedNode::AcquireWrite(const std::shared_ptr<ActiveWrite> &active) -> bool {
+  if (active->claimed_) return true;
+  if (active->blocker_ != 0) return false;
+  const auto id = active->sequence_;
+  const auto &plan = *active->plan_;
+  uint64_t blocker = 0;
+  if (!catalog_writes_.empty() && *catalog_writes_.begin() < id) blocker = *catalog_writes_.begin();
+  if (plan.scope_ == SqlWritePlan::Scope::CATALOG) {
+    // DDL waits for every earlier request, including those still analyzing.
+    if (writes_.begin()->first != id) blocker = writes_.begin()->first;
+    if (blocker == 0) {
+      // Later requests already holding keys must also publish before catalog changes.
+      for (const auto &[table, state] : table_writes_)
+        if (!state.active_.empty()) {
+          blocker = *state.active_.begin();
+          break;
+        }
+    }
+  } else {
+    auto &table = table_writes_.at(plan.table_);
+    if (!table.wide_.empty() && *table.wide_.begin() < id) blocker = *table.wide_.begin();
+    if (blocker == 0 && plan.scope_ == SqlWritePlan::Scope::TABLE && !table.active_.empty())
+      blocker = *table.active_.begin();
+    if (blocker == 0 && table.wide_owner_ != 0) blocker = table.wide_owner_;
+    if (blocker == 0)
+      for (const auto &key : plan.keys_) {
+        auto owner = table.keys_.find(key);
+        if (owner != table.keys_.end()) {
+          blocker = owner->second;
+          break;
+        }
+      }
+    if (blocker == 0) {
+      table.active_.insert(id);
+      if (plan.scope_ == SqlWritePlan::Scope::TABLE) table.wide_owner_ = id;
+      for (const auto &key : plan.keys_) table.keys_.emplace(key, id);
+    }
+  }
+  if (blocker != 0) {
+    active->blocker_ = blocker;
+    writes_.at(blocker)->waiters_.insert(id);
+    return false;
+  }
+  active->claimed_ = true;
+  return true;
+}
+
+void DistributedNode::ReleaseWrite(const std::shared_ptr<ActiveWrite> &active) {
+  const auto id = active->sequence_;
+  if (active->blocker_ != 0) {
+    auto blocker = writes_.find(active->blocker_);
+    if (blocker != writes_.end()) blocker->second->waiters_.erase(id);
+    active->blocker_ = 0;
+  }
+  if (active->plan_) {
+    const auto &plan = *active->plan_;
+    if (plan.scope_ == SqlWritePlan::Scope::CATALOG)
+      catalog_writes_.erase(id);
+    else {
+      auto &table = table_writes_.at(plan.table_);
+      table.wide_.erase(id);
+      if (active->claimed_) {
+        table.active_.erase(id);
+        if (table.wide_owner_ == id) table.wide_owner_ = 0;
+        for (const auto &key : plan.keys_) table.keys_.erase(key);
+      }
+      if (--table.plans_ == 0) table_writes_.erase(plan.table_);
+    }
+  }
+  active->claimed_ = false;
+  active->plan_.reset();
+  for (auto waiter : active->waiters_) {
+    auto found = writes_.find(waiter);
+    if (found != writes_.end()) found->second->blocker_ = 0;
+  }
+  active->waiters_.clear();
+}
+
+void DistributedNode::FinishWrite(const std::shared_ptr<ActiveWrite> &active, ClientResponseStatus status,
+                                  std::vector<std::byte> bytes) {
+  ReleaseWrite(active);
+  active->response_ = MakeResponse(active->request_id_, status, std::move(bytes));
+  clients_.erase(active->client_id_);
+  write_bytes_ -= active->bytes_;
+  writes_.erase(active->sequence_);
+  // An accepted worker retains active/charge until its actual work ends.
+  state_changed_.notify_all();
+}
+
 void DistributedNode::ReconcileActiveWrite() {
-  if (!active_write_) return;
-  auto active = active_write_;
-  auto finish = [&](ClientResponseStatus status, std::vector<std::byte> bytes = {}) {
-    active->response_ = MakeResponse(active->request_id_, status, std::move(bytes));
-    active_write_.reset();
-    state_changed_.notify_all();
-  };
-  // A later leader may replace this index with an unrelated entry. Its
-  // publication does not imply that our request must have a session result.
-  // Accepted storage work remains owned by Raft; clients retry the same identity.
-  if (!raft_node_->LeaderReady() || raft_node_->CurrentTerm() != active->proposal_term_) {
-    finish(ClientResponseStatus::NOT_LEADER);
-    return;
-  }
-  if (active->work_ && active->work_->Ready()) {
-    try {
-      active->prepared_ = active->work_->Take();
-      active->work_.reset();
-    } catch (const std::exception &e) {
-      active->work_.reset();
-      if (active->proposal_index_ != 0) throw;
-      finish(ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
-      return;
+  // Bounded traversal consumes completion slots, not a pairwise conflict search.
+  std::vector<std::shared_ptr<ActiveWrite>> window;
+  for (const auto &[id, active] : writes_) window.push_back(active);
+  std::vector<std::shared_ptr<ActiveWrite>> ready;
+  const size_t maximum_entries = config_.object_storage_ ? config_.object_storage_->raft_.max_batch_entries_ : 128;
+  const size_t maximum_bytes =
+      config_.object_storage_ ? config_.object_storage_->raft_.max_batch_bytes_ : 1024U * 1024U;
+  size_t batch_bytes = 0;
+  for (const auto &active : window) {
+    if (!raft_node_->LeaderReady() || raft_node_->CurrentTerm() != active->proposal_term_) {
+      FinishWrite(active, ClientResponseStatus::NOT_LEADER);
+      continue;
     }
-  }
-  if (raft_node_->Busy()) return;
-  if (auto error = raft_node_->TakeProposalError(active->proposal_index_)) {
-    try {
-      std::rethrow_exception(error);
-    } catch (const std::exception &e) {
-      finish(ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
-    }
-    return;
-  }
-  if (active->prepared_) {
-    auto &result = *active->prepared_;
-    if (result.disposition_ == RequestDisposition::RETRY_LAST) {
-      const auto response = WriteResponseCodec::Decode(result.bytes_);
-      if (response.commit_index_ > raft_node_->PublishedAppliedIndex()) return;
-      finish(ClientResponseStatus::COMMITTED, std::move(result.bytes_));
-      return;
-    }
-    if (result.disposition_ != RequestDisposition::NEW_REQUEST) {
-      finish(ClientResponseStatus::REJECTED,
-             ErrorPayload(result.disposition_ == RequestDisposition::PAYLOAD_MISMATCH
-                              ? "request payload does not match request identity"
-                              : "SQL request id is old or contains a session sequence gap"));
-      return;
-    }
-    if (active->proposal_index_ == 0) {
-      if (result.published_ != raft_node_->PublishedAppliedIndex()) {
-        finish(ClientResponseStatus::NOT_LEADER);
-        return;
+    if (active->work_ && active->work_->Ready()) {
+      try {
+        auto result = active->work_->Take();
+        active->work_.reset();
+        if (result.disposition_ != RequestDisposition::NEW_REQUEST || result.phase_ == WriteWork::Phase::RESULT) {
+          if (result.disposition_ == RequestDisposition::RETRY_LAST) {
+            if (WriteResponseCodec::Decode(result.bytes_).commit_index_ > raft_node_->PublishedAppliedIndex()) {
+              active->prepared_ = std::move(result);
+              continue;
+            }
+            FinishWrite(active, ClientResponseStatus::COMMITTED, std::move(result.bytes_));
+          } else if (active->proposal_index_ != 0) {
+            throw std::runtime_error("published proposal has no session result");
+          } else {
+            FinishWrite(active, ClientResponseStatus::REJECTED,
+                        ErrorPayload(result.disposition_ == RequestDisposition::PAYLOAD_MISMATCH
+                                         ? "request payload does not match request identity"
+                                         : "SQL request id is old or contains a session sequence gap"));
+          }
+          continue;
+        }
+        if (result.phase_ == WriteWork::Phase::ANALYZE) {
+          active->plan_ = std::make_shared<SqlWritePlan>(std::move(*result.plan_));
+          if (active->plan_->scope_ == SqlWritePlan::Scope::CATALOG)
+            catalog_writes_.insert(active->sequence_);
+          else {
+            auto &table = table_writes_[active->plan_->table_];
+            ++table.plans_;
+            if (active->plan_->scope_ == SqlWritePlan::Scope::TABLE) table.wide_.insert(active->sequence_);
+          }
+        } else if (result.stale_) {
+          ReleaseWrite(active);  // next turn rebinds against the new workspace/schema
+        } else {
+          active->prepared_ = std::move(result);
+        }
+      } catch (const std::exception &e) {
+        active->work_.reset();
+        if (active->proposal_index_ != 0) throw;
+        FinishWrite(active, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
+        continue;
       }
-      const auto proposed = raft_node_->Propose(EntryType::COMMAND_BATCH, std::move(result.bytes_));
-      if (!proposed) {
-        finish(ClientResponseStatus::NOT_LEADER);
-        return;
-      }
-      active->proposal_index_ = *proposed;
-      active->prepared_.reset();
-      return;
     }
-    // Query of a published proposal must find the replicated session result.
-    throw std::runtime_error("published proposal has no session result");
+    if (auto error = raft_node_->TakeProposalError(active->proposal_index_)) {
+      try {
+        std::rethrow_exception(error);
+      } catch (const std::exception &e) {
+        FinishWrite(active, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
+      }
+      continue;
+    }
+    if (active->prepared_ && active->prepared_->disposition_ == RequestDisposition::RETRY_LAST) {
+      if (WriteResponseCodec::Decode(active->prepared_->bytes_).commit_index_ <= raft_node_->PublishedAppliedIndex())
+        FinishWrite(active, ClientResponseStatus::COMMITTED, std::move(active->prepared_->bytes_));
+      continue;
+    }
+    if (active->work_) continue;
+    if (active->proposal_index_ != 0) {
+      if (raft_node_->PublishedAppliedIndex() >= active->proposal_index_) {
+        if (active->plan_) ReleaseWrite(active);
+        active->work_ = raft_node_->BusinessTasks().Submit(0, true, [state = state_machine_, active] {
+          auto disposition =
+              state->ClassifyRequest(active->client_id_, active->request_id_, active->request_fingerprint_);
+          return WriteWork{WriteWork::Phase::RESULT,
+                           disposition,
+                           state->GetLastResponse(active->client_id_).value_or(std::vector<std::byte>{}),
+                           {},
+                           false};
+        });
+      }
+      continue;
+    }
+    if (active->prepared_) {
+      const auto bytes =
+          active->prepared_->bytes_.size() + LogCodec::FRAME_HEADER_BYTES + LogCodec::FRAME_BODY_FIXED_BYTES;
+      if (bytes > maximum_bytes) {
+        FinishWrite(active, ClientResponseStatus::REJECTED,
+                    ErrorPayload("prepared command exceeds log batch capacity"));
+      } else if (ready.size() < maximum_entries && bytes <= maximum_bytes - batch_bytes) {
+        ready.push_back(active);
+        batch_bytes += bytes;
+      }
+      continue;
+    }
+    if (!active->plan_) {
+      if (active->blocker_ != 0) continue;
+      if (!catalog_writes_.empty() && *catalog_writes_.begin() < active->sequence_) {
+        active->blocker_ = *catalog_writes_.begin();
+        writes_.at(active->blocker_)->waiters_.insert(active->sequence_);
+        continue;
+      }
+      // Publish the previous analysis' scope before binding the next statement.
+      // In particular INSERT after a queued CREATE must not bind a missing table.
+      if (analysis_work_.lock()) continue;
+      active->work_ = raft_node_->BusinessTasks().Submit(0, false, [state = state_machine_, active] {
+        const auto disposition =
+            state->ClassifyRequest(active->client_id_, active->request_id_, active->request_fingerprint_);
+        WriteWork result{WriteWork::Phase::ANALYZE, disposition, {}, {}, false};
+        if (disposition == RequestDisposition::RETRY_LAST)
+          result.bytes_ = *state->GetLastResponse(active->client_id_);
+        else if (disposition == RequestDisposition::NEW_REQUEST)
+          result.plan_ =
+              state->AnalyzeSql(active->sql_, active->client_id_, active->request_id_, active->request_fingerprint_);
+        return result;
+      });
+      analysis_work_ = active->work_;
+    } else if (AcquireWrite(active)) {
+      active->work_ =
+          raft_node_->BusinessTasks().Submit(0, false, [state = state_machine_, active, plan = active->plan_] {
+            auto batch = state->PrepareSql(*plan, active->client_id_, active->request_id_, active->request_fingerprint_,
+                                           active->command_limit_);
+            WriteWork result{WriteWork::Phase::PREPARE, RequestDisposition::NEW_REQUEST, {}, {}, !batch.has_value()};
+            if (batch) {
+              result.bytes_ = CommandBatchCodec::Encode(*batch);
+              if (result.bytes_.size() > active->command_limit_)
+                throw std::runtime_error("prepared command exceeds request capacity");
+            }
+            return result;
+          });
+    }
   }
-  if (active->work_) return;
-  if (active->proposal_index_ != 0 && raft_node_->PublishedAppliedIndex() >= active->proposal_index_) {
-    active->work_ = raft_node_->BusinessTasks().Submit(4096, true, [state = state_machine_, active] {
-      const auto disposition =
-          state->ClassifyRequest(active->client_id_, active->request_id_, active->request_fingerprint_);
-      auto response = state->GetLastResponse(active->client_id_);
-      return WriteWork{disposition, response.value_or(std::vector<std::byte>{}), state->PublishedAppliedIndex()};
-    });
+  if (!ready.empty() && !raft_node_->Busy()) {
+    std::vector<ReplicatedLogEntry> entries;
+    for (const auto &active : ready)
+      entries.push_back({1, 0, 0, EntryType::COMMAND_BATCH, std::move(active->prepared_->bytes_)});
+    const auto first = raft_node_->ProposeBatch(entries);
+    if (!first) throw std::logic_error("proposal admission changed within protocol owner");
+    for (size_t n = 0; n < ready.size(); ++n) {
+      ready[n]->proposal_index_ = *first + n;
+      ready[n]->prepared_.reset();
+    }
   }
 }
 
 void DistributedNode::MaybeCreateSnapshot() {
+  const auto latest = raft_node_->LatestSnapshot();
+  const auto boundary = latest ? latest->last_included_index_ : 0;
+  snapshot_draining_ = raft_node_->LeaderReady() && raft_node_->PublishedAppliedIndex() > boundary &&
+                       raft_node_->PublishedAppliedIndex() - boundary >= config_.snapshot_threshold_entries_;
   if (raft_node_->Busy()) return;
   const auto commit = raft_node_->CommitIndex();
   const auto applied = raft_node_->LastApplied();
@@ -431,9 +598,8 @@ void DistributedNode::MaybeCreateSnapshot() {
     if (published == raft_node_->LastLogIndex())
       state_machine_->RequestCheckpoint(published, raft_node_->LastLogTerm());
   }
-  if (!static_cast<bool>(active_write_) && commit == applied && applied == published &&
-      raft_node_->LastLogIndex() == commit && published > snapshot_index &&
-      published - snapshot_index >= config_.snapshot_threshold_entries_) {
+  if (writes_.empty() && commit == applied && applied == published && raft_node_->LastLogIndex() == commit &&
+      published > snapshot_index && published - snapshot_index >= config_.snapshot_threshold_entries_) {
     static_cast<void>(raft_node_->CreateSnapshot());
   }
 }
@@ -602,34 +768,45 @@ auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> Client
     if (!raft_node_->LeaderReady()) return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
     try {
       ReconcileActiveWrite();
-      if (active_write_ && active_write_->client_id_ == request.client_id_ &&
-          active_write_->request_id_ == request.request_id_) {
-        if (!(active_write_->request_fingerprint_ == fingerprint))
+      MaybeCreateSnapshot();
+      auto existing = clients_.find(request.client_id_);
+      if (existing != clients_.end()) {
+        auto active = writes_.at(existing->second);
+        if (active->request_id_ == request.request_id_) {
+          if (!(active->request_fingerprint_ == fingerprint))
+            return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
+                                ErrorPayload("request payload does not match request identity"));
+          mine = active;
+        }
+      } else if (!mine && !snapshot_draining_ && writes_.size() < config_.max_write_requests_) {
+        const auto bytes = 4 * config_.max_write_command_bytes_ + request.sql_.size() * 4;
+        if (bytes > config_.max_write_bytes_)
           return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
-                              ErrorPayload("request payload does not match request identity"));
-        mine = active_write_;
-      } else if (!mine && !active_write_ && !raft_node_->Busy() &&
-                 raft_node_->LastLogIndex() == raft_node_->CommitIndex() &&
-                 raft_node_->PublishedAppliedIndex() == raft_node_->CommitIndex()) {
-        auto work = raft_node_->BusinessTasks().Submit(
-            request.sql_.size() + 4096, false, [state = state_machine_, request, fingerprint] {
-              const auto disposition = state->ClassifyRequest(request.client_id_, request.request_id_, fingerprint);
-              if (disposition == RequestDisposition::RETRY_LAST)
-                return WriteWork{disposition, *state->GetLastResponse(request.client_id_),
-                                 state->PublishedAppliedIndex()};
-              if (disposition != RequestDisposition::NEW_REQUEST)
-                return WriteWork{disposition, {}, state->PublishedAppliedIndex()};
-              auto batch = state->PrepareSql(request.sql_, request.client_id_, request.request_id_, fingerprint);
-              return WriteWork{disposition, CommandBatchCodec::Encode(batch), state->PublishedAppliedIndex()};
-            });
-        if (work) {
-          mine = std::make_shared<ActiveWrite>();
-          mine->client_id_ = request.client_id_;
-          mine->request_id_ = request.request_id_;
-          mine->request_fingerprint_ = fingerprint;
-          mine->proposal_term_ = raft_node_->CurrentTerm();
-          mine->work_ = std::move(work);
-          active_write_ = mine;
+                              ErrorPayload("SQL exceeds write window capacity"));
+        if (bytes <= config_.max_write_bytes_ - write_bytes_) {
+          bool reserved;
+          try {
+            reserved = write_memory_->Reserve(bytes, false);
+          } catch (const std::invalid_argument &e) {
+            return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
+          }
+          if (reserved) {
+            ResourceCharge charge(write_memory_, bytes, false);
+            mine = std::make_shared<ActiveWrite>();
+            mine->sequence_ = ++next_write_;
+            mine->client_id_ = request.client_id_;
+            mine->request_id_ = request.request_id_;
+            mine->request_fingerprint_ = fingerprint;
+            mine->sql_ = request.sql_;
+            mine->bytes_ = bytes;
+            mine->command_limit_ = config_.max_write_command_bytes_;
+            mine->charge_ = std::move(charge);
+            mine->proposal_term_ = raft_node_->CurrentTerm();
+            clients_.emplace(request.client_id_, mine->sequence_);
+            writes_.emplace(mine->sequence_, mine);
+            write_bytes_ += bytes;
+            ReconcileActiveWrite();
+          }
         }
       }
     } catch (...) {

@@ -981,21 +981,54 @@ void BusTubRaftStateMachine::LoadSnapshot(const SnapshotInput &payload, uint64_t
   candidate->Install();
 }
 
+namespace {
+struct ShortRead {
+  TransactionManager *manager_;
+  Transaction *transaction_;
+  ~ShortRead() { manager_->ReleaseRead(transaction_); }
+};
+}  // namespace
+
+auto BusTubRaftStateMachine::AnalyzeSql(const std::string &sql, uint64_t client, uint64_t request,
+                                        const RequestFingerprintV1 &fingerprint) const -> SqlWritePlan {
+  std::lock_guard lifecycle(lifecycle_mutex_);
+  auto shared = visibility_.LockShared();
+  ExecutorContext context(nullptr, state_->catalog_.get(), state_->buffer_pool_manager_.get(),
+                          state_->transaction_manager_.get(), nullptr, false);
+  auto plan = SqlCommandPreparer(&context).Analyze(sql, client, request, fingerprint);
+  plan.workspace_ = state_;
+  return plan;
+}
+
+auto BusTubRaftStateMachine::PrepareSql(const SqlWritePlan &plan, uint64_t client, uint64_t request,
+                                        const RequestFingerprintV1 &fingerprint, size_t command_bytes) const
+    -> std::optional<TransactionCommandBatch> {
+  std::lock_guard lifecycle(lifecycle_mutex_);
+  auto shared = visibility_.LockShared();
+  if (plan.workspace_.lock().get() != state_.get() || plan.schema_epoch_ != state_->catalog_->GetSchemaEpoch())
+    return std::nullopt;
+  auto *transaction = state_->transaction_manager_->BeginReadAt(fsm_->PublishedAppliedIndex());
+  ShortRead read{state_->transaction_manager_.get(), transaction};
+  ExecutorContext context(transaction, state_->catalog_.get(), state_->buffer_pool_manager_.get(),
+                          state_->transaction_manager_.get(), nullptr, false);
+  auto batch = SqlCommandPreparer(&context, command_bytes).Prepare(plan, client, request, fingerprint);
+  state_->transaction_manager_->EndRead(transaction);
+  return batch;
+}
+
 auto BusTubRaftStateMachine::PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id,
                                         const RequestFingerprintV1 &request_fingerprint) const
     -> TransactionCommandBatch {
   std::lock_guard lifecycle(lifecycle_mutex_);
   auto shared = visibility_.LockShared();
   auto *transaction = state_->transaction_manager_->BeginReadAt(fsm_->PublishedAppliedIndex());
-  try {
+  ShortRead read{state_->transaction_manager_.get(), transaction};
+  {
     ExecutorContext context(transaction, state_->catalog_.get(), state_->buffer_pool_manager_.get(),
                             state_->transaction_manager_.get(), nullptr, false);
     auto result = SqlCommandPreparer(&context).Prepare(sql, client_id, request_id, request_fingerprint);
     state_->transaction_manager_->EndRead(transaction);
     return result;
-  } catch (...) {
-    state_->transaction_manager_->Abort(transaction);
-    throw;
   }
 }
 
@@ -1046,7 +1079,8 @@ auto BusTubRaftStateMachine::ExecuteReadSql(const std::string &sql, uint64_t min
   const auto plan = optimizer.Optimize(planner.plan_);
 
   auto *transaction = state_->transaction_manager_->BeginReadAt(static_cast<timestamp_t>(read_timestamp));
-  try {
+  ShortRead read{state_->transaction_manager_.get(), transaction};
+  {
     ExecutorContext context(transaction, state_->catalog_.get(), state_->buffer_pool_manager_.get(),
                             state_->transaction_manager_.get(), nullptr, false);
     std::vector<Tuple> tuples;
@@ -1072,9 +1106,6 @@ auto BusTubRaftStateMachine::ExecuteReadSql(const std::string &sql, uint64_t min
     }
     state_->transaction_manager_->EndRead(transaction);
     return {read_timestamp, ClientQueryResultCodec::Encode(result)};
-  } catch (...) {
-    state_->transaction_manager_->Abort(transaction);
-    throw;
   }
 }
 

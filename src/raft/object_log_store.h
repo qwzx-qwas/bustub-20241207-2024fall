@@ -16,7 +16,8 @@ class ObjectLogStore {
   void Rebuild(uint64_t index, uint64_t term);
   void Advance(uint64_t index);
   auto Term(uint64_t index) const -> std::optional<uint64_t>;
-  auto Entries(uint64_t first, uint64_t last) const -> std::vector<ReplicatedLogEntry>;
+  auto Entries(uint64_t first, uint64_t last, size_t maximum_entries = SIZE_MAX, size_t maximum_bytes = SIZE_MAX) const
+      -> std::vector<ReplicatedLogEntry>;
   auto Last() const -> uint64_t { return base_ + index_.size(); }
   uint64_t base_{0}, base_term_{0}, commit_{0};
 

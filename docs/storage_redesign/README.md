@@ -1,6 +1,11 @@
 # 本地对象存储重构主方案：Raft / BusTub / FS / ObjectIO
 
-> **2026-10-09 当前提交边界：** S12 正式部署与 S13.1/S13.2a 已通过当轮审查，见 [提交前总审 §14](s13_execution_20261009.md#14-提交前总审跨模块职责证据及剩余工作)。本次复核未改生产/测试，核验最新9项回归、6项阶段及7个变异的既有证据；完整C/P仍保留分版本归属。下一步建议 [S13.2b](modules/raft-pipeline.md#55-下一步提议s132b等待确认)，等待确认。整体仍有多提案、会话窗口、乐观正文读取及完整性能/压力验收，不能按已进入S13推算完成比例。
+> **2026-10-09 当前进度：S13.2b 实现及定向验收已完成。** [多客户端流水线共同协议](s132b_protocol.md) 统一依赖登记、短读视图寿命、批次、预算、快照收束和退出规则；覆盖下面历史记录中的“下一步等待确认”和单提案阶段边界。S13.3 会话窗口及完整性能验收仍独立接续。实现与验证结果记录在 [本轮审查](s132b_execution_20261009.md)。
+
+> **提交前总审：** [跨模块职责、证据与剩余工作 §8](s132b_execution_20261009.md#8-提交前总审跨模块职责归档及总体剩余工作2026-10-09)。本次没有再改生产或测试，核验同源57项正常场景、15个变异及原共同C/P证据；不计作重新运行。下一步候选是 [S13.3 单客户端窗口](modules/raft-pipeline.md#56-下一步候选s133-单客户端请求与结果窗口待确认)，等待确认；F26乐观正文短读、S12性能/长期压力及跨阶段设备验收仍未完成。
+
+
+> **2026-10-09 前一轮提交边界（历史）：** S12 正式部署与 S13.1/S13.2a 已通过当轮审查，见 [提交前总审 §14](s13_execution_20261009.md#14-提交前总审跨模块职责证据及剩余工作)。本次复核未改生产/测试，核验最新9项回归、6项阶段及7个变异的既有证据；完整C/P仍保留分版本归属。下一步建议 [S13.2b](modules/raft-pipeline.md#55-s132b已实现见共同协议与审查)，等待确认。整体仍有多提案、会话窗口、乐观正文读取及完整性能/压力验收，不能按已进入S13推算完成比例。
 
 > **2026-10-09 S13.1 / S13.2a 本轮已完成：** [共同协议](s13_protocol_execution.md) · [实现、八项测试审查与证据](s13_execution_20261009.md)。上次复查修正Follower匹配前缀提交与旧提案任期失效：65项既有回归、6项阶段场景、7项指定变异及正式对象C5-short通过。上轮C1–C5八种场景和低缓存P2保留原代码归属；详见审查§11。保留单写提案；完整S12性能/长时压力、S13.2b/3及F26乐观正文读取仍未完成。下方旧验收状态为本轮接续前的历史。
 > **最新类型复审：** 修正等值索引常量与列类型不匹配；补强原BIGINT测试及阶段runner实际执行核验。9项相关回归、6项阶段场景、7个变异通过，见执行审查§12。本次未重跑TCP/共同C/P，以上旧成绩保留原版本归属。
@@ -71,7 +76,7 @@
 
 - 2026-09-30：用户授权 F34/F33 本地生命周期与最小状态管理，当前执行边界见 [F34 §11](modules/node-lifecycle.md#11-2026-09-30-当轮执行协议已授权)。当轮 NodeStorage 只开放已恢复的 B 能力，当前 S6 已接续普通对象；DistributedNode 中 Raft Store/A 的业务迁移仍属 S8/S9，不把本地 Ready 当业务 Ready。当轮实现与验证已完成，见 [F34/F33 执行与八项审查](f34_execution_20260930.md)。
 - 2026-09-30：用户选择第一种兼容。新建 Journal v2 循环复用，旧 v1 保留原读写恢复且本轮不迁移；S5 基础回收实现已落地，验证、审查及归档见 [S5 执行与八项审查](s5_execution_20260930.md)，协议见 [接续方案](s5_journal_recycling.md)。
-- 当前成果：S0–S8 各自已获授权的当轮范围已推进到 S8 对象三 Store 与 C++ 节点接入，A 对象页已由 S9.1c 接入；S1/S2 的主要内存持有者预算已由 S12.2 接续；正式部署、完整节点压力及设备验证等跨阶段验收并未因此全部完成。S9.1a–e、S9.2、S9.3 和 S10 新目标 Deferred 已完成；S11 的本地恢复、固定页共享、全量/增量传输、自动 Leader 追赶及 DATA 压缩已完成。S12.1、S12.2、S12.3、F30 校验扫描和 F32 按需缓存/CLOCK-Pro 已完成各自当轮范围；S12 剩余部分、S13 和共同正确性/性能对比验收仍未完成；以 §13 的阶段表和各阶段证据边界为准。
+- 当前成果：S0–S8 各自已获授权的当轮范围已推进到 S8 对象三 Store 与 C++ 节点接入，A 对象页已由 S9.1c 接入；S1/S2 的主要内存持有者预算已由 S12.2 接续；正式部署已接通，完整节点压力及设备验证等跨阶段验收并未因此全部完成。S9.1a–e、S9.2、S9.3 和 S10 新目标 Deferred 已完成；S11 的本地恢复、固定页共享、全量/增量传输、自动 Leader 追赶及 DATA 压缩已完成。S12.1、S12.2、S12.3、F30 校验扫描和 F32 按需缓存/CLOCK-Pro 已完成各自当轮范围；S13.1/S13.2a/S13.2b 已完成，S13.3、F26 乐观正文短读及共同正确性/性能对比验收仍未完成；以 §13 的阶段表和各阶段证据边界为准。
 - 当前实现状态：S0/F00 已完成，见 [S0 执行记录](s0_execution_20260921.md)；S1/F01 当轮 Linux 文件后端与约定验证已完成，见 [F01 执行与测试审查](f01_execution_20260922.md)。S1/F02 有界执行器及约定验证已完成，见 [F02 执行与测试审查](f02_execution_20260922.md)。S2/F03 基础引导与异步修复、F04 固定区域寻址已完成，见 [F03](f03_execution_20260923.md) 和 [F04](f04_execution_20260923.md)。F05/S2 页后端已完成，见 [F05](f05_execution_20260923.md)；F06/S2 固定段后端已完成，见 [F06](f06_execution_20260924.md)。F02 普通对象 S6 接入已完成；A 对象页已由 S9.1c 接入；F01 裸设备实测、完整业务节点状态与后续阶段仍未完成；S3 见 [执行与八项审查](f07_execution_20260924.md)。S4 实际完成范围见 [F08 执行与八项审查](f08_execution_20260925.md)；F09 实际页写回已完成，见 [F09](f09_execution_20260926.md)，本轮 [F10/F11 B checkpoint 恢复](f10_execution_20260926.md) 已完成，S5 基础日志裁剪/复用及本地生命周期已完成。既有同名代码和历史 Raft 里程碑，不等于已满足本方案。
 - 本轮 T0 执行与归档已结束：C1–C5 的 10 个参数点通过；P1/P2/P4 已测量并核对业务结果，P2 的超时和重试如实保留；P3 一小时完成 8,421/200,000 次操作，未完成完整轮次，不能作为 GC 空间稳定性基线。见 [最新运行记录](testing_execution_20260921.md) 和 [归档入口](../../test-results/storage-performance-v2-20260920T143546Z/README.md)。历史资格失败保留为诊断证据，不代替后续正式观测。
 - 数组方案进度：Calico 核心机制已纳入 [F26 数组子方案](modules/array-buffer-pool.md)。[F02 外部缓冲许可](modules/object-io.md#f02-external-buffers)已获授权并完成独立组件实现与验证；真实 FrameArena/BufferPool 已由 S9.1c 接入；d 已完成路径缓存/回收，e 已接通真实预取及组合验证。P3 未覆盖的长期稳定性继续如实留项。
@@ -822,7 +827,7 @@ BufferPool 未命中、OS 文件页缓存未命中、可执行代码页缺页是
 - 线性一致读取得安全 ReadIndex 后等待已发布应用位置满足要求；不能把正常 Apply 落后当成可读旧值的理由。
 - 实时顺序也是约束：若操作 X 已成功返回后操作 Y 才被调用，则线性化顺序必须 X 在 Y 前（`<H ⊆ <S`）；并发请求可按符合语义的顺序线性化，不能按 IO 回调到达顺序随意发布。具体证明与验证归 F35。
 - 多提案还要处理旧值/版本前置条件、请求身份、去重与冲突，不能只去掉单提案限制。
-- 当前“每客户端只保留最后结果”和“Leader 全局仅一个未完成新写提案”是两个独立限制，两项改进统一纳入 F35 / S13。全局多提案细化原有流水线目标，单客户端多请求及多结果窗口补足原有去重要求；不新增同职责模块或 S14。归属、协作边界见 [F35 §2.1](modules/raft-pipeline.md#21-唯一归属与协作边界)，候选方案及开源参考见该文档第 4–5 节。详细设计待讨论；不得为压测提前改变旧版语义。
+- S13.2b 已将 Leader 全局单提案改为有界多客户端流水线：按表/主键登记依赖，完整谓词与旧值校验保留，Apply 按序发布；短读与依赖分别退出，不持久化临时登记。每客户端仍保留最后结果且只接纳一个未解决请求，单客户端多请求/结果窗口属于待讨论的 S13.3。两者统一归 F35，不新增同职责模块或 S14，见 [共同协议](s132b_protocol.md) 与 [审查](s132b_execution_20261009.md)。
 - 结果不确定时不得盲目当作未提交重用序号或返回普通业务拒绝；具体处置在相应模块讨论。
 
 参考 [etcd/raft](https://github.com/etcd-io/raft/blob/main/README.md) 的协议决策与外部执行分离，内化为 F35 的持久化、消息和 Apply 依赖；本项目业务准备/可见性仍需单独设计。
@@ -869,7 +874,7 @@ F35 采用 event-loop 风格推进协议与请求状态，耗时 Prepare、持�
 | S10 | [F27 DeferredWriteback 与待落位索引](modules/deferred-writeback.md)<br>[F07 JournalService](modules/journal-service.md)<br>[F08 MetadataEngine B](modules/metadata-engine.md)<br>[F10 B CheckpointManager](modules/metadata-checkpoint.md)<br>[F11 RecoveryDispatcher](modules/recovery-dispatcher.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F16 Admission](modules/admission.md)<br>[F17 Sequencer](modules/sequencer.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F19 CommitPipeline 与 TxContext](modules/commit-pipeline.md)<br>[F20 VersionPublisher](modules/version-publisher.md)<br>[F21 ReadResolver](modules/read-resolver.md)<br>[F22 GCService](modules/gc-service.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F33 NodeStateController](modules/node-state-controller.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | Deferred 从提交后可读到有序落位及安全裁剪的完整路径。 | 已完成首轮新目标范围；原地覆盖未启用，详见 [协议](s10_deferred_protocol.md)/[证据](s10_execution_20261005.md) |
 | S11 | [F28 BusTub A 业务 Checkpoint](modules/business-checkpoint.md)<br>[F13 对象元数据与 extent 映射](modules/object-mapping.md)<br>[F14 内容引用与保留管理](modules/reference-manager.md)<br>[F25 SnapshotStore](modules/snapshot-store.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F22 GCService](modules/gc-service.md)<br>[F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | 可靠本地业务恢复点与最小固定版本共享按 [共同协议](s11_business_checkpoint.md) 实施；F36 回收服从持久共享引用。共享正文的全量跨节点快照按 [F25 接续](s11_shared_snapshot.md) 完成；增量接收、独立基础保留、自动追赶和 DATA 压缩已接续。 | 已完成当轮范围：本地恢复、共享、增量追赶、DATA 压缩与有界锁外正文任务；[最新审查](s11_compression_execution_20261007.md)。不包含 F35 全面异步化或共同性能对照 |
 | S12 | [F22 GCService](modules/gc-service.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F26 数组 BufferPool](modules/array-buffer-pool.md)<br>[F29 日志段整理](modules/log-segment-cleaner.md)<br>[F30 校验扫描与损坏上报](modules/integrity-scrubber.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md)<br>[F33 NodeStateController](modules/node-state-controller.md) | 完整回收、页清理/日志整理预算、校验扫描和前后台协调；调整 F26 翻译内存回收与预算策略。 | 部分完成：[S12.1](s12_execution_20261007.md)、[S12.2](s12_integration_execution_20261008.md)、[S12.3](s12_log_cleaning_execution_20261008.md)及 [F26 共享零页接续](s12_translation_execution_20261008.md)；[F30](s12_integrity_execution_20261008.md) 已完成本轮范围；F32 已按 [共同协议](s12_metadata_cache.md) 接入 B 按需缓存、去重写回及 A/B CLOCK-Pro。正式 CLI 与共同脚本已接入，C1/低缓存 P2 阻塞由 S13.1/2a 接续解决；策略性能对照、长时压力与剩余调优待共同验收 |
-| S13 | [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F26 数组 BufferPool](modules/array-buffer-pool.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md) | F35 先明确业务依赖、复用查询链，再分离事件推进与耗时执行，演进多客户端/单客户端窗口；复核 F36 回收与新读者并发条件，保留读屏障；F26 评估上层并发热点及独立的乐观短读实验。 | S13.1/S13.2a 已完成本轮，见 [执行审查](s13_execution_20261009.md)；多提案、会话窗口及其余并发扩展未完成 |
+| S13 | [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md)<br>[F36 A 记录与表页空间管理](modules/table-space-management.md)<br>[F26 数组 BufferPool](modules/array-buffer-pool.md)<br>[F02 统一 ObjectIO 与 IO 执行器](modules/object-io.md)<br>[F18 WritePlanner 与路径选择](modules/write-planner.md)<br>[F31 资源预算与背压基础](modules/resource-budget.md)<br>[F32 缓存职责与内存策略](modules/cache-policy.md) | F35 先明确业务依赖、复用查询链，再分离事件推进与耗时执行，演进多客户端/单客户端窗口；复核 F36 回收与新读者并发条件，保留读屏障；F26 评估上层并发热点及独立的乐观短读实验。 | S13.1/S13.2a 及 S13.2b 多客户端流水线已完成当轮范围，见 [最新执行审查](s132b_execution_20261009.md)；S13.3 单客户端会话窗口、F26 乐观正文短读及完整并发/性能验收仍未完成 |
 
 阶段表是依赖顺序，不表示每个模块只在该阶段出现一次。特别是 B 在 S4 已需要准入、排序、提交和发布的最小能力；S7 扩展同一套组件服务普通对象，S10 再扩展 Deferred，不建立第二套同职责实现。F02 先基础对象，再普通对象；F33/F34 的生命周期支持从早期持续完善。
 
@@ -977,7 +982,7 @@ S3 最新执行依据为 [F07 §6.9](modules/journal-service.md#69-s3-已批准�
 | [F32 缓存职责与内存策略](modules/cache-policy.md) | S1、S4、S9、S12、S13 | 划清 A 页缓存、B 页缓存、解码元数据及工作缓冲职责。 | S1/S4/S9 及 S12.1/2 已完成当轮范围；B 按需缓存、去重写回及 A/B CLOCK-Pro 已接入，见 [F32 审查](s12_cache_execution_20261008.md)；性能比较、S13 未完成 |
 | [F33 NodeStateController](modules/node-state-controller.md) | S1、S5、S6、S8、S10、S12 | 将模块事实汇总为节点阶段、可叠加条件与操作能力。 | S5/S6 本地能力及 S8 既有 Raft readiness/fatal 接入完成；S10 沿用既有错误状态；全节点条件汇总待后续 |
 | [F34 节点启动、恢复与关闭编排](modules/node-lifecycle.md) | S2、S5、S6、S8、S9、S10、S11 | 按依赖打开设备、B、Store、业务状态，并正确关闭入口和排空工作。 | S5/S6 本地及 S8 Raft 对象节点组装已完成；A 页已在 S9.1c 接入，S10 恢复/后台生命周期已接续 |
-| [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md) | S13 | 复用只读准备链，分离事件推进与耗时执行，处理业务依赖、多提案、读屏障及会话窗口。 | S13.1/S13.2a 已完成本轮，见 [执行审查](s13_execution_20261009.md)；多提案、会话窗口及其余并发扩展未完成 |
+| [F35 Raft 提案流水线与线性一致读](modules/raft-pipeline.md) | S13 | 复用只读准备链，分离事件推进与耗时执行，处理业务依赖、多提案、读屏障及会话窗口。 | S13.1/S13.2a 及 S13.2b 多客户端流水线已完成当轮范围，见 [最新执行审查](s132b_execution_20261009.md)；S13.3 单客户端会话窗口、F26 乐观正文短读及完整并发/性能验收仍未完成 |
 | [F36 A 记录与表页空间管理](modules/table-space-management.md) | S9、S11、S12、S13 | 判断记录/页存活性，整理页内碎片、复用槽位/已有页，安全释放空页；协作快照和并发演进。 | S9.2/S9.3 与 S11 本地保留交接已完成；后续扩展未完成 |
 
 以下是组合名称或内部结构，而非第二个实现所有者：

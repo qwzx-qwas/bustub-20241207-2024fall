@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -45,8 +46,12 @@ class TaskExecutor {
     std::atomic<bool> ready_{false};
   };
 
-  TaskExecutor(size_t threads, size_t limit, std::shared_ptr<ResourceBudget> memory, std::function<void()> wake)
-      : limit_(limit), wake_(std::move(wake)), memory_(ResourceAccount::Create(std::move(memory))) {
+  TaskExecutor(size_t threads, size_t limit, std::shared_ptr<ResourceBudget> memory, std::function<void()> wake,
+               size_t progress_slots = 0)
+      : limit_(limit),
+        progress_slots_(progress_slots),
+        wake_(std::move(wake)),
+        memory_(ResourceAccount::Create(std::move(memory))) {
     try {
       for (size_t i = 0; i < threads; ++i) threads_.emplace_back([this] { Run(); });
     } catch (...) {
@@ -68,7 +73,7 @@ class TaskExecutor {
     using T = std::invoke_result_t<F>;
     static_assert(!std::is_void_v<T>);
     std::lock_guard lock(mutex_);
-    if (closing_ || outstanding_->load() >= limit_) return {};
+    if (closing_ || outstanding_->load() >= (progress ? limit_ : limit_ - progress_slots_)) return {};
     if (!memory_->Reserve(bytes, progress)) return {};
     ResourceCharge charge(memory_, bytes, progress);
     auto permit = std::make_shared<Permit>();
@@ -77,7 +82,7 @@ class TaskExecutor {
     permit->charge_ = std::move(charge);
     auto result = std::make_shared<Result<T>>();
     result->permit_ = std::move(permit);
-    queue_.emplace_back([result, progress, work = std::forward<F>(work)]() mutable {
+    auto execute = [result, progress, work = std::forward<F>(work)]() mutable {
       ProgressWork progress_work(progress);
       try {
         result->value_.emplace(work());
@@ -85,7 +90,10 @@ class TaskExecutor {
         result->error_ = std::current_exception();
       }
       result->ready_.store(true, std::memory_order_release);
-    });
+    };
+    auto position = progress ? std::find_if(queue_.begin(), queue_.end(), [](const auto &item) { return !item.first; })
+                             : queue_.end();
+    queue_.emplace(position, progress, std::move(execute));
     ready_.notify_one();
     return result;
   }
@@ -107,7 +115,7 @@ class TaskExecutor {
         std::unique_lock lock(mutex_);
         ready_.wait(lock, [&] { return closing_ || !queue_.empty(); });
         if (queue_.empty()) return;
-        work = std::move(queue_.front());
+        work = std::move(queue_.front().second);
         queue_.pop_front();
         ++executing_;
       }
@@ -121,14 +129,14 @@ class TaskExecutor {
       idle_.notify_all();
     }
   }
-  const size_t limit_;
+  const size_t limit_, progress_slots_;
   std::function<void()> wake_;
   std::shared_ptr<ResourceAccount> memory_;
   std::shared_ptr<std::atomic<size_t>> outstanding_{std::make_shared<std::atomic<size_t>>(0)};
   std::mutex mutex_;
   std::condition_variable ready_, idle_;
   size_t executing_{0};
-  std::deque<std::function<void()>> queue_;
+  std::deque<std::pair<bool, std::function<void()>>> queue_;
   bool closing_{false};
   std::vector<std::thread> threads_;
 };

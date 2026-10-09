@@ -496,7 +496,8 @@ auto ObjectLogStore::ReadEntry(const Location &loc, const std::vector<Segment> &
   }
   return std::move(*result.entry_);
 }
-auto ObjectLogStore::Entries(uint64_t first, uint64_t last) const -> std::vector<ReplicatedLogEntry> {
+auto ObjectLogStore::Entries(uint64_t first, uint64_t last, size_t maximum_entries, size_t maximum_bytes) const
+    -> std::vector<ReplicatedLogEntry> {
   if (first > last) {
     return {};
   }
@@ -505,8 +506,12 @@ auto ObjectLogStore::Entries(uint64_t first, uint64_t last) const -> std::vector
   }
   // LogStore's existing mutation mutex fixes this directory for the whole read.
   std::vector<ReplicatedLogEntry> result;
-  result.reserve(last - first + 1);
-  for (auto i = first; i <= last; ++i) {
+  result.reserve(std::min<uint64_t>(last - first + 1, maximum_entries));
+  size_t bytes = 0;
+  for (auto i = first; i <= last && result.size() < maximum_entries; ++i) {
+    const auto size = index_[i - base_ - 1].size_;
+    if (!result.empty() && (bytes >= maximum_bytes || size > maximum_bytes - bytes)) break;
+    bytes += size;
     auto entry = ReadEntry(index_[i - base_ - 1], segments_);
     if (entry.index_ != i) {
       throw std::runtime_error("Raft log identity mismatch");

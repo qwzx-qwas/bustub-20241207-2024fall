@@ -170,7 +170,7 @@ class ThreeNodeInProcessCluster {
     throw std::runtime_error("timed out waiting for production snapshot base");
   }
 
-  void AwaitSnapshotGenerationCount(NodeId id, size_t expected) {
+  void AwaitSnapshotGenerationCount(NodeId id, size_t expected, uint64_t minimum_published_index = 0) {
     const auto snapshot_directory = configs_.at(id - 1).data_directory_ / "raft" / "snapshots";
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
     while (std::chrono::steady_clock::now() < deadline) {
@@ -178,7 +178,8 @@ class ThreeNodeInProcessCluster {
       for (const auto &entry : storage_->ListDirectory(snapshot_directory)) {
         count += entry.rfind("SNAPSHOT-", 0) == 0 && entry.find(".tmp") == std::string::npos ? 1 : 0;
       }
-      if (count == expected) {
+      if (count == expected &&
+          (minimum_published_index == 0 || LatestSnapshot(id).last_included_index_ >= minimum_published_index)) {
         return;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -612,7 +613,9 @@ TEST(DistributedNodeTest, FullyCoveringLatestSnapshotRebuildsDamagedBridgeLatest
                 .status_,
             ClientResponseStatus::COMMITTED);
   cluster.AwaitCommit(4);
-  cluster.AwaitSnapshotGenerationCount(recovery_node, 2);
+  // A complete candidate file can precede CURRENT publication. The log's
+  // snapshot base denotes the oldest retained recovery bridge, not latest.
+  cluster.AwaitSnapshotGenerationCount(recovery_node, 2, 4);
   ASSERT_EQ(cluster.LatestSnapshot(recovery_node).last_included_index_, 4);
 
   cluster.StopAll();
@@ -689,9 +692,8 @@ TEST(DistributedNodeTest, IsolatedLeaderTimesOutAndItsUncommittedSuffixIsReplace
   cluster.AwaitCommit(WriteResponseCodec::Decode(retry.payload_).commit_index_);
 }
 
-// A production Leader must never prepare or append a second SQL batch against
-// stale state while its first durable proposal is still waiting for a quorum.
-TEST(DistributedNodeTest, ConcurrentWritesShareOneUnresolvedProposalGate) {
+// Catalog modifications retain the global dependency barrier and same-client deduplication.
+TEST(DistributedNodeTest, ConcurrentDdlRetainsCatalogBarrierAndRequestIdentity) {
   ThreeNodeInProcessCluster cluster;
   const auto leader = cluster.AwaitLeader();
   const auto journal_before = cluster.LogJournalSize(leader);

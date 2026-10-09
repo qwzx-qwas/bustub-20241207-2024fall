@@ -659,10 +659,11 @@ auto LogStore::EntryAt(uint64_t index) const -> std::optional<ReplicatedLogEntry
   return entries_[index - snapshot_base_index_ - 1];
 }
 
-auto LogStore::Entries(uint64_t first_index, uint64_t last_index) const -> std::vector<ReplicatedLogEntry> {
+auto LogStore::Entries(uint64_t first_index, uint64_t last_index, size_t maximum_entries, size_t maximum_bytes) const
+    -> std::vector<ReplicatedLogEntry> {
   std::lock_guard lock(*mutex_);
   if (object_) {
-    return object_->Entries(first_index, last_index);
+    return object_->Entries(first_index, last_index, maximum_entries, maximum_bytes);
   }
   if (first_index > last_index) {
     return {};
@@ -671,7 +672,16 @@ auto LogStore::Entries(uint64_t first_index, uint64_t last_index) const -> std::
     throw std::out_of_range("requested Raft log range is unavailable");
   }
   const auto first = entries_.begin() + static_cast<ptrdiff_t>(first_index - snapshot_base_index_ - 1);
-  const auto last = entries_.begin() + static_cast<ptrdiff_t>(last_index - snapshot_base_index_);
+  auto last = first;
+  size_t bytes = 0, count = 0;
+  const auto end = entries_.begin() + static_cast<ptrdiff_t>(last_index - snapshot_base_index_);
+  while (last != end && count < maximum_entries) {
+    const auto size = last->payload_.size() + LogCodec::FRAME_HEADER_BYTES + LogCodec::FRAME_BODY_FIXED_BYTES;
+    if (count != 0 && (bytes >= maximum_bytes || size > maximum_bytes - bytes)) break;
+    bytes += size;
+    ++count;
+    ++last;
+  }
   return {first, last};
 }
 

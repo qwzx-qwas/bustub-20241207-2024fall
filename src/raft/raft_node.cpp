@@ -269,7 +269,7 @@ RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transpo
     published_applied_index_ = last_applied_;
   }
   storage_tasks_ = std::make_unique<TaskExecutor>(1, 1, config_.memory_budget_, config_.wake_);
-  business_tasks_ = std::make_unique<TaskExecutor>(1, 8, config_.memory_budget_, config_.wake_);
+  business_tasks_ = std::make_unique<TaskExecutor>(1, 8, config_.memory_budget_, config_.wake_, 1);
   pending_memory_ = ResourceAccount::Create(config_.memory_budget_);
   observed_term_ = hard_state_.current_term_;
   RefreshLogTip();
@@ -451,6 +451,7 @@ auto RaftNode::BecomeLeader() -> Operation {
     throw std::runtime_error("only a Candidate can become Leader");
   }
   role_ = RaftRole::LEADER;
+  proposal_errors_.clear();  // Reused log indexes must not inherit a prior term's rejection.
   leader_id_ = config_.node_id_;
   next_index_.clear();
   match_index_.clear();
@@ -1022,41 +1023,48 @@ auto RaftNode::Handle(NodeId from, const InstallSnapshotResponse &response) -> O
 }
 
 auto RaftNode::Propose(EntryType type, std::vector<std::byte> payload) -> std::optional<uint64_t> {
+  std::vector<ReplicatedLogEntry> entries;
+  entries.push_back({1, 0, 0, type, std::move(payload)});
+  return ProposeBatch(entries);
+}
+
+auto RaftNode::ProposeBatch(std::vector<ReplicatedLogEntry> &entries) -> std::optional<uint64_t> {
   if (!LeaderReady() || Busy()) return std::nullopt;
-  if (durable_tip_ != hard_state_.commit_index_ || last_applied_ != hard_state_.commit_index_) {
-    throw std::runtime_error("V1 allows only one unresolved Raft proposal");
+  if (entries.empty() || entries.size() > config_.append_batch_entries_)
+    throw std::invalid_argument("invalid proposal batch size");
+  const auto first = durable_tip_ + 1;
+  for (size_t n = 0; n < entries.size(); ++n) {
+    entries[n].index_ = first + n;
+    entries[n].term_ = hard_state_.current_term_;
   }
-  const auto index = durable_tip_ + 1;
-  proposal_error_.reset();
-  Start(RunProposal({1, index, hard_state_.current_term_, type, std::move(payload)}));
-  return index;
+  Start(RunProposal(std::move(entries)));
+  return first;
 }
 
 auto RaftNode::TakeProposalError(uint64_t index) -> std::exception_ptr {
-  if (!proposal_error_ || proposal_error_->first != index) return {};
-  auto error = proposal_error_->second;
-  proposal_error_.reset();
+  auto found = proposal_errors_.find(index);
+  if (found == proposal_errors_.end()) return {};
+  auto error = found->second;
+  proposal_errors_.erase(found);
   return error;
 }
 
-auto RaftNode::RunProposal(ReplicatedLogEntry entry) -> Operation {
+auto RaftNode::RunProposal(std::vector<ReplicatedLogEntry> entries) -> Operation {
   try {
     co_await Slow(
         [&] {
-          state_machine_->ValidateProposalPayload(entry.type_, entry.payload_);
+          for (const auto &entry : entries) state_machine_->ValidateProposalPayload(entry.type_, entry.payload_);
           return true;
         },
         true);
   } catch (...) {
-    proposal_error_ = std::make_pair(entry.index_, std::current_exception());
-    co_return;  // Admission failed before storage was changed.
+    for (const auto &entry : entries) proposal_errors_[entry.index_] = std::current_exception();
+    co_return;  // Reject the complete batch before changing storage.
   }
-  if (!LeaderReady() || observed_term_ != entry.term_) co_return;
-  std::vector<ReplicatedLogEntry> entries;
-  entries.push_back(std::move(entry));
+  if (!LeaderReady() || observed_term_ != entries.front().term_) co_return;
   co_await AppendLogDurably(entries);
-  match_index_[config_.node_id_] = entries.front().index_;
-  next_index_[config_.node_id_] = entries.front().index_ + 1;
+  match_index_[config_.node_id_] = entries.back().index_;
+  next_index_[config_.node_id_] = entries.back().index_ + 1;
   co_await BroadcastAppend();
 }
 
@@ -1186,7 +1194,9 @@ auto RaftNode::SendAppend(NodeId peer, std::optional<uint64_t> read_context) -> 
   }
   std::vector<ReplicatedLogEntry> entries;
   if (next <= durable_tip_) {
-    entries = co_await Slow([&] { return log_store_->Entries(next, durable_tip_); });
+    entries = co_await Slow([&] {
+      return log_store_->Entries(next, durable_tip_, config_.append_batch_entries_, config_.append_batch_bytes_);
+    });
   }
   const auto request_id = ++last_request_id_[peer];
   Send(peer, AppendEntriesRequest{hard_state_.current_term_, config_.node_id_, request_id, prev, *prev_term,

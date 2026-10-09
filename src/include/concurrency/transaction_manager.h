@@ -59,6 +59,9 @@ class TransactionManager {
 
   /** Finish a read-only transaction without allocating or advancing a node-local commit timestamp. */
   void EndRead(Transaction *txn);
+  /** Release an exclusively owned short read after its context/executors exit.
+   * Also removes an unfinished read on exception; never releases undo/writes. */
+  void ReleaseRead(Transaction *txn);
 
   /**
    * Commits a transaction.

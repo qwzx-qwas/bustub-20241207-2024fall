@@ -22,6 +22,7 @@
 #include "catalog/catalog_snapshot.h"
 #include "common/state_visibility.h"
 #include "distributed/bustub_state_machine.h"
+#include "distributed/sql_command_preparer.h"
 #include "raft/state_machine.h"
 #include "recovery/canonical_snapshot.h"
 #include "recovery/node_directory.h"
@@ -108,6 +109,12 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   void ValidateSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
   void InstallSnapshotFile(const DurableFileSlice &payload, uint64_t last_included_index) override;
 
+  auto AnalyzeSql(const std::string &sql, uint64_t client_id, uint64_t request_id,
+                  const RequestFingerprintV1 &fingerprint) const -> SqlWritePlan;
+  // nullopt means schema/workspace changed: discard dependencies and re-analyze.
+  auto PrepareSql(const SqlWritePlan &plan, uint64_t client_id, uint64_t request_id,
+                  const RequestFingerprintV1 &fingerprint, size_t command_bytes) const
+      -> std::optional<TransactionCommandBatch>;
   auto PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id,
                   const RequestFingerprintV1 &request_fingerprint) const -> TransactionCommandBatch;
   auto ClassifyRequest(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint) const

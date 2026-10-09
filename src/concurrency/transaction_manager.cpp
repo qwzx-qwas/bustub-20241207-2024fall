@@ -83,6 +83,15 @@ void TransactionManager::EndRead(Transaction *txn) {
   running_txns_.RemoveTxn(txn->read_ts_);
 }
 
+void TransactionManager::ReleaseRead(Transaction *txn) {
+  if (!txn->GetWriteSets().empty() || txn->GetUndoLogNum() != 0)
+    throw Exception("ReleaseRead cannot discard write history");
+  std::unique_lock lock(txn_map_mutex_);
+  if (txn->state_.load() == TransactionState::RUNNING || txn->state_.load() == TransactionState::TAINTED)
+    running_txns_.RemoveTxn(txn->read_ts_);
+  txn_map_.erase(txn->GetTransactionId());
+}
+
 // OCC的向后验证
 auto TransactionManager::VerifyTxn(Transaction *txn) -> bool {
   if (txn->GetIsolationLevel() != IsolationLevel::SERIALIZABLE) {

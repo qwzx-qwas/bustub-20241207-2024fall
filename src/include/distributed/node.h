@@ -18,8 +18,10 @@
 #include <memory>
 #include <mutex>  // NOLINT(build/c++11)
 #include <optional>
+#include <set>
 #include <string>
-#include <thread>  // NOLINT(build/c++11)
+#include <thread>
+#include <unordered_map>  // NOLINT(build/c++11)
 #include <vector>
 
 #include "distributed/client_protocol.h"
@@ -65,6 +67,11 @@ struct DistributedNodeConfig {
   // Explicitly provisioned device/namespace. Empty preserves existing file deployments.
   std::optional<RaftObjectDeployment> object_storage_{std::nullopt};
 
+  // The whole window includes blocked, executing and completed-but-unconsumed requests.
+  size_t max_write_requests_{32};
+  size_t max_write_bytes_{32U * 1024U * 1024U};
+  size_t max_write_command_bytes_{1024U * 1024U};
+
   void Validate() const;
 };
 
@@ -92,6 +99,11 @@ class DistributedNode {
   void MaybeCreateSnapshot();
   void ReapClientWorkers();
   void ReconcileActiveWrite();
+  struct ActiveWrite;
+  auto AcquireWrite(const std::shared_ptr<ActiveWrite> &active) -> bool;
+  void ReleaseWrite(const std::shared_ptr<ActiveWrite> &active);
+  void FinishWrite(const std::shared_ptr<ActiveWrite> &active, ClientResponseStatus status,
+                   std::vector<std::byte> bytes = {});
 
   auto HandleWrite(const ClientWriteRequestV1 &request) -> ClientResponseV1;
   auto HandleRead(const ClientReadRequestV1 &request) -> ClientResponseV1;
@@ -111,19 +123,43 @@ class DistributedNode {
   std::condition_variable state_changed_;
   std::exception_ptr fatal_error_;
   struct WriteWork {
-    RequestDisposition disposition_;
+    enum class Phase { ANALYZE, PREPARE, RESULT };
+    Phase phase_;
+    RequestDisposition disposition_{RequestDisposition::NEW_REQUEST};
     std::vector<std::byte> bytes_;
-    uint64_t published_;
+    std::optional<SqlWritePlan> plan_;
+    bool stale_{false};
   };
+  std::weak_ptr<TaskExecutor::Result<WriteWork>> analysis_work_;
   struct ActiveWrite {
-    uint64_t client_id_, request_id_;
+    uint64_t sequence_, client_id_, request_id_;
     RequestFingerprintV1 request_fingerprint_;
+    std::string sql_;
+    size_t bytes_{0}, command_limit_{0};
+    ResourceCharge charge_;
     uint64_t proposal_index_{0}, proposal_term_{0};
+    bool claimed_{false};
+    uint64_t blocker_{0};
+    std::set<uint64_t> waiters_;
+    std::shared_ptr<const SqlWritePlan> plan_;
     std::shared_ptr<TaskExecutor::Result<WriteWork>> work_;
     std::optional<WriteWork> prepared_;
     std::optional<ClientResponseV1> response_;
   };
-  std::shared_ptr<ActiveWrite> active_write_;
+  struct TableWrites {
+    size_t plans_{0};
+    uint64_t wide_owner_{0};
+    std::unordered_map<std::string, uint64_t> keys_;
+    std::set<uint64_t> active_, wide_;
+  };
+  std::map<uint64_t, std::shared_ptr<ActiveWrite>> writes_;
+  std::unordered_map<uint64_t, uint64_t> clients_;
+  std::unordered_map<table_oid_t, TableWrites> table_writes_;
+  std::set<uint64_t> catalog_writes_;
+  uint64_t next_write_{0};
+  size_t write_bytes_{0};
+  std::shared_ptr<ResourceAccount> write_memory_;
+  bool snapshot_draining_{false};
   uint64_t next_read_context_{0};
   uint64_t logical_now_ms_{0};
   std::atomic<bool> work_ready_{false};

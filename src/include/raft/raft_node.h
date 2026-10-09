@@ -51,6 +51,8 @@ struct RaftNodeConfig {
   ElectionTimeoutSource election_timeout_source_{MakeRandomElectionTimeoutSource()};
   std::shared_ptr<ResourceBudget> memory_budget_{};
   std::function<void()> wake_{};
+  size_t append_batch_entries_{128};
+  size_t append_batch_bytes_{1024 * 1024};
 };
 
 /** Single-threaded, explicitly ticked Raft core for one static voter group. */
@@ -67,6 +69,9 @@ class RaftNode {
 
   /** Returns an accepted index; durable/commit/apply progress follows completion. */
   auto Propose(EntryType type, std::vector<std::byte> payload) -> std::optional<uint64_t>;
+  /** Independent, prevalidated business dependencies; each entry is still its own command.
+   * Moves entries only after acceptance. Returns the first assigned index. */
+  auto ProposeBatch(std::vector<ReplicatedLogEntry> &entries) -> std::optional<uint64_t>;
   /** Start one non-coalesced current-term quorum probe for a linearizable read. */
   auto StartReadIndex(uint64_t context) -> bool;
   /** Consume a completed probe's read index; nullopt means incomplete or unknown. */
@@ -108,7 +113,7 @@ class RaftNode {
   auto UpdateLogTip() -> Operation;
   auto Dispatch(NodeId from, RaftMessage message, ResourceCharge charge) -> Operation;
   auto RunTick() -> Operation;
-  auto RunProposal(ReplicatedLogEntry entry) -> Operation;
+  auto RunProposal(std::vector<ReplicatedLogEntry> entries) -> Operation;
   auto RunSnapshot() -> Operation;
 
   auto StartElection() -> Operation;
@@ -160,7 +165,7 @@ class RaftNode {
   std::optional<RaftSnapshot> latest_snapshot_;
   bool draining_{false};
   bool log_mutating_{false};
-  std::optional<std::pair<uint64_t, std::exception_ptr>> proposal_error_;
+  std::map<uint64_t, std::exception_ptr> proposal_errors_;
   RaftNodeConfig config_;
   std::shared_ptr<RaftTransport> transport_;
   std::unique_ptr<StableStore> stable_store_;

@@ -95,7 +95,8 @@ class LogStore {
   auto LastLogTerm() const -> uint64_t;
   auto TermAt(uint64_t index) const -> std::optional<uint64_t>;
   auto EntryAt(uint64_t index) const -> std::optional<ReplicatedLogEntry>;
-  auto Entries(uint64_t first_index, uint64_t last_index) const -> std::vector<ReplicatedLogEntry>;
+  auto Entries(uint64_t first_index, uint64_t last_index, size_t maximum_entries = SIZE_MAX,
+               size_t maximum_bytes = SIZE_MAX) const -> std::vector<ReplicatedLogEntry>;
 
  private:
   enum class MutationType : uint32_t { APPEND = 1, REPLACE_SUFFIX = 2, INSTALL_SNAPSHOT_BASE = 3 };
