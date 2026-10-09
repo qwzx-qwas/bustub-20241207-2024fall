@@ -23,11 +23,10 @@
 namespace bustub {
 
 const size_t FRAMES = 10;
-const size_t K_DIST = 2;
 
 TEST(PageGuardTest, DropTest) {
   auto disk_manager = std::make_shared<DiskManagerUnlimitedMemory>();
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
   {
     auto pid0 = bpm->NewPage();
@@ -116,7 +115,7 @@ TEST(PageGuardTest, DropTest) {
 
 TEST(PageGuardTest, MoveTest) {
   auto disk_manager = std::make_shared<DiskManagerUnlimitedMemory>();
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
   auto pid0 = bpm->NewPage();
   auto pid1 = bpm->NewPage();

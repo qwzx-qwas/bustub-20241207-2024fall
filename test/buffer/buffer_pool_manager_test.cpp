@@ -26,13 +26,12 @@ static std::filesystem::path db_fname("test.bustub");
 // The number of frames we give to the buffer pool.
 const size_t FRAMES = 10;
 // Note that this test assumes you are using the an LRU-K replacement policy.
-const size_t K_DIST = 5;
 
 TEST(BufferPoolManagerTest, VeryBasicTest) {
   // A very basic test.
 
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
   page_id_t pid = bpm->NewPage();
 
@@ -65,7 +64,7 @@ TEST(BufferPoolManagerTest, VeryBasicTest) {
 
 TEST(BufferPoolManagerTest, PagePinEasyTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(2, disk_manager.get(), 5);
+  auto bpm = std::make_shared<BufferPoolManager>(2, disk_manager.get());
 
   page_id_t pageid0;
   page_id_t pageid1;
@@ -160,7 +159,7 @@ TEST(BufferPoolManagerTest, PagePinEasyTest) {
 
 TEST(BufferPoolManagerTest, PagePinMediumTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
   // Scenario: The buffer pool is empty. We should be able to create a new page.
   page_id_t pid0 = bpm->NewPage();
@@ -240,7 +239,7 @@ TEST(BufferPoolManagerTest, PageAccessTest) {
   const size_t rounds = 50;
 
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(1, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(1, disk_manager.get());
 
   auto pid = bpm->NewPage();
   char buf[BUSTUB_PAGE_SIZE];
@@ -276,7 +275,7 @@ TEST(BufferPoolManagerTest, PageAccessTest) {
 
 TEST(BufferPoolManagerTest, ContentionTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
   const size_t rounds = 100000;
 
@@ -318,7 +317,7 @@ TEST(BufferPoolManagerTest, ContentionTest) {
 
 TEST(BufferPoolManagerTest, DeadlockTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
   auto pid0 = bpm->NewPage();
   auto pid1 = bpm->NewPage();
@@ -363,7 +362,7 @@ TEST(BufferPoolManagerTest, EvictableTest) {
 
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   // Only allocate 1 frame of memory to the buffer pool manager.
-  auto bpm = std::make_shared<BufferPoolManager>(1, disk_manager.get(), K_DIST);
+  auto bpm = std::make_shared<BufferPoolManager>(1, disk_manager.get());
 
   for (size_t i = 0; i < rounds; i++) {
     std::mutex mutex;

@@ -48,7 +48,7 @@ auto DecodeMetadataPayload(const JournalPayloadRead &read) -> std::vector<std::b
 struct MetadataOptions {
   uint32_t page_limit_;
   // Counts immutable published/reader-held and private page images together.
-  // S4 retains the current pages in RAM; checkpoint is supported; eviction remains future work.
+  // Clean, exactly reloadable bodies may be evicted; old overwritten versions remain pinned in RAM.
   uint32_t max_live_pages_;
   uint32_t max_value_bytes_;
   uint64_t max_batch_bytes_;
@@ -98,8 +98,9 @@ struct MetadataCheckpointResult {
 
 struct MetadataVersion;
 
-/** Immutable committed view. It may outlive the engine and is safe for concurrent
- * reads. Retaining old views consumes the engine's live-page budget. Scan returns
+/** Immutable committed view. Concurrent queries require the original engine to
+ * remain open. Close rejects new queries and drains admitted calls; copied values
+ * remain valid. Retaining overwritten old versions consumes the live-page budget. Scan returns
  * at most limit entries, in unsigned (category, owner, item) order, starting at
  * lower inclusive. Values are owned copies; no internal mutable pages escape.
  */

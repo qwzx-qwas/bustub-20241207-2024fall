@@ -1,0 +1,39 @@
+{
+  "completed_utc": "2026-10-09T01:43:18.068258+00:00",
+  "review_date": "2026-10-09",
+  "temporary_work_directory_removed": "/tmp/f32-oracle-review-20261009",
+  "source_archive": "test/archives/F32-metadata-cache.tar.gz",
+  "source_archive_sha256": "ed3e6fe605892a18228e64d9c22a8dd7117d2c1d6915f2658600fbb60f2d65e5",
+  "result_archive_sha256": "8267f3faab1fb4a0844d85c3428c8fbf6e345636816ee6c785f9a59a893b34b8",
+  "old_F32_archives": 0,
+  "new_loose_stage_test_sources": 0,
+  "normal_tests": 77,
+  "normal_executed_this_review": 11,
+  "normal_reused_same_production": 66,
+  "mutations_caught": 12,
+  "dependency_archives_unchanged": [
+    "test/archives/S5-journal-recycling.tar.gz",
+    "test/archives/F26-array-buffer-pool.tar.gz",
+    "test/archives/F27-deferred.tar.gz",
+    "test/archives/F29-log-cleaning.tar.gz",
+    "test/archives/F30-integrity-scanning.tar.gz",
+    "test/archives/F31-F22-resource-gc.tar.gz",
+    "test/archives/S8-raft-object-stores.tar.gz"
+  ],
+  "production_replacement_objects": [
+    "clock_pro_replacer.cpp.o"
+  ],
+  "final_build_exit": 0,
+  "benchmark_build_exit": 0,
+  "format_check_exit": 0,
+  "preserved_development_toolchain": "/tmp/bustub-gcc16",
+  "final_audit_utc": "2026-10-09T01:54:40.989149+00:00",
+  "final_audit_cpp_tests_executed": 0,
+  "latest_runtime_review": {
+    "normal_executed": 11,
+    "normal_reused": 66,
+    "mutations_caught": 12
+  },
+  "commit_status_at_capture": "pre-commit audit; commit authorized after checks",
+  "final_audit_evidence": "F32-results/final-audit-validation.json"
+}

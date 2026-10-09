@@ -14,8 +14,8 @@
 
 #include "argparse/argparse.hpp"
 #include "binder/binder.h"
+#include "buffer/access_type.h"
 #include "buffer/buffer_pool_manager.h"
-#include "buffer/lru_k_replacer.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/util/string_util.h"
@@ -149,7 +149,6 @@ auto main(int argc, char **argv) -> int {
   program.add_argument("--get-thread-n").help("number of lookup threads");
   program.add_argument("--bpm-size").help("buffer pool size");
   program.add_argument("--db-size").help("number of pages");
-  program.add_argument("--lru-k-size").help("lru-k size");
 
   try {
     program.parse_args(argc, argv);
@@ -189,19 +188,15 @@ auto main(int argc, char **argv) -> int {
     bustub_bpm_size = std::stoi(program.get("--bpm-size"));
   }
 
-  uint64_t lru_k_size = 16;
-  if (program.present("--lru-k-size")) {
-    lru_k_size = std::stoi(program.get("--lru-k-size"));
-  }
-
   auto disk_manager = std::make_unique<DiskManagerUnlimitedMemory>();
-  auto bpm = std::make_unique<BufferPoolManager>(bustub_bpm_size, disk_manager.get(), lru_k_size);
+  auto bpm = std::make_unique<BufferPoolManager>(bustub_bpm_size, disk_manager.get());
   std::vector<page_id_t> page_ids;
 
-  fmt::print(stderr,
-             "[info] total_page={}, duration_ms={}, latency={}, lru_k_size={}, bpm_size={}, scan_thread_cnt={}, "
-             "get_thread_cnt={}\n",
-             bustub_page_cnt, duration_ms, enable_latency, lru_k_size, bustub_bpm_size, scan_thread_n, get_thread_n);
+  fmt::print(
+      stderr,
+      "[info] total_page={}, duration_ms={}, latency={}, replacement=CLOCK-Pro, bpm_size={}, scan_thread_cnt={}, "
+      "get_thread_cnt={}\n",
+      bustub_page_cnt, duration_ms, enable_latency, bustub_bpm_size, scan_thread_n, get_thread_n);
 
   for (size_t i = 0; i < bustub_page_cnt; i++) {
     page_id_t page_id = bpm->NewPage();

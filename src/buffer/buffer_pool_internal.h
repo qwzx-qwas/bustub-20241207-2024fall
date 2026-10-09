@@ -3,6 +3,7 @@
 #include <mutex>
 #include <vector>
 #include "buffer/buffer_pool_manager.h"
+#include "buffer/clock_pro_replacer.h"
 #include "buffer/frame_arena.h"
 #include "buffer/translation_directory.h"
 namespace bustub {
@@ -41,7 +42,7 @@ struct FrameHeader {
   std::shared_ptr<PageTask> task_;
 };
 struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
-  BufferPoolState(size_t frames, std::shared_ptr<PageStorage> storage, BufferPoolOptions options, size_t k);
+  BufferPoolState(size_t frames, std::shared_ptr<PageStorage> storage, BufferPoolOptions options);
   // Lifecycle, free-frame list and task budget only. Residency and unpin use
   // entry -> per-frame synchronization, never this lock across IO/content waits.
   std::mutex mutex_;
@@ -56,7 +57,7 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
   std::shared_ptr<ResourceAccount> capture_memory_;
   FrameArena arena_;
   TranslationDirectory directory_;
-  LRUKReplacer replacer_;
+  ClockProReplacer replacer_;
   std::vector<std::unique_ptr<FrameHeader>> frames_;
   std::vector<frame_id_t> free_;  // Reserved once; retiring a frame cannot allocate.
   struct Slot {
@@ -66,8 +67,12 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
     bool prefetch_;
   };
   auto TrySlot(bool prefetch) -> std::unique_ptr<Slot>;
+  struct FramePreparation {
+    FrameHeader *frame_;
+    bool retry_;
+  };
   auto PrepareFrame(page_id_t page, AccessType type, bool prefetch, const std::shared_ptr<PageTask> &loading)
-      -> FrameHeader *;
+      -> FramePreparation;
   void CompletePrefetch(FrameHeader &frame, const std::shared_ptr<PageTask> &task, std::exception_ptr error);
   void AbandonPrefetch(FrameHeader &frame, const std::shared_ptr<PageTask> &task);
   void Free(frame_id_t frame);

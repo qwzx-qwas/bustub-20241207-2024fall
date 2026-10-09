@@ -19,12 +19,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "buffer/access_type.h"
 #include "common/config.h"
 #include "common/macros.h"
 
 namespace bustub {
-
-enum class AccessType { Unknown = 0, Lookup, Scan, Index };
 
 class LRUKNode {
  private:
@@ -97,11 +96,6 @@ class LRUKReplacer {
    * @return true if a frame is evicted successfully, false if no frames can be evicted.
    */
   auto Evict() -> std::optional<frame_id_t>;
-  /** Advisory victim without removing its history. Caller validates residency
-   * and pin under its own frame lock, then Remove. Concurrent hits may invalidate
-   * the candidate; a rejected candidate retains its original LRU-K history. */
-  auto Candidate() -> std::optional<frame_id_t>;
-
   /**
    * TODO(P1): Add implementation
    *
@@ -135,8 +129,6 @@ class LRUKReplacer {
    * @param set_evictable whether the given frame is evictable or not
    */
   void SetEvictable(frame_id_t frame_id, bool set_evictable);
-  // One hit event plus the first-pin transition under one replacement lock.
-  void RecordPinnedAccess(frame_id_t frame_id, AccessType access_type, bool first_pin);
 
   /**
    * TODO(P1): Add implementation

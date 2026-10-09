@@ -17,7 +17,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
-#include "buffer/lru_k_replacer.h"
+#include "buffer/access_type.h"
 #include "buffer/page_storage.h"
 #include "common/config.h"
 #include "storage/disk/disk_manager.h"
@@ -49,10 +49,8 @@ class BufferPoolManager {
  public:
   using ReadGuard = ReadPageGuard;
   using WriteGuard = WritePageGuard;
-  BufferPoolManager(size_t num_frames, DiskManager *disk_manager, size_t k_dist = LRUK_REPLACER_K,
-                    LogManager *log_manager = nullptr);
-  BufferPoolManager(size_t num_frames, std::shared_ptr<PageStorage> storage, BufferPoolOptions options,
-                    size_t k_dist = LRUK_REPLACER_K);
+  BufferPoolManager(size_t num_frames, DiskManager *disk_manager, LogManager *log_manager = nullptr);
+  BufferPoolManager(size_t num_frames, std::shared_ptr<PageStorage> storage, BufferPoolOptions options);
   ~BufferPoolManager();
   auto Size() const -> size_t;
   auto NewPage() -> page_id_t;

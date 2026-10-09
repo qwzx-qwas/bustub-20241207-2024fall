@@ -60,8 +60,7 @@ auto FileOptions(size_t frames) -> BufferPoolOptions {
   return {std::max<size_t>(4U << 20U, frames * 8192), frames * BUSTUB_PAGE_SIZE + (2U << 20U), frames, false, 0};
 }
 }  // namespace
-BufferPoolState::BufferPoolState(size_t count, std::shared_ptr<PageStorage> storage, BufferPoolOptions options,
-                                 size_t k)
+BufferPoolState::BufferPoolState(size_t count, std::shared_ptr<PageStorage> storage, BufferPoolOptions options)
     : max_tasks_(options.max_inflight_pages_),
       max_prefetch_(options.prefetch_pages_),
       storage_(std::move(storage)),
@@ -69,7 +68,7 @@ BufferPoolState::BufferPoolState(size_t count, std::shared_ptr<PageStorage> stor
       arena_({count, BUSTUB_PAGE_SIZE, storage_->MemoryAlignment(), options.arena_bytes_, options.advise_huge_pages_,
               options.memory_budget_}),
       directory_({options.directory_bytes_, options.memory_budget_}),
-      replacer_(count, k) {
+      replacer_(count, options.memory_budget_) {
   if (max_tasks_ == 0 || storage_->MaxBatchPages() == 0 || max_prefetch_ >= count || max_prefetch_ >= max_tasks_) {
     throw std::invalid_argument("no page task capacity");
   }
@@ -118,7 +117,8 @@ void BufferPoolState::Free(frame_id_t frame) {
   free_.push_back(frame);
 }
 auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetch,
-                                   const std::shared_ptr<PageTask> &loading) -> FrameHeader * {
+                                   const std::shared_ptr<PageTask> &loading) -> FramePreparation {
+  (void)type;
   for (;;) {
     auto evicting = std::make_shared<PageTask>();
     std::optional<frame_id_t> selected;
@@ -135,7 +135,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
       victim = selected.has_value();
     }
     if (!selected) {
-      return nullptr;
+      return {nullptr, false};
     }
     auto &f = *frames_[*selected];
     if (victim) {
@@ -146,7 +146,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
       }
       if (previous == INVALID_PAGE_ID) {
         if (prefetch) {
-          return nullptr;
+          return {nullptr, false};
         }
         continue;
       }  // Another selector retired this candidate.
@@ -157,14 +157,14 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
         if (entry.Frame() != selected || (f.phase_ != FramePhase::Resident && f.phase_ != FramePhase::Failed) ||
             f.pins_ != 0) {
           if (prefetch) {
-            return nullptr;
+            return {nullptr, false};
           }
           continue;
         }
         if (prefetch && (f.dirty_version_ != f.clean_version_ || f.io_)) {
-          return nullptr;
+          return {nullptr, false};
         }
-        replacer_.Remove(f.id_);
+        replacer_.SetEvictable(f.id_, false);
         f.phase_ = FramePhase::Evicting;
         f.io_ = true;
         f.task_ = evicting;
@@ -180,7 +180,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
           f.phase_ = FramePhase::Resident;
           f.io_ = false;
           f.task_.reset();
-          replacer_.RecordAccess(f.id_, type);
+          replacer_.RecordAccess(f.id_);
           replacer_.SetEvictable(f.id_, true);
           f.changed_.notify_all();
         }
@@ -191,6 +191,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
         auto entry = directory_.Access(previous);
         std::lock_guard<std::mutex> lock(f.mutex_);
         entry.SetFrame(std::nullopt);
+        replacer_.Evicted(f.id_);
         f.page_ = INVALID_PAGE_ID;
         f.phase_ = FramePhase::Free;
         f.io_ = false;
@@ -212,8 +213,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
       lost = entry.Frame().has_value();
       if (!lost) {
         // Register replacement history before accepting IO: completion must not allocate.
-        replacer_.RecordAccess(f.id_, type);
-        replacer_.SetEvictable(f.id_, false);
+        replacer_.Admit(f.id_, {static_cast<uint64_t>(page), 0, 0});
         f.page_ = page;
         ++f.generation_;
         f.dirty_version_ = f.clean_version_ = 0;
@@ -230,11 +230,11 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
     }
     if (lost) {
       Free(f.id_);
-      // Fetch must rejoin the existing load rather than evict more frames for
-      // a page whose loading/resident identity is already installed.
-      return nullptr;
+      // The competing mapping can disappear again before Fetch observes it.
+      // Preserve the retry outcome instead of misreporting capacity exhaustion.
+      return {nullptr, true};
     }
-    return &f;
+    return {&f, false};
   }
 }
 auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> FrameHeader * {
@@ -255,7 +255,8 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
             hit->phase_ == FramePhase::Failed) {
           waiting = hit->task_;
         } else {
-          replacer_.RecordPinnedAccess(hit->id_, type, hit->pins_ == 0);
+          replacer_.RecordAccess(hit->id_);
+          if (hit->pins_ == 0) replacer_.SetEvictable(hit->id_, false);
           ++hit->pins_;
         }
       }
@@ -279,7 +280,8 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
       return nullptr;
     }
     auto loading = std::make_shared<PageTask>();
-    auto *prepared = PrepareFrame(page, type, false, loading);
+    const auto [prepared, retry] = PrepareFrame(page, type, false, loading);
+    if (retry) continue;
     if (!prepared) {
       auto entry = directory_.Lookup(page);
       if (entry.Frame()) {
@@ -329,13 +331,12 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
     return &f;
   }
 }
-BufferPoolManager::BufferPoolManager(size_t n, DiskManager *disk, size_t k, LogManager *log)
-    : BufferPoolManager(n, FilePageStorage(disk), FileOptions(n), k) {
+BufferPoolManager::BufferPoolManager(size_t n, DiskManager *disk, LogManager *log)
+    : BufferPoolManager(n, FilePageStorage(disk), FileOptions(n)) {
   (void)log;
 }
-BufferPoolManager::BufferPoolManager(size_t n, std::shared_ptr<PageStorage> storage, BufferPoolOptions options,
-                                     size_t k)
-    : state_(std::make_shared<BufferPoolState>(n, std::move(storage), options, k)) {}
+BufferPoolManager::BufferPoolManager(size_t n, std::shared_ptr<PageStorage> storage, BufferPoolOptions options)
+    : state_(std::make_shared<BufferPoolState>(n, std::move(storage), options)) {}
 BufferPoolManager::~BufferPoolManager() { Close(); }
 auto BufferPoolManager::Size() const -> size_t { return state_->frames_.size(); }
 void BufferPoolManager::Close() {
@@ -663,7 +664,7 @@ void BufferPoolManager::PrefetchPages(const std::vector<page_id_t> &pages) {
           continue;  // In-flight, failed and resident identities are all shared.
         }
       }
-      f = state_->PrepareFrame(page, AccessType::Scan, true, task);
+      f = state_->PrepareFrame(page, AccessType::Scan, true, task).frame_;
       if (!f) {
         continue;
       }

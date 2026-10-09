@@ -76,6 +76,12 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
             LABELS "${bustub_test_label}"
             )
 
+    # Legacy coursework algorithms are test-only; production owns CLOCK-Pro.
+    if (bustub_test_name MATCHES "^(clock|lru|lru_k)_replacer_test$")
+        string(REPLACE "_test" "" legacy_replacer ${bustub_test_name})
+        target_sources(${bustub_test_name} PRIVATE "${PROJECT_SOURCE_DIR}/src/buffer/${legacy_replacer}.cpp")
+    endif ()
+
     target_link_libraries(${bustub_test_name} bustub gtest gmock_main)
 
     # Set test target properties and dependencies.

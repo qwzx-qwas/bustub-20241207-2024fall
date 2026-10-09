@@ -26,9 +26,7 @@ add_library(
         buffer_pool_manager.cpp
         file_page_storage.cpp
         frame_arena.cpp
-        clock_replacer.cpp
-        lru_replacer.cpp
-        lru_k_replacer.cpp)
+        clock_pro_replacer.cpp)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(bustub_buffer PRIVATE page_storage.cpp)

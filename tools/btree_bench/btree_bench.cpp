@@ -12,8 +12,8 @@
 
 #include "argparse/argparse.hpp"
 #include "binder/binder.h"
+#include "buffer/access_type.h"
 #include "buffer/buffer_pool_manager.h"
-#include "buffer/lru_k_replacer.h"
 #include "catalog/schema.h"
 #include "common/config.h"
 #include "common/exception.h"
@@ -34,7 +34,6 @@ auto ClockMs() -> uint64_t {
 
 static const size_t BUSTUB_READ_THREAD = 4;
 static const size_t BUSTUB_WRITE_THREAD = 2;
-static const size_t LRU_K_SIZE = 4;
 // We should keep the BPM size large enough to hold all pages in memory, to minimize the dependency on P1.
 // There will be roughly 500 leaf pages and tens of internal pages. Thus, 1024 should be enough.
 static const size_t BUSTUB_BPM_SIZE = 1024;
@@ -136,10 +135,10 @@ auto main(int argc, char **argv) -> int {
   }
 
   auto disk_manager = std::make_unique<DiskManagerUnlimitedMemory>();
-  auto bpm = std::make_unique<BufferPoolManager>(BUSTUB_BPM_SIZE, disk_manager.get(), LRU_K_SIZE);
+  auto bpm = std::make_unique<BufferPoolManager>(BUSTUB_BPM_SIZE, disk_manager.get());
 
-  fmt::print(stderr, "[info] total_keys={}, duration_ms={}, lru_k_size={}, bpm_size={}\n", TOTAL_KEYS, duration_ms,
-             LRU_K_SIZE, BUSTUB_BPM_SIZE);
+  fmt::print(stderr, "[info] total_keys={}, duration_ms={}, replacement=CLOCK-Pro, bpm_size={}\n", TOTAL_KEYS,
+             duration_ms, BUSTUB_BPM_SIZE);
 
   bustub::Schema key_schema({bustub::Column("a", bustub::TypeId::BIGINT)});
   bustub::GenericComparator<8> comparator(&key_schema);

@@ -30,10 +30,6 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
   }
   return victim;
 }
-auto LRUKReplacer::Candidate() -> std::optional<frame_id_t> {
-  std::lock_guard<std::mutex> lock(latch_);
-  return CandidateLocked();
-}
 auto LRUKReplacer::CandidateLocked() -> std::optional<frame_id_t> {
   // 遍历 node_store_，找出具有最大向后 k 距离的 frame
   frame_id_t evict_frame_id = -1;
@@ -84,12 +80,6 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, AccessType access_type) {
   // 加锁
   std::lock_guard<std::mutex> lock(latch_);
   RecordAccessLocked(frame_id, access_type);
-}
-
-void LRUKReplacer::RecordPinnedAccess(frame_id_t frame_id, AccessType access_type, bool first_pin) {
-  std::lock_guard<std::mutex> lock(latch_);
-  RecordAccessLocked(frame_id, access_type);
-  if (first_pin) SetEvictableLocked(frame_id, false);
 }
 
 void LRUKReplacer::RecordAccessLocked(frame_id_t frame_id, AccessType access_type) {

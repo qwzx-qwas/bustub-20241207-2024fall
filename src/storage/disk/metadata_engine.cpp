@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -10,6 +11,7 @@
 #include <set>
 #include <tuple>
 #include <utility>
+#include "buffer/clock_pro_replacer.h"
 
 #include "common/byte_codec.h"
 #include "common/rid.h"
@@ -91,31 +93,77 @@ struct PageImage {
   uint64_t lsn_{0};
   ResourceCharge memory_;
 };
-auto NewImage(const std::shared_ptr<PageBudget> &budget) -> std::shared_ptr<PageImage> {
-  auto live = budget->live_.load();
-  do {
-    if (live >= budget->limit_) {
-      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata live-page budget exhausted");
+struct PageState {
+  page_id_t id_;
+  PageKind kind_;
+  uint64_t generation_, lsn_;
+  ResourceCharge memory_;
+  // Protected by MetadataCache::mutex_. ReadGuard holds the actual body.
+  std::shared_ptr<PageImage> body_;
+  frame_id_t frame_{INVALID_FRAME_ID};
+  bool reloadable_{false};
+};
+class MetadataCache {
+ public:
+  MetadataCache(MetadataBackend &backend, IOExecutor &executor, const MetadataOptions &options);
+  class Call {
+   public:
+    explicit Call(MetadataCache &cache) : cache_(cache) {
+      std::lock_guard lock(cache_.mutex_);
+      if (cache_.closed_) throw MetadataError(MetadataErrorCode::NotReady, "metadata view is closed");
+      ++cache_.calls_;
     }
-  } while (!budget->live_.compare_exchange_weak(live, live + 1));
-  const bool progress = ProgressWork::Active();
-  PageImage *image;
-  try {
-    if (!budget->memory_->Reserve(sizeof(PageImage), progress)) {
-      throw MetadataCommitBusy("shared metadata memory exhausted");
+    ~Call() {
+      std::lock_guard lock(cache_.mutex_);
+      --cache_.calls_;
+      cache_.changed_.notify_all();
     }
-    ResourceCharge memory(budget->memory_, sizeof(PageImage), progress);
-    image = new PageImage();
-    image->memory_ = std::move(memory);
-  } catch (...) {
-    budget->live_.fetch_sub(1);
-    throw;
-  }
-  return {image, [budget](PageImage *p) {
-            delete p;
-            budget->live_.fetch_sub(1);
-          }};
-}
+
+   private:
+    MetadataCache &cache_;
+  };
+  struct Slot {
+    explicit Slot(ResourceCharge charge) : charge_(std::move(charge)) {}
+    ResourceCharge charge_;
+    std::mutex io_;  // Serializes loads and overwrite of ONE physical position.
+    std::weak_ptr<PageState> disk_;
+    std::shared_ptr<PageState> pending_;
+    page_id_t prev_{INVALID_PAGE_ID}, next_{INVALID_PAGE_ID};
+    bool queued_{false};
+  };
+  auto NewImage() -> std::shared_ptr<PageImage>;
+  auto Describe(page_id_t id, std::shared_ptr<PageImage> body) -> std::shared_ptr<PageState>;
+  auto Get(const std::shared_ptr<PageState> &page) -> std::shared_ptr<const PageImage>;
+  void Ensure(size_t pages);
+  void Publish(const std::shared_ptr<PageState> &page);
+  auto Pending(size_t limit) -> std::vector<std::shared_ptr<PageState>>;
+  auto LockPosition(page_id_t id) -> std::unique_lock<std::mutex>;
+  auto Preserve(const std::shared_ptr<PageState> &page) -> std::shared_ptr<const PageImage>;
+  void Overwrite(page_id_t id);
+  void Durable(const std::shared_ptr<PageState> &page);
+  void Close();
+
+ private:
+  auto Reclaim() -> bool;
+  void Track(const std::shared_ptr<PageState> &page);
+  auto LoadLocked(const std::shared_ptr<PageState> &page) -> std::shared_ptr<const PageImage>;
+  void Unqueue(Slot &slot);
+  MetadataBackend &backend_;
+  IOExecutor &executor_;
+  const uint32_t max_value_;
+  std::shared_ptr<PageBudget> budget_;
+  ClockProReplacer policy_;
+  std::vector<std::weak_ptr<PageState>> frames_;
+  std::vector<frame_id_t> skipped_;  // Bounded scratch for one eviction attempt.
+  ResourceCharge frames_memory_;
+  // Access the vector itself under mutex_; Slot addresses never change.
+  std::vector<std::unique_ptr<Slot>> slots_;
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  bool closed_{false};
+  size_t calls_{0}, frame_cursor_{0};
+  page_id_t head_{INVALID_PAGE_ID}, tail_{INVALID_PAGE_ID};
+};
 }  // namespace
 
 namespace {
@@ -129,7 +177,8 @@ auto PayloadStorageKey(MetadataKey key) -> MetadataKey {
 }
 }  // namespace
 struct MetadataVersion {
-  std::vector<std::shared_ptr<const PageImage>> pages_;
+  std::vector<std::shared_ptr<PageState>> pages_;
+  std::shared_ptr<MetadataCache> cache_;
   std::map<PayloadKey, JournalPayload> payloads_;
 };
 
@@ -169,32 +218,33 @@ class MetadataPager {
     std::shared_ptr<PageImage> page_;
   };
 
-  explicit MetadataPager(const MetadataVersion &view) : view_(view) {}
-  MetadataPager(MetadataVersion &working, std::shared_ptr<PageBudget> budget, uint32_t limit)
-      : view_(working), working_(&working), budget_(std::move(budget)), limit_(limit), dirty_(working.pages_.size()) {}
+  explicit MetadataPager(const MetadataVersion &view) : view_(view), call_(*view.cache_) {}
+  MetadataPager(MetadataVersion &working, uint32_t limit)
+      : view_(working), call_(*working.cache_), working_(&working), limit_(limit) {}
 
-  auto Image(page_id_t id) const -> const PageImage & {
+  auto Image(page_id_t id) const -> std::shared_ptr<const PageImage> {
     Require(id >= 0 && static_cast<size_t>(id) < view_.pages_.size() && view_.pages_[id] != nullptr,
             "metadata page reference is invalid");
-    return *view_.pages_[id];
+    return view_.cache_->Get(view_.pages_[id]);
   }
   auto ReadPage(page_id_t id) const -> ReadGuard {
-    Require(Image(id).kind_ != PageKind::Free, "metadata read references a free page");
-    return {id, view_.pages_[id]};
+    auto body = Image(id);
+    Require(body->kind_ != PageKind::Free, "metadata read references a free page");
+    return {id, std::move(body)};
   }
   auto Mutable(page_id_t id) -> std::shared_ptr<PageImage> {
     if (working_ == nullptr) {
       throw std::logic_error("cannot modify a metadata snapshot");
     }
-    const auto &old = Image(id);
+    const auto old = Image(id);
     if (!dirty_[id]) {
-      auto copy = NewImage(budget_);
-      copy->data_ = old.data_;
-      copy->kind_ = old.kind_;
-      copy->generation_ = old.generation_;
-      copy->lsn_ = old.lsn_;
+      auto copy = view_.cache_->NewImage();
+      copy->data_ = old->data_;
+      copy->kind_ = old->kind_;
+      copy->generation_ = old->generation_;
+      copy->lsn_ = old->lsn_;
       dirty_[id] = copy;
-      working_->pages_[id] = copy;
+      working_->pages_[id] = view_.cache_->Describe(id, copy);
     }
     return dirty_[id];
   }
@@ -203,31 +253,31 @@ class MetadataPager {
   auto Allocate(PageKind kind) -> page_id_t {
     auto header = Mutable(HEADER_PAGE);
     auto free = Load<page_id_t>(header->data_.data(), 8);
-    auto image = NewImage(budget_);
+    auto image = view_.cache_->NewImage();
     image->kind_ = kind;
     page_id_t id;
     if (free != INVALID_PAGE_ID) {
-      const auto &previous = Image(free);
-      Require(previous.kind_ == PageKind::Free, "invalid metadata free list");
-      Require(previous.generation_ != std::numeric_limits<uint64_t>::max(), "metadata generation exhausted");
-      image->generation_ = previous.generation_ + 1;
-      Store(header->data_.data(), 8, Load<page_id_t>(previous.data_.data(), 0));
+      const auto previous = Image(free);
+      Require(previous->kind_ == PageKind::Free, "invalid metadata free list");
+      Require(previous->generation_ != std::numeric_limits<uint64_t>::max(), "metadata generation exhausted");
+      image->generation_ = previous->generation_ + 1;
+      Store(header->data_.data(), 8, Load<page_id_t>(previous->data_.data(), 0));
       id = free;
-      working_->pages_[id] = image;
+      working_->pages_[id] = view_.cache_->Describe(id, image);
       dirty_[id] = image;
     } else {
       if (working_->pages_.size() >= limit_) {
         throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata page region is full");
       }
       id = static_cast<page_id_t>(working_->pages_.size());
-      working_->pages_.push_back(image);
-      dirty_.push_back(image);
+      working_->pages_.push_back(view_.cache_->Describe(id, image));
+      dirty_[id] = image;
       Store(header->data_.data(), 4, static_cast<uint32_t>(working_->pages_.size()));
     }
     return id;
   }
   auto DeletePage(page_id_t id) -> bool {
-    Require(id != HEADER_PAGE && Image(id).kind_ != PageKind::Free, "invalid metadata page release");
+    Require(id != HEADER_PAGE && Image(id)->kind_ != PageKind::Free, "invalid metadata page release");
     auto header = Mutable(HEADER_PAGE);
     auto image = Mutable(id);
     image->data_.fill(0);
@@ -236,14 +286,14 @@ class MetadataPager {
     Store(header->data_.data(), 8, id);
     return true;
   }
-  auto Dirty() const -> const std::vector<std::shared_ptr<PageImage>> & { return dirty_; }
+  auto Dirty() const -> const std::map<page_id_t, std::shared_ptr<PageImage>> & { return dirty_; }
 
  private:
   const MetadataVersion &view_;
+  MetadataCache::Call call_;
   MetadataVersion *working_{nullptr};
-  std::shared_ptr<PageBudget> budget_;
   uint32_t limit_{0};
-  std::vector<std::shared_ptr<PageImage>> dirty_;
+  std::map<page_id_t, std::shared_ptr<PageImage>> dirty_;
 };
 using Tree = BPlusTree<TreeKey, RID, KeyCompare, MetadataPager>;
 
@@ -274,9 +324,9 @@ void WriteSlot(char *data, uint32_t slot, const Slot &value) {
 constexpr uint32_t DELETED = std::numeric_limits<uint32_t>::max();
 
 auto ReadValue(const MetadataPager &pager, RID rid) -> std::vector<std::byte> {
-  const auto &image = pager.Image(rid.GetPageId());
-  Require(image.kind_ == PageKind::Records, "metadata value references a non-record page");
-  const auto *data = image.data_.data();
+  const auto image = pager.Image(rid.GetPageId());
+  Require(image->kind_ == PageKind::Records, "metadata value references a non-record page");
+  const auto *data = image->data_.data();
   Require(rid.GetSlotNum() < Load<uint32_t>(data, 4), "metadata value slot is invalid");
   auto slot = ReadSlot(data, rid.GetSlotNum());
   Require(slot.total_ != DELETED, "metadata index references a deleted value");
@@ -290,14 +340,14 @@ auto ReadValue(const MetadataPager &pager, RID rid) -> std::vector<std::byte> {
   result.reserve(slot.total_);
   auto next = slot.overflow_;
   while (next != INVALID_PAGE_ID) {
-    const auto &page = pager.Image(next);
-    Require(page.kind_ == PageKind::Overflow, "metadata value references a non-overflow page");
-    auto length = Load<uint32_t>(page.data_.data(), 4);
+    const auto page = pager.Image(next);
+    Require(page->kind_ == PageKind::Overflow, "metadata value references a non-overflow page");
+    auto length = Load<uint32_t>(page->data_.data(), 4);
     Require(length > 0 && length <= BODY - OVERFLOW_HEADER && length <= slot.total_ - result.size(),
             "invalid metadata overflow length or cycle");
-    auto begin = reinterpret_cast<const std::byte *>(page.data_.data() + OVERFLOW_HEADER);
+    auto begin = reinterpret_cast<const std::byte *>(page->data_.data() + OVERFLOW_HEADER);
     result.insert(result.end(), begin, begin + length);
-    next = Load<page_id_t>(page.data_.data(), 0);
+    next = Load<page_id_t>(page->data_.data(), 0);
   }
   Require(result.size() == slot.total_, "incomplete metadata overflow value");
   return result;
@@ -308,7 +358,7 @@ void RemoveValue(MetadataPager *pager, RID rid) {
   auto slot = ReadSlot(page->data_.data(), rid.GetSlotNum());
   auto next = slot.overflow_;
   while (next != INVALID_PAGE_ID) {
-    auto after = Load<page_id_t>(pager->Image(next).data_.data(), 0);
+    auto after = Load<page_id_t>(pager->Image(next)->data_.data(), 0);
     pager->DeletePage(next);
     next = after;
   }
@@ -325,10 +375,11 @@ void RemoveValue(MetadataPager *pager, RID rid) {
 auto InsertValue(MetadataPager *pager, const std::vector<std::byte> &value) -> RID {
   // A value that cannot fit in an otherwise empty record page gets overflow.
   const size_t inline_bytes = value.size() <= BODY - RECORD_HEADER - SLOT_BYTES ? value.size() : 0;
-  auto record = Load<page_id_t>(pager->Image(HEADER_PAGE).data_.data(), 12);
+  auto record = Load<page_id_t>(pager->Image(HEADER_PAGE)->data_.data(), 12);
   uint32_t chosen = 0;
   while (record != INVALID_PAGE_ID) {
-    const auto *data = pager->Image(record).data_.data();
+    const auto holder = pager->Image(record);
+    const auto *data = holder->data_.data();
     auto count = Load<uint32_t>(data, 4);
     size_t used = RECORD_HEADER + count * SLOT_BYTES;
     chosen = count;
@@ -616,6 +667,256 @@ auto CheckDiskPage(const std::byte *bytes, uint32_t id, uint64_t covered) -> Dis
   return {kind, generation, lsn};
 }
 
+MetadataCache::MetadataCache(MetadataBackend &backend, IOExecutor &executor, const MetadataOptions &options)
+    : backend_(backend),
+      executor_(executor),
+      max_value_(options.max_value_bytes_),
+      budget_(std::make_shared<PageBudget>(options.max_live_pages_, options.memory_budget_)),
+      policy_(options.max_live_pages_, options.memory_budget_) {
+  auto bytes = options.max_live_pages_ * (sizeof(std::weak_ptr<PageState>) + sizeof(frame_id_t));
+  if (!budget_->memory_->Reserve(bytes, false)) throw MetadataCommitBusy("metadata directory budget held");
+  frames_memory_ = ResourceCharge(budget_->memory_, bytes, false);
+  frames_.resize(options.max_live_pages_);
+  skipped_.reserve(options.max_live_pages_);
+}
+auto MetadataCache::Reclaim() -> bool {
+  std::lock_guard lock(mutex_);
+  // A candidate with a held body is temporarily ineligible for THIS search.
+  // Otherwise the cold hand can keep returning it and starve eligible hot pages.
+  auto finish = [&](bool freed) {
+    for (const auto frame : skipped_) policy_.SetEvictable(frame, true);
+    skipped_.clear();
+    return freed;
+  };
+  for (size_t tries = 0; tries < frames_.size(); ++tries) {
+    const auto frame = policy_.Candidate();
+    if (!frame) return finish(false);
+    auto page = frames_[*frame].lock();
+    if (!page) {
+      policy_.Remove(*frame);
+      frames_[*frame].reset();
+      continue;
+    }
+    if (!page->reloadable_) {
+      policy_.SetEvictable(*frame, false);
+      continue;
+    }
+    if (page->body_.use_count() != 1) {
+      policy_.SetEvictable(*frame, false);
+      skipped_.push_back(*frame);
+      continue;
+    }
+    policy_.Evicted(*frame);
+    frames_[*frame].reset();
+    page->frame_ = INVALID_FRAME_ID;
+    page->body_.reset();
+    return finish(true);
+  }
+  return finish(false);
+}
+auto MetadataCache::NewImage() -> std::shared_ptr<PageImage> {
+  for (;;) {
+    auto live = budget_->live_.load();
+    bool counted = false;
+    while (live < budget_->limit_) {
+      if (budget_->live_.compare_exchange_weak(live, live + 1)) {
+        counted = true;
+        break;
+      }
+    }
+    if (counted) {
+      const bool progress = ProgressWork::Active();
+      std::unique_ptr<PageImage> image;
+      try {
+        if (budget_->memory_->Reserve(sizeof(PageImage), progress)) {
+          ResourceCharge charge(budget_->memory_, sizeof(PageImage), progress);
+          image = std::make_unique<PageImage>();
+          image->memory_ = std::move(charge);
+        }
+      } catch (...) {
+        budget_->live_.fetch_sub(1);
+        throw;
+      }
+      if (image) {
+        auto budget = budget_;
+        // shared_ptr invokes its deleter if allocating the control block fails.
+        // From this handoff onward, only that deleter owns the live-page charge.
+        return {image.release(), [budget](PageImage *p) {
+                  delete p;
+                  budget->live_.fetch_sub(1);
+                }};
+      }
+      budget_->live_.fetch_sub(1);
+    }
+    if (!Reclaim()) throw MetadataCommitBusy("metadata bodies held by dirty versions or readers");
+  }
+}
+void MetadataCache::Track(const std::shared_ptr<PageState> &page) {
+  // mutex_ held. There cannot be more tracked bodies than the live image limit.
+  for (size_t n = 0; n < frames_.size(); ++n) {
+    const auto f = frame_cursor_;
+    frame_cursor_ = (frame_cursor_ + 1) % frames_.size();
+    if (!frames_[f].expired()) continue;
+    policy_.Remove(static_cast<frame_id_t>(f));
+    policy_.Admit(static_cast<frame_id_t>(f), {static_cast<uint64_t>(page->id_), page->generation_, page->lsn_});
+    frames_[f] = page;
+    page->frame_ = static_cast<frame_id_t>(f);
+    policy_.SetEvictable(page->frame_, page->reloadable_);
+    return;
+  }
+  throw std::logic_error("metadata residency exceeds image budget");
+}
+void MetadataCache::Ensure(size_t pages) {
+  std::lock_guard lock(mutex_);
+  while (slots_.size() < pages) {
+    const bool progress = ProgressWork::Active();
+    const auto bytes = sizeof(Slot) + sizeof(std::unique_ptr<Slot>);
+    if (!budget_->memory_->Reserve(bytes, progress)) throw MetadataCommitBusy("metadata descriptors budget held");
+    ResourceCharge charge(budget_->memory_, bytes, progress);
+    slots_.push_back(std::make_unique<Slot>(std::move(charge)));
+  }
+}
+auto MetadataCache::Describe(page_id_t id, std::shared_ptr<PageImage> body) -> std::shared_ptr<PageState> {
+  Ensure(static_cast<size_t>(id) + 1);
+  const bool progress = ProgressWork::Active();
+  if (!budget_->memory_->Reserve(sizeof(PageState), progress)) throw MetadataCommitBusy("metadata version budget held");
+  ResourceCharge charge(budget_->memory_, sizeof(PageState), progress);
+  auto page = std::make_shared<PageState>();
+  page->id_ = id;
+  page->kind_ = body->kind_;
+  page->generation_ = body->generation_;
+  page->lsn_ = body->lsn_;
+  page->memory_ = std::move(charge);
+  page->body_ = std::move(body);
+  std::lock_guard lock(mutex_);
+  Track(page);
+  return page;
+}
+auto MetadataCache::LockPosition(page_id_t id) -> std::unique_lock<std::mutex> {
+  Slot *slot;
+  {
+    std::lock_guard lock(mutex_);
+    slot = slots_.at(id).get();
+  }
+  return std::unique_lock(slot->io_);
+}
+auto MetadataCache::Get(const std::shared_ptr<PageState> &page) -> std::shared_ptr<const PageImage> {
+  {
+    std::lock_guard lock(mutex_);
+    if (page->body_) {
+      policy_.RecordAccess(page->frame_);
+      return page->body_;
+    }
+  }
+  auto position = LockPosition(page->id_);
+  return LoadLocked(page);
+}
+auto MetadataCache::LoadLocked(const std::shared_ptr<PageState> &page) -> std::shared_ptr<const PageImage> {
+  {
+    std::lock_guard lock(mutex_);
+    if (page->body_) {
+      policy_.RecordAccess(page->frame_);
+      return page->body_;
+    }
+    Require(page->reloadable_, "metadata version has no recoverable body");
+  }
+  auto image = NewImage();
+  auto preparation = backend_.TryPrepare({{page->id_, IOOperation::Read}}, false);
+  CheckMetadataAdmission(preparation.admission_);
+  auto &batch = *preparation.batch_;
+  CheckMetadataAdmission(executor_.TrySubmit(batch));
+  batch.Wait();
+  const auto &op = batch.Result().operations_.front();
+  if (op.error_) std::rethrow_exception(op.error_);
+  Require(op.outcome_ == IOOutcome::Succeeded, "metadata body load incomplete");
+  auto bytes = reinterpret_cast<const std::byte *>(batch.Buffer(0));
+  auto stamp = CheckDiskPage(bytes, page->id_, page->lsn_);
+  Require(stamp.generation_ == page->generation_ && stamp.lsn_ == page->lsn_ && stamp.kind_ == page->kind_,
+          "metadata body load found a different version");
+  PageBody body{};
+  std::copy(bytes, bytes + BODY, body.begin());
+  image->kind_ = stamp.kind_;
+  image->generation_ = stamp.generation_;
+  DecodeBody(body, max_value_, image.get());
+  Seal(image.get(), page->id_, stamp.lsn_, body);
+  {
+    std::lock_guard lock(mutex_);
+    page->body_ = image;
+    Track(page);
+    policy_.RecordAccess(page->frame_);
+  }
+  return image;
+}
+void MetadataCache::Publish(const std::shared_ptr<PageState> &page) {
+  std::lock_guard lock(mutex_);
+  page->kind_ = page->body_->kind_;
+  page->generation_ = page->body_->generation_;
+  page->lsn_ = page->body_->lsn_;
+  policy_.Rekey(page->frame_, {static_cast<uint64_t>(page->id_), page->generation_, page->lsn_});
+  auto &slot = *slots_[page->id_];
+  slot.pending_ = page;
+  if (!slot.queued_) {
+    slot.queued_ = true;
+    slot.prev_ = tail_;
+    if (tail_ == INVALID_PAGE_ID)
+      head_ = page->id_;
+    else
+      slots_[tail_]->next_ = page->id_;
+    tail_ = page->id_;
+  }
+}
+auto MetadataCache::Pending(size_t limit) -> std::vector<std::shared_ptr<PageState>> {
+  std::lock_guard lock(mutex_);
+  std::vector<std::shared_ptr<PageState>> result;
+  for (auto id = head_; id != INVALID_PAGE_ID && result.size() < limit; id = slots_[id]->next_)
+    result.push_back(slots_[id]->pending_);
+  return result;
+}
+void MetadataCache::Unqueue(Slot &slot) {
+  if (slot.prev_ == INVALID_PAGE_ID)
+    head_ = slot.next_;
+  else
+    slots_[slot.prev_]->next_ = slot.next_;
+  if (slot.next_ == INVALID_PAGE_ID)
+    tail_ = slot.prev_;
+  else
+    slots_[slot.next_]->prev_ = slot.prev_;
+  slot.prev_ = slot.next_ = INVALID_PAGE_ID;
+  slot.queued_ = false;
+  slot.pending_.reset();
+}
+auto MetadataCache::Preserve(const std::shared_ptr<PageState> &page) -> std::shared_ptr<const PageImage> {
+  // Position lock held. Keep any still-referenced old body through admission.
+  std::shared_ptr<PageState> old;
+  {
+    std::lock_guard lock(mutex_);
+    old = slots_[page->id_]->disk_.lock();
+  }
+  return old && old != page ? LoadLocked(old) : nullptr;
+}
+void MetadataCache::Overwrite(page_id_t id) {
+  // Only an admitted write can invalidate the disk copy. IO is still protected
+  // by the position lock and Preserve's body lease, including on write failure.
+  std::lock_guard lock(mutex_);
+  if (auto old = slots_[id]->disk_.lock()) {
+    old->reloadable_ = false;
+    policy_.SetEvictable(old->frame_, false);
+  }
+}
+void MetadataCache::Durable(const std::shared_ptr<PageState> &page) {
+  std::lock_guard lock(mutex_);
+  slots_[page->id_]->disk_ = page;
+  page->reloadable_ = true;
+  policy_.SetEvictable(page->frame_, true);
+  auto &slot = *slots_[page->id_];
+  if (slot.pending_ == page) Unqueue(slot);
+}
+void MetadataCache::Close() {
+  std::unique_lock lock(mutex_);
+  closed_ = true;
+  changed_.wait(lock, [&] { return calls_ == 0; });
+}
+
 // F09 keeps page persistence separate from transaction publication. Access is
 // serialized by Impl::writeback_mutex_; F02 parallelizes pages within a batch.
 class MetadataPageWriter {
@@ -633,29 +934,31 @@ class MetadataPageWriter {
         return {MetadataWritebackOutcome::Failed, 0, std::current_exception()};
       }
     }
-    durable_.resize(view->pages_.size());
+    auto cache = view->cache_;
+    auto pages = cache->Pending(max_pages);
+    view.reset();
+    if (pages.empty()) return {MetadataWritebackOutcome::Clean, 0, nullptr};
     std::vector<MetadataPageRequest> requests;
     std::vector<Stamp> versions;
-    auto limit = std::min(max_pages, view->pages_.size());
-    requests.reserve(limit);
-    versions.reserve(limit);
-    for (size_t visited = 0; visited < view->pages_.size() && requests.size() < limit; visited++) {
-      auto id = cursor_;
-      cursor_ = (cursor_ + 1) % view->pages_.size();
-      const auto &page = *view->pages_[id];
-      if (durable_[id].generation_ != page.generation_ || durable_[id].lsn_ != page.lsn_) {
-        requests.push_back({static_cast<page_id_t>(id), IOOperation::Write});
-        versions.push_back({page.generation_, page.lsn_});
-      }
-    }
-    if (requests.empty()) {
-      return {MetadataWritebackOutcome::Clean, 0, nullptr};
+    std::vector<std::unique_lock<std::mutex>> positions;
+    std::vector<std::shared_ptr<const PageImage>> old_bodies;
+    requests.reserve(pages.size());
+    versions.reserve(pages.size());
+    positions.reserve(pages.size());
+    old_bodies.reserve(pages.size());
+    for (const auto &page : pages) {
+      if (durable_.size() <= static_cast<size_t>(page->id_)) durable_.resize(page->id_ + 1);
+      positions.push_back(cache->LockPosition(page->id_));
+      old_bodies.push_back(cache->Preserve(page));
+      requests.push_back({page->id_, IOOperation::Write});
+      versions.push_back({page->generation_, page->lsn_});
     }
     auto preparation = backend_.TryPrepare(requests, true);
     CheckMetadataAdmission(preparation.admission_);
     auto &batch = *preparation.batch_;
     for (size_t i = 0; i < requests.size(); i++) {
-      const auto &page = *view->pages_[requests[i].page_id_];
+      const auto hold = cache->Get(pages[i]);
+      const auto &page = *hold;
       auto body = EncodeBody(page);
       auto *buffer = batch.Buffer(i);
       std::memcpy(buffer, body.data(), BODY);
@@ -663,8 +966,8 @@ class MetadataPageWriter {
     }
     // Canonical bytes now belong to F02. No need to retain unrelated old pages
     // while the device runs; their version stamps were captured before Submit.
-    view.reset();
     CheckMetadataAdmission(executor_.TrySubmit(batch));
+    for (const auto &page : pages) cache->Overwrite(page->id_);
     batch.Wait();
     const auto &result = batch.Result();
     if (!result.writes_durable_) {
@@ -679,6 +982,7 @@ class MetadataPageWriter {
     }
     for (size_t i = 0; i < requests.size(); i++) {
       durable_[requests[i].page_id_] = versions[i];
+      cache->Durable(pages[i]);
     }
     return {MetadataWritebackOutcome::Durable, requests.size(), nullptr};
   }
@@ -736,7 +1040,6 @@ class MetadataPageWriter {
   MetadataBackend &backend_;
   IOExecutor &executor_;
   std::vector<Stamp> durable_;
-  size_t cursor_{0};
 };
 
 struct MetadataBatchHeader {
@@ -828,13 +1131,13 @@ auto Prepare(const MetadataVersion *base, const MetadataVersion &working, const 
   prepared.records_.emplace_back();
   const auto &dirty = pager.Dirty();
   uint64_t bytes = 48;
-  for (size_t id = 0; id < dirty.size(); id++) {
-    if (!dirty[id]) {
-      continue;
-    }
-    const auto &page = *dirty[id];
+  for (const auto &[id, image] : dirty) {
+    const auto &page = *image;
     auto body = EncodeBody(page);
-    const PageImage *before = base != nullptr && id < base->pages_.size() ? base->pages_[id].get() : nullptr;
+    const auto before_hold = base != nullptr && static_cast<size_t>(id) < base->pages_.size()
+                                 ? base->cache_->Get(base->pages_[id])
+                                 : nullptr;
+    const PageImage *before = before_hold.get();
     PageBody old{};
     if (before != nullptr) {
       old = EncodeBody(*before);
@@ -894,23 +1197,25 @@ auto Prepare(const MetadataVersion *base, const MetadataVersion &working, const 
 void Validate(const MetadataVersion &version, const MetadataOptions &options) {
   KeyCompare compare;
   MetadataPager pager(version);
-  Require(!version.pages_.empty() && pager.Image(0).kind_ == PageKind::Root, "missing metadata root");
-  auto *header = pager.Image(0).data_.data();
+  Require(!version.pages_.empty() && pager.Image(0)->kind_ == PageKind::Root, "missing metadata root");
+  const auto header_holder = pager.Image(0);
+  auto *header = header_holder->data_.data();
   Require(Load<uint32_t>(header, 4) == version.pages_.size(), "metadata allocator high-water mismatch");
   std::set<page_id_t> visited{0};
   auto visit = [&](page_id_t id, PageKind kind) {
-    Require(pager.Image(id).kind_ == kind && visited.insert(id).second, "metadata page kind/ownership/cycle mismatch");
+    Require(pager.Image(id)->kind_ == kind && visited.insert(id).second, "metadata page kind/ownership/cycle mismatch");
   };
   auto free = Load<page_id_t>(header, 8);
   while (free != INVALID_PAGE_ID) {
     visit(free, PageKind::Free);
-    free = Load<page_id_t>(pager.Image(free).data_.data(), 0);
+    free = Load<page_id_t>(pager.Image(free)->data_.data(), 0);
   }
   std::set<uint64_t> live_values;
   auto records = Load<page_id_t>(header, 12);
   while (records != INVALID_PAGE_ID) {
     visit(records, PageKind::Records);
-    const auto *data = pager.Image(records).data_.data();
+    const auto records_holder = pager.Image(records);
+    const auto *data = records_holder->data_.data();
     auto count = Load<uint32_t>(data, 4);
     for (uint32_t i = 0; i < count; i++) {
       auto slot = ReadSlot(data, i);
@@ -923,7 +1228,8 @@ void Validate(const MetadataVersion &version, const MetadataOptions &options) {
       uint64_t total = slot.size_;
       while (overflow != INVALID_PAGE_ID) {
         visit(overflow, PageKind::Overflow);
-        const auto *part = pager.Image(overflow).data_.data();
+        const auto part_holder = pager.Image(overflow);
+        const auto *part = part_holder->data_.data();
         total += Load<uint32_t>(part, 4);
         overflow = Load<page_id_t>(part, 0);
       }
@@ -960,12 +1266,12 @@ void Validate(const MetadataVersion &version, const MetadataOptions &options) {
     // Each leaf must occur exactly once in the next-leaf chain.
     std::set<page_id_t> linked;
     auto first = root;
-    while (!reinterpret_cast<const BPlusTreePage *>(pager.Image(first).data_.data())->IsLeafPage()) {
-      first = reinterpret_cast<const Internal *>(pager.Image(first).data_.data())->ValueAt(0);
+    while (!reinterpret_cast<const BPlusTreePage *>(pager.Image(first)->data_.data())->IsLeafPage()) {
+      first = reinterpret_cast<const Internal *>(pager.Image(first)->data_.data())->ValueAt(0);
     }
     for (auto id = first; id != INVALID_PAGE_ID;) {
       Require(leaves.count(id) != 0 && linked.insert(id).second, "metadata leaf link cycle or wrong target");
-      id = reinterpret_cast<const Leaf *>(pager.Image(id).data_.data())->GetNextPageId();
+      id = reinterpret_cast<const Leaf *>(pager.Image(id)->data_.data())->GetNextPageId();
     }
     Require(linked.size() == leaves.size(), "metadata leaf chain omits a subtree");
     auto tree = TreeFor(&pager);
@@ -990,7 +1296,7 @@ struct MetadataEngine::Impl {
         page_writer_(backend_, executor_),
         journal_(bootstrap, identity, journal_options),
         options_(options),
-        budget_(std::make_shared<PageBudget>(options.max_live_pages_, options.memory_budget_)) {
+        cache_(std::make_shared<MetadataCache>(backend_, executor_, options)) {
     completion_units_ = 1 + (std::min(options.max_batch_bytes_, journal_options.max_batch_bytes_) +
                              uint64_t{journal_options.max_records_per_batch_} * 16 + journal_options.unit_bytes_ - 85) /
                                 (journal_options.unit_bytes_ - 84);
@@ -1013,6 +1319,8 @@ struct MetadataEngine::Impl {
     }
     Require(h.kind_ == (published_ ? 1U : 0U), "metadata creation/transaction order mismatch");
     auto next = published_ ? std::make_shared<MetadataVersion>(*published_) : std::make_shared<MetadataVersion>();
+    next->cache_ = cache_;
+    cache_->Ensure(pages);
     Require(pages >= next->pages_.size(), "metadata page high-water went backwards");
     next->pages_.resize(pages);
     std::set<uint32_t> changed;
@@ -1021,7 +1329,7 @@ struct MetadataEngine::Impl {
       auto type = record.ReadU32();
       if (type == PAYLOAD_RECORD) continue;
       auto id = record.ReadU32();
-      auto image = NewImage(budget_);
+      auto image = cache_->NewImage();
       image->kind_ = static_cast<PageKind>(record.ReadU32());
       image->generation_ = record.ReadU64();
       auto base_generation = record.ReadU64();
@@ -1044,7 +1352,7 @@ struct MetadataEngine::Impl {
         Require(type == PATCH && before && before->generation_ == image->generation_ && before->kind_ == image->kind_ &&
                     spans > 0,
                 "invalid metadata patch basis");
-        body = EncodeBody(*before);
+        body = EncodeBody(*cache_->Get(before));
         size_t end = 0;
         for (uint32_t n = 0; n < spans; n++) {
           auto offset = record.ReadU32();
@@ -1058,7 +1366,8 @@ struct MetadataEngine::Impl {
       Require(record.Empty() && crc == Crc32c(body.data(), BODY), "metadata reconstructed page checksum mismatch");
       DecodeBody(body, options_.max_value_bytes_, image.get());
       Seal(image.get(), static_cast<page_id_t>(id), lsn, body);
-      next->pages_[id] = std::move(image);
+      next->pages_[id] = cache_->Describe(static_cast<page_id_t>(id), std::move(image));
+      cache_->Publish(next->pages_[id]);
     }
     if (!restoring_checkpoint_) {
       for (const auto &page : next->pages_) {
@@ -1067,11 +1376,17 @@ struct MetadataEngine::Impl {
     }
     published_ = std::move(next);
     lsn_ = lsn;
+    for (;;) {
+      const auto result = page_writer_.Write(published_, 1);
+      if (result.outcome_ == MetadataWritebackOutcome::Clean) break;
+      if (result.outcome_ == MetadataWritebackOutcome::Failed) std::rethrow_exception(result.error_);
+    }
   }
 
   void LoadCheckpoint(const CheckpointRecoveryPlan &plan) {
     Require(plan.covered_ != 0, "checkpoint reference points to an empty Journal tail");
     auto next = std::make_shared<MetadataVersion>();
+    next->cache_ = cache_;
     next->pages_.resize(plan.pages_);
     for (uint32_t id = 0; id < plan.pages_; ++id) {
       if (plan.modified_[id]) {
@@ -1091,14 +1406,15 @@ struct MetadataEngine::Impl {
       PageBody body{};
       std::copy(bytes, bytes + BODY, body.begin());
       const auto stamp = CheckDiskPage(bytes, id, plan.covered_);
-      auto page = NewImage(budget_);
+      auto page = cache_->NewImage();
       page->kind_ = stamp.kind_;
       page->generation_ = stamp.generation_;
       const auto page_lsn = stamp.lsn_;
       DecodeBody(body, options_.max_value_bytes_, page.get());
       Seal(page.get(), static_cast<page_id_t>(id), page_lsn, body);
       page_writer_.Recovered(id, page->generation_, page_lsn);
-      next->pages_[id] = std::move(page);
+      next->pages_[id] = cache_->Describe(static_cast<page_id_t>(id), std::move(page));
+      cache_->Durable(next->pages_[id]);
     }
     checkpoint_lsn_ = lsn_ = plan.covered_;
     checkpoint_pages_ = plan.pages_;
@@ -1114,10 +1430,9 @@ struct MetadataEngine::Impl {
       for (const auto &entry : prepared.bodies_) {
         changed.insert(entry.first);
       }
-      for (size_t id = 0; id < base->pages_.size(); id++) {
-        if (changed.count(static_cast<page_id_t>(id)) == 0) {
+      for (const auto &[id, image] : pager->Dirty()) {
+        if (static_cast<size_t>(id) < base->pages_.size() && changed.count(id) == 0)
           next->pages_[id] = base->pages_[id];
-        }
       }
     }
     JournalRecords bodies;
@@ -1164,8 +1479,9 @@ struct MetadataEngine::Impl {
     // already exist. Seal page images with the confirmed F07 LSN; payload
     // locators were reserved by this sole writer and checked above.
     for (const auto &entry : prepared.bodies_) {
-      auto *page = pager->Dirty()[entry.first].get();
+      auto *page = pager->Dirty().at(entry.first).get();
       Seal(page, entry.first, result.begin_, entry.second);
+      cache_->Publish(next->pages_[entry.first]);
     }
     {
       std::lock_guard<std::mutex> lock(view_mutex_);
@@ -1187,7 +1503,7 @@ struct MetadataEngine::Impl {
   std::optional<JournalPayloadRead> scrub_journal_;
   JournalService journal_;
   MetadataOptions options_;
-  std::shared_ptr<PageBudget> budget_;
+  std::shared_ptr<MetadataCache> cache_;
   std::mutex writer_mutex_;
   std::mutex writeback_mutex_;
   mutable std::mutex view_mutex_;
@@ -1246,14 +1562,15 @@ void MetadataEngine::Create() {
   }
   s.started_ = true;
   auto next = std::make_shared<MetadataVersion>();
-  auto header = NewImage(s.budget_);
+  next->cache_ = s.cache_;
+  auto header = s.cache_->NewImage();
   header->kind_ = PageKind::Root;
   Store(header->data_.data(), 0, INVALID_PAGE_ID);
   Store(header->data_.data(), 4, uint32_t{1});
   Store(header->data_.data(), 8, INVALID_PAGE_ID);
   Store(header->data_.data(), 12, INVALID_PAGE_ID);
-  next->pages_.push_back(header);
-  MetadataPager pager(*next, s.budget_, s.options_.page_limit_);
+  next->pages_.push_back(s.cache_->Describe(0, header));
+  MetadataPager pager(*next, s.options_.page_limit_);
   pager.Mutable(0);
   s.journal_.Create();
   auto result = s.Publish(nullptr, next, &pager);
@@ -1333,6 +1650,7 @@ void MetadataEngine::Open() {
     std::lock_guard<std::mutex> view(s.view_mutex_);
     s.ready_ = true;
   } catch (...) {
+    s.cache_->Close();
     s.journal_.Close();
     s.published_.reset();
     throw;
@@ -1417,7 +1735,7 @@ auto MetadataEngine::Commit(const MetadataSnapshot &base, const std::vector<Meta
     }
   }
   CheckBatch(updates);
-  MetadataPager pager(*next, s.budget_, s.options_.page_limit_);
+  MetadataPager pager(*next, s.options_.page_limit_);
   auto tree = TreeFor(&pager);
   for (const auto &mutation : updates) {
     auto key = EncodeKey(mutation.key_);
@@ -1441,6 +1759,7 @@ auto DecodeMetadataPayload(const JournalPayloadRead &read) -> std::vector<std::b
   return bytes;
 }
 auto MetadataSnapshot::Payload(const MetadataKey &key) const -> std::optional<JournalPayload> {
+  MetadataCache::Call call(*version_->cache_);
   const auto found = version_->payloads_.find(PayloadIdentity(key));
   return found == version_->payloads_.end() ? std::nullopt : std::optional<JournalPayload>(found->second);
 }
@@ -1588,6 +1907,7 @@ void MetadataEngine::Close() {
     std::lock_guard<std::mutex> view(impl_->view_mutex_);
     impl_->ready_ = false;
   }
+  impl_->cache_->Close();
   impl_->journal_.Close();
   impl_->started_ = true;
 }
