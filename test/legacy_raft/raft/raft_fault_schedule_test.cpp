@@ -26,7 +26,7 @@
 
 #include "gtest/gtest.h"
 #include "raft/persistent_state.h"
-#include "raft/raft_node.h"
+#include "raft/synchronous_test_node.h"
 
 namespace bustub {
 namespace {
@@ -99,7 +99,7 @@ class FaultScheduleCluster {
     storage_->RemoveTree(root_);
   }
 
-  auto Node(NodeId id) -> RaftNode & { return *nodes_.at(id - 1); }
+  auto Node(NodeId id) -> SynchronousTestNode & { return *nodes_.at(id - 1); }
   auto Machine(NodeId id) -> ObservedKvStateMachine & { return *machines_.at(id - 1); }
   auto Running(NodeId id) const -> bool { return nodes_.at(id - 1) != nullptr; }
   auto Dropped() const -> size_t { return dropped_; }
@@ -151,7 +151,7 @@ class FaultScheduleCluster {
     // Each incarnation starts its local monotonic clock at zero; restarting late
     // in a schedule must not expire its election timeout immediately.
     boot_ms_[offset] = now_ms_;
-    nodes_[offset] = std::make_unique<RaftNode>(
+    nodes_[offset] = std::make_unique<SynchronousTestNode>(
         RaftNodeConfig{id,
                        {1, 2, 3},
                        150,
@@ -359,7 +359,7 @@ class FaultScheduleCluster {
   std::shared_ptr<PosixDurableStorage> storage_;
   std::shared_ptr<ScheduledRaftTransport> transport_;
   std::array<std::shared_ptr<ObservedKvStateMachine>, 3> machines_;
-  std::array<std::unique_ptr<RaftNode>, 3> nodes_;
+  std::array<std::unique_ptr<SynchronousTestNode>, 3> nodes_;
   std::array<std::array<bool, 3>, 3> links_{};
   std::array<uint64_t, 3> terms_{};
   std::array<uint64_t, 3> commits_{};

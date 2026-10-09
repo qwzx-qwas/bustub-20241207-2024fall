@@ -10,6 +10,7 @@
 
 #include <stdexcept>
 
+#include "concurrency/transaction_manager.h"
 #include "distributed/request_fingerprint.h"
 #include "distributed/sql_command_preparer.h"
 
@@ -36,8 +37,19 @@ auto SingleNodeCommandRuntime::CommitSql(const std::string &sql, uint64_t client
       throw std::runtime_error("SQL request id is old or contains a session sequence gap");
     }
   }
-  const auto batch =
-      SqlCommandPreparer(recovered_->catalog_.get()).Prepare(sql, client_id, request_id, request_fingerprint);
+  TransactionManager reader;
+  reader.catalog_ = recovered_->catalog_.get();
+  auto *transaction = reader.BeginReadAt(state_machine_->PublishedAppliedIndex());
+  TransactionCommandBatch batch;
+  try {
+    ExecutorContext context(transaction, recovered_->catalog_.get(), recovered_->buffer_pool_manager_.get(), &reader,
+                            nullptr, false);
+    batch = SqlCommandPreparer(&context).Prepare(sql, client_id, request_id, request_fingerprint);
+    reader.EndRead(transaction);
+  } catch (...) {
+    reader.Abort(transaction);
+    throw;
+  }
   return CommitLocked(batch);
 }
 

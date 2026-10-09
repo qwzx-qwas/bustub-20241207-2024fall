@@ -14,6 +14,8 @@ add_library(
   tcp_transport.cpp
   stable_store.cpp)
 
+set_target_properties(bustub_raft PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 target_link_libraries(bustub_raft PRIVATE bustub_lz4)
 
 set(ALL_OBJECT_FILES

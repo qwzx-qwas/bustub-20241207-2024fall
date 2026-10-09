@@ -106,21 +106,27 @@ class DistributedNode {
   std::unique_ptr<NodeDirectory> directory_;
   std::shared_ptr<TcpRaftTransport> transport_;
   std::shared_ptr<BusTubRaftStateMachine> state_machine_;
-  std::unique_ptr<RaftNode> raft_node_;
 
   mutable std::mutex mutex_;
   std::condition_variable state_changed_;
   std::exception_ptr fatal_error_;
-  struct ActiveWrite {
-    uint64_t client_id_;
-    uint64_t request_id_;
-    RequestFingerprintV1 request_fingerprint_;
-    uint64_t proposal_index_;
-    uint64_t proposal_term_;
+  struct WriteWork {
+    RequestDisposition disposition_;
+    std::vector<std::byte> bytes_;
+    uint64_t published_;
   };
-  std::optional<ActiveWrite> active_write_;
+  struct ActiveWrite {
+    uint64_t client_id_, request_id_;
+    RequestFingerprintV1 request_fingerprint_;
+    uint64_t proposal_index_{0}, proposal_term_{0};
+    std::shared_ptr<TaskExecutor::Result<WriteWork>> work_;
+    std::optional<WriteWork> prepared_;
+    std::optional<ClientResponseV1> response_;
+  };
+  std::shared_ptr<ActiveWrite> active_write_;
   uint64_t next_read_context_{0};
   uint64_t logical_now_ms_{0};
+  std::atomic<bool> work_ready_{false};
   int client_listen_fd_{-1};
   TcpEndpoint bound_client_endpoint_;
   std::atomic<bool> running_{false};
@@ -132,6 +138,9 @@ class DistributedNode {
     std::shared_ptr<std::atomic<bool>> finished_;
   };
   std::vector<ClientWorker> client_workers_;
+  // Destroy executors before their completion wake-up targets, including when
+  // Stop's protocol drain reports a storage failure.
+  std::unique_ptr<RaftNode> raft_node_;
 };
 
 }  // namespace bustub

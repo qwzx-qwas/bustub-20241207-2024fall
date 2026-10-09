@@ -137,23 +137,31 @@ INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_INDEX_TYPE::GetEndIterator() -> INDEXITERATOR_TYPE { return container_->End(); }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_INDEX_TYPE::GetAllEntriesSnapshot() -> std::vector<std::pair<KeyType, ValueType>> {
+auto BPLUSTREE_INDEX_TYPE::GetEntriesSnapshot(const std::optional<KeyType> &lower, bool lower_inclusive,
+                                              const std::optional<KeyType> &upper, bool upper_inclusive)
+    -> std::vector<std::pair<KeyType, ValueType>> {
   std::vector<std::pair<KeyType, ValueType>> entries;
+  auto past_upper = [&](const KeyType &key) {
+    if (!upper) return false;
+    const auto cmp = comparator_(key, *upper);
+    return cmp > 0 || (cmp == 0 && !upper_inclusive);
+  };
   if (!is_primary_key_) {
     std::scoped_lock lock(non_unique_latch_);
-    for (const auto &[key, rids] : non_unique_entries_) {
-      for (const auto &rid : rids) {
-        entries.emplace_back(key, rid);
-      }
+    auto it = !lower            ? non_unique_entries_.begin()
+              : lower_inclusive ? non_unique_entries_.lower_bound(*lower)
+                                : non_unique_entries_.upper_bound(*lower);
+    for (; it != non_unique_entries_.end() && !past_upper(it->first); ++it) {
+      for (const auto &rid : it->second) entries.emplace_back(it->first, rid);
     }
     return entries;
   }
-
-  auto iterator = container_->Begin();
-  auto end = container_->End();
+  auto iterator = lower ? container_->Begin(*lower) : container_->Begin();
+  const auto end = container_->End();
   while (iterator != end) {
     const auto &[key, rid] = *iterator;
-    entries.emplace_back(key, rid);
+    if (past_upper(key)) break;
+    if (!lower || lower_inclusive || comparator_(key, *lower) != 0) entries.emplace_back(key, rid);
     ++iterator;
   }
   return entries;

@@ -597,6 +597,10 @@ auto NodeStorage::Commit(const MetadataSnapshot &base, const std::vector<Metadat
     throw;
   }
 }
+auto NodeStorage::Usage() -> NodeStorageUsage {
+  auto call = impl_->Acquire(true);
+  return {call.context_->objects_->allocator_->Usage(), call.context_->metadata_->CacheStatus()};
+}
 auto NodeStorage::Writeback(size_t max_pages) -> MetadataWritebackResult {
   auto call = impl_->Acquire();
   try {

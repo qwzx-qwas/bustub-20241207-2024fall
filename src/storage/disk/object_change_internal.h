@@ -44,6 +44,7 @@ struct PreparedObjectChange {
 };
 /** Private production bridge, not a public metadata/schema escape hatch. */
 struct ObjectMappingAccess {
+  static void MaintainMetadata(ObjectMappingStore &store, size_t pages, bool checkpoint);
   static auto ScrubMetadata(ObjectMappingStore &store) -> bool;
   static auto Unit(ObjectMappingStore &store) -> uint64_t;
   static auto Checksummed(ObjectMappingStore &store) -> bool;

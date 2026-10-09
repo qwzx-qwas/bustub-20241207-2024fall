@@ -546,6 +546,27 @@ struct ObjectTransactionPipeline::Impl {
               // Rebuild mapping/allocation mutations, rechecking every object
               // version. Never repeat data IO or retry an uncertain commit.
               std::this_thread::sleep_for(options_.retry_interval_);
+            } catch (const MetadataCommitBusy &) {
+              // The checkpoint/another holder has not admitted this metadata
+              // attempt. Retain the already durable Data dependency and retry
+              // only publication, never the data IO or an uncertain commit.
+              // A Store maintenance callback can be waiting for this commit;
+              // Close also stops periodic maintenance before draining it. Help
+              // the existing B writer make one bounded batch of progress here,
+              // without moving periodic GC/checkpoint into the commit role.
+              if (options_.metadata_writeback_pages_ != 0) {
+                try {
+                  ObjectMappingAccess::MaintainMetadata(mapping_, options_.metadata_writeback_pages_, false);
+                } catch (const MetadataCommitBusy &) {
+                  // An existing B writer/checkpoint still owns the gate.
+                } catch (...) {
+                  RecordError(std::current_exception());
+                  throw;
+                }
+              }
+              std::unique_lock lock(state_->mutex_);
+              if (state_->error_) std::rethrow_exception(state_->error_);
+              state_->changed_.wait_for(lock, options_.retry_interval_);
             }
           }
           if (result.outcome_ != JournalOutcome::Durable) {
@@ -660,15 +681,28 @@ struct ObjectTransactionPipeline::Impl {
     ++integrity_.yielded_;
   }
   void GarbageLoop() {
+    size_t metadata_rounds = 0;
     MetadataKey cursor{0, 0, 0};
     ObjectGCPage page{cursor, {}};
     size_t next = 0;
     for (;;) {
       {
         std::unique_lock<std::mutex> lock(state_->mutex_);
-        if (state_->changed_.wait_for(lock, options_.gc_interval_,
-                                      [&] { return !state_->accepting_ || state_->error_; }))
+        if (state_->changed_.wait_for(lock, options_.gc_interval_, [&] { return !state_->accepting_ || state_->error_; }))
           return;
+      }
+      if (options_.metadata_writeback_pages_ != 0) {
+        const bool checkpoint = options_.metadata_checkpoint_rounds_ != 0 &&
+                                ++metadata_rounds >= options_.metadata_checkpoint_rounds_;
+        try {
+          ObjectMappingAccess::MaintainMetadata(mapping_, options_.metadata_writeback_pages_, checkpoint);
+          if (checkpoint) metadata_rounds = 0;
+        } catch (const MetadataCommitBusy &) {
+          // Keep the checkpoint due. Optional work still gets a bounded turn.
+        } catch (...) {
+          RecordError(std::current_exception());
+          return;
+        }
       }
       ScrubRound();  // Optional work uses ordinary credits, never ProgressWork reserves.
       StoreRound();

@@ -73,6 +73,13 @@ inline auto Key(Kind kind, ObjectKey object, uint64_t item) -> MetadataKey {
 inline auto SamePrefix(const MetadataKey &a, const MetadataKey &b) -> bool {
   return a.category_ == b.category_ && a.owner_ == b.owner_;
 }
+// Object categories are Kind (1..10) plus a 56-bit space, so advancing the
+// category on the final owner cannot overflow the metadata key domain.
+inline auto PrefixEnd(const MetadataKey &key) -> MetadataKey {
+  return key.owner_ == std::numeric_limits<uint64_t>::max()
+             ? MetadataKey{key.category_ + 1, 0, 0}
+             : MetadataKey{key.category_, key.owner_ + 1, 0};
+}
 inline auto Encode(std::initializer_list<uint64_t> fields) -> Bytes {
   ByteWriter w;
   for (auto value : fields) {

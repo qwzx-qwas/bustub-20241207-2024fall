@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "distributed/node.h"
+#include "storage_config.h"
 
 namespace {
 
@@ -43,7 +44,8 @@ auto Usage() -> std::string {
                   [--election-timeout-min-ms N] [--election-timeout-max-ms N]
                   [--heartbeat-interval-ms N]
                   [--tick-interval-ms N] [--client-timeout-ms N] [--buffer-pool-size N]
-                  [--snapshot-threshold-entries N])";
+                  [--snapshot-threshold-entries N]
+                  [--storage-config FILE] [--storage-action open|initialize])";
 }
 
 auto Required(const std::map<std::string, std::string> &values, const std::string &name) -> std::string {
@@ -141,7 +143,7 @@ auto main(int argc, char **argv) -> int {
                                       "--tick-interval-ms",
                                       "--client-timeout-ms",
                                       "--buffer-pool-size",
-                                      "--snapshot-threshold-entries"};
+                                      "--snapshot-threshold-entries", "--storage-config", "--storage-action"};
     for (const auto &[option, argument] : values) {
       static_cast<void>(argument);
       if (known.count(option) == 0) {
@@ -152,6 +154,22 @@ auto main(int argc, char **argv) -> int {
       throw std::runtime_error("production listen ports must be non-zero");
     }
 
+    std::unique_ptr<bustub::cli::DeviceLock> device_lock;
+    if (values.count("--storage-config")) {
+      const auto storage = bustub::cli::ReadStorageConfig(values.at("--storage-config"));
+      const auto action = values.count("--storage-action") ? values.at("--storage-action") : "open";
+      if (action != "open" && action != "initialize") throw std::runtime_error("unknown storage action");
+      config.object_storage_ = storage.deployment_;
+      config.Validate();
+      device_lock = std::make_unique<bustub::cli::DeviceLock>(storage.deployment_.storage_.device_path_);
+      if (action == "initialize") {
+        bustub::cli::InitializeStorage(storage, config);
+        std::cout << "storage initialized; no node service started" << std::endl;
+        return 0;
+      }
+    } else if (values.count("--storage-action")) {
+      throw std::runtime_error("--storage-action requires --storage-config");
+    }
     auto node = bustub::DistributedNode::Open(std::move(config));
     node->Start();
     std::cout << "bustub-node started raft=" << node->RaftEndpoint().ToString()

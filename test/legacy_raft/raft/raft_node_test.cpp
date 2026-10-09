@@ -23,19 +23,22 @@
 #include "gtest/gtest.h"
 #include "raft/in_memory_raft_transport.h"
 #include "raft/persistent_state.h"
-#include "raft/raft_node.h"
+#include "raft/synchronous_test_node.h"
 
 namespace bustub {
 
 class RaftNodeTestPeer {
  public:
-  static void AdvanceDurableCommitWithoutApply(RaftNode *node, uint64_t commit_index) {
-    node->PersistHardState(node->hard_state_.current_term_, node->hard_state_.voted_for_, commit_index);
-    node->AdvanceLogCommitOrStop(commit_index);
+  static void AdvanceDurableCommitWithoutApply(SynchronousTestNode *node, uint64_t commit_index) {
+    node->stable_store_->Update(node->hard_state_.current_term_, node->hard_state_.voted_for_, commit_index);
+    node->hard_state_ = node->stable_store_->State();
+    node->log_store_->AdvanceCommittedIndex(commit_index);
+    node->RefreshLogTip();
   }
 
-  static void RebaseLogWithoutInstallingStateMachine(RaftNode *node, uint64_t index, uint64_t term) {
-    node->InstallLogSnapshotBaseDurably(index, term, true);
+  static void RebaseLogWithoutInstallingStateMachine(SynchronousTestNode *node, uint64_t index, uint64_t term) {
+    node->log_store_->InstallSnapshotBase(index, term, true);
+    node->RefreshLogTip();
   }
 };
 
@@ -65,7 +68,7 @@ class ThreeNodeKvCluster {
       auto stable = StableStore::Open(raft_directory, storage_);
       auto log = LogStore::Open(raft_directory / "log", storage_, 0);
       auto snapshots = SnapshotStore::Open(raft_directory / "snapshots", storage_);
-      nodes_[offset] = std::make_unique<RaftNode>(
+      nodes_[offset] = std::make_unique<SynchronousTestNode>(
           RaftNodeConfig{id, {1, 2, 3}, 100, 300, 50, "test-group", MakeFixedElectionTimeoutSource(100U * id)},
           transport_, std::move(stable), std::move(log), machines_[offset], std::move(snapshots));
     }
@@ -80,10 +83,11 @@ class ThreeNodeKvCluster {
     for (NodeId id = 1; id <= 3; id++) {
       transport_->Unregister(id);
     }
+    for (auto &node : nodes_) node.reset();
     storage_->RemoveTree(root_);
   }
 
-  auto Node(NodeId id) -> RaftNode & { return *nodes_.at(id - 1); }
+  auto Node(NodeId id) -> SynchronousTestNode & { return *nodes_.at(id - 1); }
   auto Machine(NodeId id) -> KvStateMachine & { return *machines_.at(id - 1); }
   auto Transport() -> InMemoryRaftTransport & { return *transport_; }
 
@@ -103,7 +107,7 @@ class ThreeNodeKvCluster {
     const auto effective_commit = std::max(stable->State().commit_index_, snapshot_index);
     auto log =
         LogStore::Open(raft_directory / "log", storage_, effective_commit, snapshot_base_index, snapshot_base_term);
-    nodes_[offset] = std::make_unique<RaftNode>(
+    nodes_[offset] = std::make_unique<SynchronousTestNode>(
         RaftNodeConfig{id, {1, 2, 3}, 100, 300, 50, "test-group", MakeFixedElectionTimeoutSource(100U * id)},
         transport_, std::move(stable), std::move(log), machines_[offset], std::move(snapshots));
     transport_->Register(
@@ -142,7 +146,7 @@ class ThreeNodeKvCluster {
   std::shared_ptr<PosixDurableStorage> storage_;
   std::shared_ptr<InMemoryRaftTransport> transport_;
   std::array<std::shared_ptr<KvStateMachine>, 3> machines_;
-  std::array<std::unique_ptr<RaftNode>, 3> nodes_;
+  std::array<std::unique_ptr<SynchronousTestNode>, 3> nodes_;
 };
 
 class FaultInjectedNode {
@@ -156,7 +160,7 @@ class FaultInjectedNode {
     storage_->DisableFailure();
     storage_->RemoveTree(root_);
     const auto raft_directory = root_ / "raft";
-    node_ = std::make_unique<RaftNode>(
+    node_ = std::make_unique<SynchronousTestNode>(
         RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "fault-test", MakeFixedElectionTimeoutSource(100)}, transport_,
         StableStore::Open(raft_directory, storage_), LogStore::Open(raft_directory / "log", storage_, 0), machine_,
         SnapshotStore::Open(raft_directory / "snapshots", storage_));
@@ -168,7 +172,7 @@ class FaultInjectedNode {
     storage_->RemoveTree(root_);
   }
 
-  auto Node() -> RaftNode & { return *node_; }
+  auto Node() -> SynchronousTestNode & { return *node_; }
   auto Storage() -> PowerLossStorage & { return *storage_; }
   auto Transport() -> InMemoryRaftTransport & { return *transport_; }
 
@@ -198,7 +202,7 @@ class FaultInjectedNode {
   std::shared_ptr<PowerLossStorage> storage_;
   std::shared_ptr<InMemoryRaftTransport> transport_;
   std::shared_ptr<KvStateMachine> machine_;
-  std::unique_ptr<RaftNode> node_;
+  std::unique_ptr<SynchronousTestNode> node_;
 };
 
 struct InstallRecoveryState {
@@ -235,7 +239,7 @@ auto RunInstallSnapshotCrash(const std::vector<std::byte> &payload, std::optiona
   const auto raft_directory = root / "raft";
   auto transport = std::make_shared<InMemoryRaftTransport>();
   auto machine = std::make_shared<KvStateMachine>();
-  auto node = std::make_unique<RaftNode>(
+  auto node = std::make_unique<SynchronousTestNode>(
       RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "install-crash", MakeFixedElectionTimeoutSource(100)}, transport,
       StableStore::Open(raft_directory, storage), LogStore::Open(raft_directory / "log", storage, 0), machine,
       SnapshotStore::Open(raft_directory / "snapshots", storage));
@@ -266,7 +270,7 @@ auto RunInstallSnapshotCrash(const std::vector<std::byte> &payload, std::optiona
 
   auto recovered_machine = std::make_shared<KvStateMachine>();
   auto recovered_state = RecoverRaftPersistentState(raft_directory, storage, recovered_machine);
-  auto recovered = std::make_unique<RaftNode>(
+  auto recovered = std::make_unique<SynchronousTestNode>(
       RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "install-crash", MakeFixedElectionTimeoutSource(100)}, transport,
       std::move(recovered_state.stable_store_), std::move(recovered_state.log_store_), recovered_machine,
       std::move(recovered_state.snapshot_store_));
@@ -339,7 +343,7 @@ class LiveInstallSnapshotFixture {
 
     snapshots = SnapshotStore::Open(raft_directory / "snapshots", storage_);
     log = LogStore::Open(raft_directory / "log", storage_, 1, 1, 1);
-    node_ = std::make_unique<RaftNode>(
+    node_ = std::make_unique<SynchronousTestNode>(
         RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "live-install", MakeFixedElectionTimeoutSource(100)}, transport_,
         StableStore::Open(raft_directory, storage_), std::move(log), machine_, std::move(snapshots));
     if (node_->CommitIndex() != 1 || node_->LastApplied() != 1 || machine_->Data() != OldData() ||
@@ -356,7 +360,7 @@ class LiveInstallSnapshotFixture {
 
   static auto OldData() -> std::map<std::string, std::string> { return {{"inventory", "old"}}; }
 
-  auto Node() -> RaftNode & { return *node_; }
+  auto Node() -> SynchronousTestNode & { return *node_; }
   auto Machine() -> KvStateMachine & { return *machine_; }
   auto Transport() -> InMemoryRaftTransport & { return *transport_; }
 
@@ -388,7 +392,7 @@ class LiveInstallSnapshotFixture {
   std::shared_ptr<PowerLossStorage> storage_;
   std::shared_ptr<InMemoryRaftTransport> transport_;
   std::shared_ptr<KvStateMachine> machine_;
-  std::unique_ptr<RaftNode> node_;
+  std::unique_ptr<SynchronousTestNode> node_;
 };
 
 auto TakeOnlyInstallSnapshotResponse(LiveInstallSnapshotFixture *fixture) -> InstallSnapshotResponse {
@@ -446,9 +450,9 @@ class CrossFileRecoveryDisk {
 };
 
 auto OpenRecoveredKvNode(const std::filesystem::path &raft_directory, const std::shared_ptr<PowerLossStorage> &storage,
-                         const std::shared_ptr<KvStateMachine> &machine) -> std::unique_ptr<RaftNode> {
+                         const std::shared_ptr<KvStateMachine> &machine) -> std::unique_ptr<SynchronousTestNode> {
   auto recovered = RecoverRaftPersistentState(raft_directory, storage, machine);
-  return std::make_unique<RaftNode>(
+  return std::make_unique<SynchronousTestNode>(
       RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "cross-file-recovery", MakeFixedElectionTimeoutSource(100)},
       std::make_shared<InMemoryRaftTransport>(), std::move(recovered.stable_store_), std::move(recovered.log_store_),
       machine, std::move(recovered.snapshot_store_));
@@ -495,7 +499,7 @@ auto ObserveRecoveryRepair(const std::filesystem::path &raft_directory,
   if (!latest.has_value() || !oldest.has_value()) {
     throw std::runtime_error("recovery repair did not retain an authoritative snapshot");
   }
-  auto node = std::make_unique<RaftNode>(
+  auto node = std::make_unique<SynchronousTestNode>(
       RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "recovery-repair-matrix", MakeFixedElectionTimeoutSource(100)},
       std::make_shared<InMemoryRaftTransport>(), std::move(recovered.stable_store_), std::move(recovered.log_store_),
       machine, std::move(recovered.snapshot_store_));
@@ -1276,22 +1280,34 @@ TEST(RaftNodeTest, HeartbeatsCannotStarveMultiChunkSnapshotProgress) {
     auto data = cluster.Node(1).ReadSnapshotChunk(snapshot, offset, chunk_bytes);
     ASSERT_EQ(data.size(), chunk_bytes);
     cluster.Node(3).Receive(
-        1, InstallSnapshotRequest{1, 1, 900 + offset / chunk_bytes, snapshot.snapshot_id_,
-                                  snapshot.last_included_index_, snapshot.last_included_term_, offset,
-                                  snapshot.payload_size_, snapshot.payload_checksum_, false, std::move(data)});
+        1, InstallSnapshotRequest{1, 1, 1 + offset / chunk_bytes, snapshot.snapshot_id_, snapshot.last_included_index_,
+                                  snapshot.last_included_term_, offset, snapshot.payload_size_,
+                                  snapshot.payload_checksum_, false, std::move(data)});
   }
   EXPECT_EQ(cluster.Transport().Pending(), 0);
 
+  uint64_t logical_time = 150;
   auto take_snapshot_request = [&](NodeId from, NodeId to) -> std::optional<InstallSnapshotRequest> {
-    std::optional<InstallSnapshotRequest> result;
-    for (const auto &envelope : cluster.Transport().TakeAll()) {
-      if (envelope.from_ == from && envelope.to_ == to &&
-          std::holds_alternative<InstallSnapshotRequest>(envelope.message_)) {
-        EXPECT_FALSE(result.has_value());
-        result = std::get<InstallSnapshotRequest>(envelope.message_);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    // This scenario models a legacy peer: allow Offer to time out, then wait
+    // for the real background encoder. Keep all original chunk/ACK oracles.
+    while (std::chrono::steady_clock::now() < deadline) {
+      std::optional<InstallSnapshotRequest> result;
+      bool offer = false;
+      for (const auto &envelope : cluster.Transport().TakeAll()) {
+        if (envelope.from_ != from || envelope.to_ != to) continue;
+        offer |= std::holds_alternative<SnapshotOfferRequest>(envelope.message_);
+        if (const auto *request = std::get_if<InstallSnapshotRequest>(&envelope.message_)) {
+          if (result) EXPECT_EQ(result->request_id_, request->request_id_);
+          result = *request;
+        }
       }
+      if (result) return result;
+      if (offer) logical_time += 50;
+      cluster.Node(from).Tick(logical_time);
+      std::this_thread::yield();
     }
-    return result;
+    return std::nullopt;
   };
   auto take_snapshot_response = [&](NodeId from, NodeId to) -> std::optional<InstallSnapshotResponse> {
     std::optional<InstallSnapshotResponse> result;
@@ -1307,7 +1323,6 @@ TEST(RaftNodeTest, HeartbeatsCannotStarveMultiChunkSnapshotProgress) {
 
   cluster.Transport().SetLinkEnabled(1, 3, true);
   cluster.Transport().SetLinkEnabled(3, 1, true);
-  uint64_t logical_time = 150;
   cluster.Node(1).Tick(logical_time);
   auto current = take_snapshot_request(1, 3);
   ASSERT_TRUE(current.has_value());

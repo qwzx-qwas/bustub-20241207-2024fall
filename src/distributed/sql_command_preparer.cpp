@@ -20,6 +20,7 @@
 #include "catalog/catalog_snapshot.h"
 #include "common/enums/statement_type.h"
 #include "common/util/string_util.h"
+#include "execution/executor_factory.h"
 #include "execution/plans/delete_plan.h"
 #include "execution/plans/filter_plan.h"
 #include "execution/plans/insert_plan.h"
@@ -27,6 +28,7 @@
 #include "execution/plans/seq_scan_plan.h"
 #include "execution/plans/update_plan.h"
 #include "execution/plans/values_plan.h"
+#include "optimizer/optimizer.h"
 #include "planner/planner.h"
 
 namespace bustub {
@@ -215,19 +217,31 @@ auto MutationFilter(const AbstractPlanNodeRef &child) -> std::shared_ptr<const F
   return filter;
 }
 
-auto PrepareDelete(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t client_id, uint64_t request_id,
-                   const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch) -> TransactionCommandBatch {
+// The optimized plan owns the nodes referenced by the executor.
+struct MutationCandidates {
+  AbstractPlanNodeRef plan_;
+  std::unique_ptr<AbstractExecutor> executor_;
+  MutationCandidates(const AbstractPlanNodeRef &filter, ExecutorContext *context) {
+    Optimizer optimizer(*context->GetCatalog(), false);
+    plan_ = optimizer.Optimize(filter);
+    executor_ = ExecutorFactory::CreateExecutor(context, plan_);
+    executor_->Init();
+  }
+};
+
+auto PrepareDelete(const AbstractPlanNodeRef &plan, Catalog *catalog, ExecutorContext *context, uint64_t client_id,
+                   uint64_t request_id, const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch)
+    -> TransactionCommandBatch {
   const auto deletion = std::dynamic_pointer_cast<const DeletePlanNode>(plan);
   const auto table = catalog->GetTable(deletion->GetTableOid());
   static_cast<void>(PrimaryIndex(*catalog, table));
   const auto filter = MutationFilter(deletion->GetChildPlan());
   std::vector<ReplicatedCommand> commands;
-  for (auto iterator = table->table_->MakeIterator(); !iterator.IsEnd(); ++iterator) {
-    const auto [meta, tuple] = iterator.GetTuple();
-    const auto selected = filter->GetPredicate()->Evaluate(&tuple, filter->GetChildPlan()->OutputSchema());
-    if (meta.is_deleted_ || selected.IsNull() || !selected.GetAs<bool>()) {
-      continue;
-    }
+  auto candidates = MutationCandidates(filter, context);
+  Tuple tuple;
+  RID rid;
+  while (candidates.executor_->Next(&tuple, &rid)) {
+    const auto meta = table->table_->GetTupleMeta(rid);
     const auto key =
         PrimaryKeyCodecV1::Encode(tuple.GetValue(&table->schema_, table->replicated_primary_key_->column_oid_));
     commands.emplace_back(DeleteRowCommand{table->oid_, key, static_cast<uint64_t>(meta.ts_),
@@ -236,19 +250,19 @@ auto PrepareDelete(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t c
   return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, std::move(commands));
 }
 
-auto PrepareUpdate(const AbstractPlanNodeRef &plan, Catalog *catalog, uint64_t client_id, uint64_t request_id,
-                   const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch) -> TransactionCommandBatch {
+auto PrepareUpdate(const AbstractPlanNodeRef &plan, Catalog *catalog, ExecutorContext *context, uint64_t client_id,
+                   uint64_t request_id, const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch)
+    -> TransactionCommandBatch {
   const auto update = std::dynamic_pointer_cast<const UpdatePlanNode>(plan);
   const auto table = catalog->GetTable(update->GetTableOid());
   static_cast<void>(PrimaryIndex(*catalog, table));
   const auto filter = MutationFilter(update->GetChildPlan());
   std::vector<ReplicatedCommand> commands;
-  for (auto iterator = table->table_->MakeIterator(); !iterator.IsEnd(); ++iterator) {
-    const auto [meta, tuple] = iterator.GetTuple();
-    const auto selected = filter->GetPredicate()->Evaluate(&tuple, filter->GetChildPlan()->OutputSchema());
-    if (meta.is_deleted_ || selected.IsNull() || !selected.GetAs<bool>()) {
-      continue;
-    }
+  auto candidates = MutationCandidates(filter, context);
+  Tuple tuple;
+  RID rid;
+  while (candidates.executor_->Next(&tuple, &rid)) {
+    const auto meta = table->table_->GetTupleMeta(rid);
     std::vector<Value> values;
     values.reserve(update->target_expressions_.size());
     for (const auto &expression : update->target_expressions_) {
@@ -298,10 +312,10 @@ auto SqlCommandPreparer::Prepare(const std::string &sql, uint64_t client_id, uin
     return PrepareInsert(planner.plan_, catalog_, client_id, request_id, request_fingerprint, schema_epoch);
   }
   if (statement->type_ == StatementType::DELETE_STATEMENT) {
-    return PrepareDelete(planner.plan_, catalog_, client_id, request_id, request_fingerprint, schema_epoch);
+    return PrepareDelete(planner.plan_, catalog_, context_, client_id, request_id, request_fingerprint, schema_epoch);
   }
   if (statement->type_ == StatementType::UPDATE_STATEMENT) {
-    return PrepareUpdate(planner.plan_, catalog_, client_id, request_id, request_fingerprint, schema_epoch);
+    return PrepareUpdate(planner.plan_, catalog_, context_, client_id, request_id, request_fingerprint, schema_epoch);
   }
   throw std::runtime_error("distributed SQL prepare only accepts write statements");
 }

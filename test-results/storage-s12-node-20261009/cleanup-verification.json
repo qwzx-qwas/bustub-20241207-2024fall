@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-09",
+  "stage_archive_sha256": "d5da9ac77a99ea751e3c237b165c0ccabfc57fbff279cbd3f3d07a1a64f53a89",
+  "results_sha256": "0f811b331da09670e40d83b0b357303a83c23285aa8b0004e8731a560990d010",
+  "deleted_task_owned_directories": [
+    "/tmp/s12-node-work",
+    "/tmp/s12-node-archive",
+    "/tmp/s12-node-evidence",
+    "/tmp/s12-review",
+    "/tmp/s12-review2",
+    "/tmp/s12-review3",
+    "/tmp/s12-final-audit"
+  ],
+  "all_task_directories_absent": true,
+  "deleted_python_cache": [
+    "test/storage_acceptance/__pycache__",
+    "test/support/__pycache__"
+  ],
+  "remaining_task_nodes_drivers_proxies": [],
+  "source_archives_verified": 28,
+  "result_files_verified": 2431,
+  "retained": "one current F34 source package; one current S12-node result package; valid historical module evidence; pre-existing GCC16 toolchain",
+  "performance_and_shutdown_qualified": false,
+  "committed": false,
+  "review_checks": {
+    "ClosePressure": "passed on review3 source",
+    "StorePressure": "passed on review3 source",
+    "bounded_writer_removal_mutation": "historical review evidence; not rerun in review3",
+    "original_C4": "passed on review3 source; 54.164 s; cluster_exit=0; boundary=82; 8 post-restart writes",
+    "C1_and_low_cache_P2": "Both rerun in final-review; failed; commit condition not satisfied",
+    "MetadataAdmission": "expanded checkpoint scenario passed on review3 source",
+    "admission_mutations": "three prior mutations in review2, not rerun in review3",
+    "JournalAdmission": "data plus separate Flush permanent capacity, transient Full, replay passed",
+    "checkpoint_journal_mutations": "both designated failures detected on review3 source",
+    "original_C1": "rerun: failed after updates, NOT_LEADER; 51.764 s",
+    "low_cache_P2": "rerun: observation_incomplete; 362.419 s; cluster_exit=-9; no measurement window",
+    "DiskSchedulerTest": "existing course test passed; scheduler absent from production library"
+  },
+  "archive_verification": {
+    "source_archives_verified": 28,
+    "stage_files_verified": 16,
+    "deployment_files_verified": 12,
+    "production_files_verified": 497,
+    "acceptance_files_verified": 17,
+    "build_files_verified": 1,
+    "result_files_verified": 2431,
+    "final_source_files_verified": 524,
+    "stage_archive_sha256": "d5da9ac77a99ea751e3c237b165c0ccabfc57fbff279cbd3f3d07a1a64f53a89",
+    "results_sha256": "0f811b331da09670e40d83b0b357303a83c23285aa8b0004e8731a560990d010"
+  },
+  "process_check_scope": "host PID namespace; only final-audit build or proxy arguments",
+  "commit_reason": "Original qualification failures remain; user required no remaining problems before commit.",
+  "known_bad_f01_archive_absent": true,
+  "current_f34_source_packages": 1,
+  "current_s12_node_result_packages": 1
+}

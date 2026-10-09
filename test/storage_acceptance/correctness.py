@@ -5,7 +5,7 @@ import time
 
 from adapter import RequestFailure, retryable
 from content import bump, c1_updates, c1_deletes, c1_reinserts, history_operations, insert_rows, read_point
-from faults import DropResponse, FaultIO, Network, NotCovered
+from faults import DropResponse, FaultIO, Network, NotCovered, is_snapshot_request
 from runtime import write_json
 from workload import prepare, verify_all
 
@@ -318,7 +318,7 @@ def c5(adapter, root, config, control, cluster):
     # and proves replica contents at a fixed boundary, not linearizable service.
     verify_all(adapter, oracle, config["rows"], "verify_target", control.deadline,
                endpoint=cluster.endpoint(target), stale=True)
-    if config["variant"] == "short" and any(event["event"] == "forwarded" and event.get("type") == 5 and
+    if config["variant"] == "short" and any(event["event"] == "forwarded" and is_snapshot_request(event) and
                                              event.get("to") == target for event in network.events(since)):
         raise NotCovered("short path installed a snapshot during target verification")
     write_json(root / "catchup.json", {"variant": config["variant"], "target": target, "L": lower,

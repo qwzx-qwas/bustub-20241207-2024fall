@@ -279,10 +279,7 @@ struct ObjectReferenceManager::Impl {
     std::vector<Owned> owned;
     const auto owned_lower = Key(OwnedRange, object, allocation.range_.begin_);
     size_t examined = 0;
-    for (const auto &entry : base.Scan(owned_lower, limit + 1)) {
-      if (!SamePrefix(entry.key_, owned_lower) || entry.key_.item_ >= allocation.range_.end_) {
-        break;
-      }
+    for (const auto &entry : base.Scan(owned_lower, Key(OwnedRange, object, allocation.range_.end_), limit + 1)) {
       if (++examined > limit) {
         Fail(ObjectMappingErrorCode::ResourceUnavailable, "ownership reclaim scan exceeds budget");
       }
@@ -301,10 +298,7 @@ struct ObjectReferenceManager::Impl {
     std::vector<std::pair<MetadataKey, RetiredObjectRange>> pending;
     std::vector<Interval> dead{{allocation.range_.begin_ + allocation.initialized_, allocation.range_.end_}};
     size_t pending_count = 0;
-    for (const auto &entry : base.Scan(pending_lower, limit + 1)) {
-      if (!SamePrefix(entry.key_, pending_lower)) {
-        break;
-      }
+    for (const auto &entry : base.Scan(pending_lower, PrefixEnd(pending_lower), limit + 1)) {
       if (++examined > limit) {
         Fail(ObjectMappingErrorCode::ResourceUnavailable, "retirement reclaim scan exceeds budget");
       }
@@ -347,8 +341,7 @@ struct ObjectReferenceManager::Impl {
     for (const auto range : candidates) {
       const auto unit = context_->unit_;
       const auto lower = Key(SharedUnit, object, range.begin_ / unit);
-      for (const auto &entry : base.Scan(lower, limit + 1)) {
-        if (!SamePrefix(entry.key_, lower) || entry.key_.item_ >= range.end_ / unit) break;
+      for (const auto &entry : base.Scan(lower, Key(SharedUnit, object, range.end_ / unit), limit + 1)) {
         if (++examined > limit) Fail(ObjectMappingErrorCode::ResourceUnavailable, "shared reclaim scan exceeds budget");
         const auto f = Decode(entry.value_, 2);
         Require(f[0] != 0 && f[1] == allocation_id, "shared range has wrong allocation identity");

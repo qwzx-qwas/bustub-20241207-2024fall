@@ -87,7 +87,7 @@ def message_view(frame: bytes) -> tuple[int, int, str, int, bytes]:
     return from_node, to_node, group_id, message_type, message
 
 
-def snapshot_request(message: bytes) -> dict[str, int | str | bytes]:
+def snapshot_request(message: bytes, message_type: int = 5) -> dict[str, int | str | bytes]:
     offset = 0
     term, offset = take_u64(message, offset)
     leader_id, offset = take_u64(message, offset)
@@ -100,7 +100,30 @@ def snapshot_request(message: bytes) -> dict[str, int | str | bytes]:
     payload_checksum, offset = take_u32(message, offset)
     done, offset = take_u8(message, offset)
     data, offset = take_blob(message, offset)
-    if offset != len(message) or done not in (0, 1) or done != int(chunk_offset + len(data) == total_size):
+    logical_size = len(data)
+    if message_type == 9:
+        session, offset = take_u64(message, offset)
+        reuse, offset = take_u8(message, offset)
+        if not session or reuse not in (0, 1):
+            raise RuntimeError("invalid delta snapshot observation")
+        if reuse:
+            _, offset = take_u64(message, offset)
+            logical_size, offset = take_u64(message, offset)
+            if data or not logical_size:
+                raise RuntimeError("invalid REUSE snapshot observation")
+    elif message_type == 12:
+        _, offset = take_u64(message, offset)  # Optional delta session.
+        encoding, offset = take_u8(message, offset)
+        logical_size, offset = take_u32(message, offset)
+        session, offset = take_u64(message, offset)
+        if encoding != 1 or not logical_size or not session or not data:
+            raise RuntimeError("invalid compressed snapshot observation")
+    elif message_type != 5:
+        raise RuntimeError("not an InstallSnapshot request")
+    # Observe the logical continuation boundary, without decoding or copying
+    # snapshot contents. All three request encodings share response type 6.
+    if (offset != len(message) or done not in (0, 1) or
+            chunk_offset + logical_size > total_size or done != int(chunk_offset + logical_size == total_size)):
         raise RuntimeError("invalid InstallSnapshot request")
     try:
         snapshot_id = snapshot_id_bytes.decode("utf-8")
@@ -118,6 +141,8 @@ def snapshot_request(message: bytes) -> dict[str, int | str | bytes]:
         "payload_checksum": payload_checksum,
         "done": done,
         "data_size": len(data),
+        "logical_size": logical_size,
+        "snapshot_request": True,
         "data": data,
     }
 
@@ -296,8 +321,8 @@ class Proxy:
             detail = {}
             if message_type in (3, 4):
                 detail = append_summary(message_type, message)
-            elif message_type == 5:
-                detail = snapshot_request(message)
+            elif message_type in (5, 9, 12):
+                detail = snapshot_request(message, message_type)
                 detail.pop("data")
             elif message_type == 6:
                 detail = snapshot_response(message)

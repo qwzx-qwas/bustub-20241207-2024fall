@@ -1,8 +1,10 @@
 #include "raft/object_storage.h"
 
 #include <algorithm>
+#include <chrono>
 #include <map>
 #include <stdexcept>
+#include <thread>
 
 #include "common/byte_codec.h"
 #include "object_log_store.h"
@@ -130,7 +132,13 @@ void RaftObjectStorage::Commit(ObjectTransaction transaction) {
     }
   }
   auto submitted = storage_->SubmitObjects(transaction);
-  if (submitted.admission_ == IOAdmission::Full) throw MetadataCommitBusy("Raft object admission is full");
+  // Full has not consumed transaction. Keep this exact operation while another
+  // progress owner holds the bounded lane; S13 executes this wait off the node
+  // lock. Never retry an accepted/possibly durable transaction here.
+  while (submitted.admission_ == IOAdmission::Full) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    submitted = storage_->SubmitObjects(transaction);
+  }
   if (submitted.admission_ != IOAdmission::Accepted)
     throw MetadataError(MetadataErrorCode::NotReady, "Raft object submission stopped");
   submitted.ticket_->Wait();
@@ -240,7 +248,10 @@ auto RaftObjectStorage::Collect(size_t limit) -> size_t {
     log_turn_ = !log_turn_;
     if (log_turn) {
       std::shared_ptr<ObjectLogStore> log;
-      { std::lock_guard lock(state_->mutex_); log = log_.lock(); }
+      {
+        std::lock_guard lock(state_->mutex_);
+        log = log_.lock();
+      }
       try {
         if (log && log->Maintain()) continue;
       } catch (const MetadataCommitBusy &) {

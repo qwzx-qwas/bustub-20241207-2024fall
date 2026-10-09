@@ -22,7 +22,7 @@ namespace {
 
 auto Usage() -> std::string {
   return R"(usage:
-  bustub-client status --endpoint HOST:PORT --request-id ID
+  bustub-client status --endpoint HOST:PORT --request-id ID [--storage 0|1]
   bustub-client write  --endpoint HOST:PORT --client-id ID --request-id ID --sql SQL
   bustub-client read   --endpoint HOST:PORT --request-id ID [--consistency linearizable|stale] --sql SQL
   optional for all commands: --timeout-ms N)";
@@ -99,7 +99,9 @@ auto main(int argc, char **argv) -> int {
 
     bustub::ClientRequestV1 request;
     if (action == "status") {
-      request = bustub::ClientStatusRequestV1{request_id};
+      const auto storage = values.count("--storage") ? ParseUnsigned(values.at("--storage"), "storage status") : 0;
+      if (storage > 1) throw std::runtime_error("--storage must be 0 or 1");
+      request = bustub::ClientStatusRequestV1{request_id, storage == 1};
     } else if (action == "write") {
       request = bustub::ClientWriteRequestV1{ParseUnsigned(Required(values, "--client-id"), "client ID"), request_id,
                                              Required(values, "--sql")};

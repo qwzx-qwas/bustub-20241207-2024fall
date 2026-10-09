@@ -526,6 +526,20 @@ auto DataAllocator::SetQuarantine(const MetadataSnapshot &base, const std::vecto
                                   bool isolated) -> JournalResult {
   return impl_->Change(base, ranges, {}, QUARANTINE, isolated, nullptr);
 }
+auto DataAllocator::Usage() const -> DataAllocationUsage {
+  auto &c = *impl_->context_;
+  std::lock_guard lock(c.mutex_);
+  c.Ready();
+  const auto unit = c.options_.allocation_bytes_;
+  DataAllocationUsage result{c.units_ * unit, 0, 0, 0, 0};
+  for (size_t i = 0; i < c.committed_.size(); ++i) {
+    result.committed_bytes_ += __builtin_popcountll(c.committed_[i]) * unit;
+    result.reserved_bytes_ += __builtin_popcountll(c.reserved_[i]) * unit;
+    result.quarantined_bytes_ += __builtin_popcountll(c.quarantine_[i]) * unit;
+    result.free_bytes_ += __builtin_popcountll(c.Free(i)) * unit;
+  }
+  return result;
+}
 void DataAllocator::Close() { impl_->Close(); }
 
 }  // namespace bustub

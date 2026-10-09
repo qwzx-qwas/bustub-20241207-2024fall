@@ -2,7 +2,7 @@
 
 Performance protocol **t0-c-2** is defined in [the approved bounded-observation plan](../../docs/storage_redesign/testing_performance_observation.md). Service errors are recorded; they no longer require production optimization before measurement. Logical deadlines are censored observations, not successful samples. Stage budgets replace the old shared 600-second performance ceiling.
 
-**Status:** prior C1–C5 evidence is retained. The v2 runs have finished: P1/P2/P4 completed measurement and business validation; P3 completed a one-hour observation and business validation but did not cover full turnover. Historical runs recorded 25 passing harness checks; the later design audit found self-check gaps, retained in the [module archive](../archives/README.md). Those passes do not establish complete oracle coverage. See [the v2 execution record](../../docs/storage_redesign/testing_execution_20260921.md) and [the v2 plan/review](../../docs/storage_redesign/testing_performance_observation.md).
+**Historical file-backend status:** prior C1–C5 evidence is retained. The v2 runs have finished: P1/P2/P4 completed measurement and business validation; P3 completed a one-hour observation and business validation but did not cover full turnover. Historical runs recorded 25 passing harness checks; the later design audit found self-check gaps, retained in the [module archive](../archives/README.md). Those passes do not establish complete oracle coverage. See [the v2 execution record](../../docs/storage_redesign/testing_execution_20260921.md) and [the v2 plan/review](../../docs/storage_redesign/testing_performance_observation.md).
 See the [final review, execution and archive record](../../docs/storage_redesign/testing_execution_20260920.md).
 See [A](../../docs/storage_redesign/testing_batch_a.md), [B and its implementation prompt](../../docs/storage_redesign/testing_batch_b.md),
 [C and its prompt](../../docs/storage_redesign/testing_batch_c.md), the [A/B/C review](../../docs/storage_redesign/testing_review_abc.md)
@@ -228,7 +228,7 @@ timeout setting whose old default stays 3 seconds. The production client and cod
 
 ## Cleanup review
 
-No production interface was added. No old caller or production path was made obsolete by this test-only target.
+The original file-backend test target added no production interface. The S12 adapter below uses the new, public operational storage-status request; it is not a test hook.
 Old test files remain: existing protocol, session and recovery tests cover boundaries healthy C1/P2 do not.
 Whole-UPDATE spelling assertions were removed from this suite's self-checks; literal payload preservation,
 independent expected rows, unknown-write handling and window accounting remain.
@@ -236,3 +236,24 @@ The earlier `test/legacy_raft/storage_baseline.py` is an exploratory script, not
 It also contains read/churn/recovery workloads, whose common-suite replacements are implemented in B/C; review retirement
 after those replacements have been reviewed and validated. This suite does not call it or copy its protocol decoder. Prior raw artifacts remain
 preserved and are not accepted baseline evidence.
+
+## S12 object deployment adapter
+
+Add `--storage-template docs/storage_redesign/node-storage.example.conf` to run the
+same scenarios through the production object backend. The runner sizes three new,
+test-owned devices, gives each node independent persistent identities, invokes
+`bustub-node --storage-action initialize` once, then uses Open for every start.
+No business input, oracle, fault timeline or fixed row count changes.
+
+The production config is explicit `key=value`; see [the deployment protocol](../../docs/storage_redesign/s12_node_deployment.md).
+`bustub-client status --storage 1` carries a versioned storage JSON payload. At a target 1 Hz the adapter uses the
+existing TCP driver to sample committed Data allocation bytes and B cache/scrub
+progress. Missing observations are marked incomplete. Host file blocks are kept
+as artifact usage, not mistaken for internal space reuse. This extra status
+traffic is part of the recorded observer overhead; Data usage excludes the fixed
+Metadata and Journal regions, so it is not directly comparable with old file totals.
+
+Use a compiler/library supporting the repository's C++23 zero-page lifetime
+check (the old clang-14 build example above describes the historical baseline).
+
+本轮代理观察同时识别原文、增量和压缩快照请求；逻辑进度按原始/复用长度计算，仍要求匹配 type 6 的非 stale 完成响应，随后验证目标数据。C5 业务与故障判据不变；只识别旧 type 5 会漏判已经发生的压缩安装。

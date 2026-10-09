@@ -31,10 +31,7 @@ void Cut(const MetadataSnapshot &base, ObjectKey key, uint64_t begin, uint64_t c
     }
   }
   size_t affected = 0;
-  for (const auto &entry : base.Scan(lower, changes.options_.max_update_entries_ + 1)) {
-    if (!SamePrefix(entry.key_, lower) || entry.key_.item_ >= cut_end) {
-      break;
-    }
+  for (const auto &entry : base.Scan(lower, Key(Mapping, key, cut_end), changes.options_.max_update_entries_ + 1)) {
     if (++affected > changes.options_.max_update_entries_) {
       Fail(ObjectMappingErrorCode::ResourceUnavailable, "object update touches too many mappings");
     }
@@ -131,7 +128,7 @@ auto ObjectMappingSnapshot::Resolve(ObjectKey key, uint64_t offset, uint64_t len
       lower = floor->key_;
     }
   }
-  const auto entries = base_.Scan(lower, context_->options_.max_query_spans_ + 1);
+  const auto entries = base_.Scan(lower, Key(Mapping, key, end), context_->options_.max_query_spans_ + 1);
   auto add = [&](ObjectSpan span) {
     if (result.spans_.size() == context_->options_.max_query_spans_) {
       return false;
@@ -153,9 +150,6 @@ auto ObjectMappingSnapshot::Resolve(ObjectKey key, uint64_t offset, uint64_t len
     return true;
   };
   for (const auto &entry : entries) {
-    if (!SamePrefix(entry.key_, lower) || entry.key_.item_ >= end) {
-      break;
-    }
     const auto span = ReadSpan(entry);
     if (span.offset_ > result.next_offset_ &&
         !add({result.next_offset_, span.offset_ - result.next_offset_, std::nullopt})) {
@@ -205,8 +199,7 @@ auto ObjectMappingSnapshot::EstimateRewrite(ObjectKey key) const -> std::optiona
   const auto lower = Key(Mapping, key, 0);
   std::set<uint64_t> units;
   size_t examined = 0;
-  for (const auto &entry : base_.Scan(lower, limit + 1)) {
-    if (!SamePrefix(entry.key_, lower)) break;
+  for (const auto &entry : base_.Scan(lower, PrefixEnd(lower), limit + 1)) {
     if (++examined > limit) return std::nullopt;
     const auto span = ReadSpan(entry);
     if (span.data_->owner_) continue;
@@ -228,10 +221,7 @@ auto ObjectMappingSnapshot::Retired(ObjectKey key, uint64_t from_id) const -> Re
   const auto d = ReadDescription(base_, key, true);
   RetiredRangePage result{from_id, true, {}};
   const auto lower = Key(PendingRange, key, from_id);
-  for (const auto &entry : base_.Scan(lower, context_->options_.max_query_spans_ + 1)) {
-    if (!SamePrefix(entry.key_, lower)) {
-      break;
-    }
+  for (const auto &entry : base_.Scan(lower, PrefixEnd(lower), context_->options_.max_query_spans_ + 1)) {
     if (result.ranges_.size() == context_->options_.max_query_spans_) {
       result.complete_ = false;
       return result;
@@ -415,10 +405,7 @@ auto ObjectMappingSnapshot::Controls(ObjectKey owner, uint64_t from, size_t limi
   }
   const auto lower = Key(object_mapping_detail::Control, owner, from);
   std::vector<ObjectControlEntry> result;
-  for (const auto &entry : base_.Scan(lower, limit)) {
-    if (!SamePrefix(entry.key_, lower)) {
-      break;
-    }
+  for (const auto &entry : base_.Scan(lower, PrefixEnd(lower), limit)) {
     result.push_back({entry.key_.item_, entry.value_});
   }
   return result;
@@ -555,6 +542,15 @@ auto ObjectMappingAccess::ReplaceChecked(ObjectMappingStore &store, const Object
                                          const std::vector<uint32_t> &checksums) -> JournalResult {
   return store.impl_->Change(base, key, offset, length, &reservation, false, checksums);
 }
+void ObjectMappingAccess::MaintainMetadata(ObjectMappingStore &store, size_t pages, bool checkpoint) {
+  auto &metadata = store.impl_->metadata_;
+  const auto written = metadata.Writeback(pages);
+  if (written.outcome_ == MetadataWritebackOutcome::Failed) std::rethrow_exception(written.error_);
+  if (checkpoint) {
+    const auto result = metadata.Checkpoint(pages);
+    if (result.outcome_ != MetadataCheckpointOutcome::Durable) std::rethrow_exception(result.error_);
+  }
+}
 auto ObjectMappingAccess::ScrubMetadata(ObjectMappingStore &store) -> bool {
   return store.impl_->metadata_.ScrubStep();
 }
@@ -625,8 +621,8 @@ auto ObjectMappingAccess::ReadPayload(ObjectMappingStore &store, const JournalPa
 }
 auto ObjectMappingAccess::Pending(const ObjectMappingSnapshot &base, size_t limit) -> std::vector<DeferredTarget> {
   std::vector<DeferredTarget> result;
-  for (const auto &entry : base.base_.Scan({uint64_t{Deferred} << 56, 0, 0}, limit)) {
-    if ((entry.key_.category_ >> 56) != Deferred) break;
+  for (const auto &entry : base.base_.Scan({uint64_t{Deferred} << 56, 0, 0},
+                                        {uint64_t{Deferred + 1} << 56, 0, 0}, limit)) {
     ObjectKey object{entry.key_.category_ & SPACE_LIMIT, entry.key_.owner_};
     auto payload = base.base_.Payload({object.space_, object.number_, entry.key_.item_});
     Require(payload.has_value(), "Deferred target has no recoverable body");
@@ -653,17 +649,14 @@ auto ObjectMappingAccess::Garbage(const ObjectMappingSnapshot &base, MetadataKey
     cursor = {category, 0, 0};
   }
   ObjectGCPage result{cursor, {}};
-  const auto entries = base.base_.Scan(cursor, base.context_->options_.max_query_spans_);
+  const auto entries = base.base_.Scan(cursor, {uint64_t{OwnedRange} << 56, 0, 0},
+                                     base.context_->options_.max_query_spans_);
   for (const auto &entry : entries) {
-    if (entry.key_.category_ >= (uint64_t{OwnedRange} << 56)) {
-      result.next_ = {category, 0, 0};
-      return result;
-    }
     const auto f = Decode(entry.value_, 5);
     result.candidates_.push_back({{entry.key_.category_ & SPACE_LIMIT, entry.key_.owner_}, f[4]});
     result.next_ = {entry.key_.category_, entry.key_.owner_, Advance(entry.key_.item_)};
   }
-  if (entries.empty()) {
+  if (entries.size() < base.context_->options_.max_query_spans_) {
     result.next_ = {category, 0, 0};
   }
   return result;

@@ -35,6 +35,7 @@ struct ClientReadRequestV1 {
 
 struct ClientStatusRequestV1 {
   uint64_t request_id_{0};
+  bool storage_{false};  // Opt-in frame type 5; legacy STATUS and its empty payload stay unchanged.
 };
 
 using ClientRequestV1 = std::variant<ClientWriteRequestV1, ClientReadRequestV1, ClientStatusRequestV1>;

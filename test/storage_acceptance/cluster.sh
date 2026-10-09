@@ -2,8 +2,8 @@
 # Test-only control channel. The shared harness owns processes and wait statuses.
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/../support/raft_process_harness.sh"
-if [[ $# -ne 6 ]]; then
-  echo "usage: cluster.sh BUILD PORT_BASE NEW_NODE_ROOT BUFFER_PAGES SNAPSHOT_THRESHOLD PROXIES" >&2
+if [[ $# -ne 7 ]]; then
+  echo "usage: cluster.sh BUILD PORT_BASE NEW_NODE_ROOT BUFFER_PAGES SNAPSHOT_THRESHOLD PROXIES STORAGE_CONFIG_DIR" >&2
   exit 2
 fi
 export RAFT_CLIENT_TIMEOUT_MS=5000
@@ -18,6 +18,14 @@ if [[ $6 == 1 ]]; then
   for node in 1 2 3; do
     raft_start_message_proxy "$node" "$((RAFT_PORT_BASE + 200 + node))" \
       "${RAFT_ARTIFACT_ROOT}/proxy-${node}" --observe --node-id "$node"
+  done
+fi
+export RAFT_STORAGE_CONFIG_DIR=$7
+if [[ -n $RAFT_STORAGE_CONFIG_DIR ]]; then
+  for node in 1 2 3; do
+    raft_node_arguments "$node"
+    "$RAFT_NODE_BIN" "${RAFT_NODE_ARGS[@]}" --storage-action initialize \
+      >"${RAFT_ARTIFACT_ROOT}/initialize-${node}.log" 2>&1
   done
 fi
 raft_start_all_nodes

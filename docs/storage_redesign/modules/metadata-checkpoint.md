@@ -255,3 +255,10 @@ F09 交付时，Writeback 至 Clean 只表示所观察视图已写回，当时 O
 F10 允许 checkpoint 保存仍待落位的任务及短引用；不强等后台落位。Journal 裁剪以正文实际保留为约束，不能只凭 checkpoint LSN。暂时排除元数据修改时用 MetadataCommitBusy 表达可重试准入，不把真正 NoSpace 当作无限重试条件。
 
 执行顺序、格式/预算、开源机制如何内化及后续 prompt 统一见 [S10 协议](../s10_deferred_protocol.md)。本模块不复制测试套件；复用 F27 归档及既有回归，按主方案八项审查，先逻辑分析再测试，未约定内容用易懂的话汇报。实际证据及未覆盖项见 [执行记录](../s10_execution_20261005.md)。
+
+
+## 2026-10-09 正式节点交接
+
+F34 正式部署复用本模块，由 F22 原维护角色周期写回/发布 B checkpoint；无新提交则跳过重复发布。接口仍返回原 Durable/NotPublished/Indeterminate，临时排他单独返回 MetadataCommitBusy。 详细边界统一见 [S12 节点部署协议](../s12_node_deployment.md)。
+
+2026-10-09 checkpoint 准入复查：F08/F10 共用 Journal 准入分类；Full 为可重试 Busy，NoSpace 与 Stopped/Faulted 不混为 Busy。F07 在准入前联合检查数据批次与独立 Flush 的总名额及对齐缓冲，单批超过固定容量抛既有 RequestTooLarge。拒绝不推进日志游标；checkpoint 退出释放修改门控。沿用 F02 计算和 F22 调度，不新增预算或重试模块；共同证据归 F34，不复制 F07/F10 测试。见 [节点部署 §2](../s12_node_deployment.md#2-逻辑审查发现的生产交接)。

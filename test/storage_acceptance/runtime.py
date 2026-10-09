@@ -2,6 +2,8 @@
 
 from concurrent.futures import Future, TimeoutError as FutureTimeout
 import json
+import hashlib
+import uuid
 import os
 from pathlib import Path
 import select
@@ -187,6 +189,9 @@ class Driver:
 class Cluster:
     def __init__(self, build, root, config):
         self.root = root
+        self.driver = None
+        self.object_storage = bool(config.get("storage_template"))
+        provision = self._provision(Path(config["storage_template"])) if self.object_storage else ""
         self.port_base = config["port_base"]
         self._state_lock = threading.Lock()
         self.running = {}
@@ -197,7 +202,7 @@ class Cluster:
         script = Path(__file__).with_name("cluster.sh")
         command = ["bash", str(script), str(build), str(self.port_base), str(root / "nodes"),
                    str(config["buffer_pages"]), str(config["snapshot_threshold"]),
-                   "1" if config.get("proxies") else "0"]
+                   "1" if config.get("proxies") else "0", str(provision)]
         try:
             self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=self._log, start_new_session=True, bufsize=0)
@@ -218,6 +223,35 @@ class Cluster:
             self.close()
             raise
 
+    def _provision(self, template):
+        # Only this new, test-owned directory is sized. Production initialize
+        # opens existing devices and never truncates them.
+        root = self.root / "provision"
+        root.mkdir()
+        original = template.read_text()
+        fields = {}
+        for line in original.splitlines():
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            key, value = (part.strip() for part in line.split("=", 1))
+            if key in fields:
+                raise ValueError(f"duplicate template key {key}")
+            fields[key] = value
+        capacity = int(fields["create.capacity"])
+        for node in (1, 2, 3):
+            device = root / f"node-{node}.device"
+            with device.open("xb") as output:
+                output.truncate(capacity)
+            values = {**fields, "device.path": str(device.resolve())}
+            for identity in ("storage", "device", "journal"):
+                values[f"identity.{identity}"] = uuid.uuid4().hex
+            (root / f"node-{node}.conf").write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+        (root / "template.conf").write_text(original)
+        write_json(root / "provenance.json", {"template_sha256": hashlib.sha256(original.encode()).hexdigest(),
+                                             "space_metric": "Data allocation bitmap; excludes fixed B/Journal regions"})
+        return root.resolve()
+
     def event(self, event, **fields):
         self._timeline.write(json.dumps({"event": event, "monotonic_ns": time.monotonic_ns(), **fields}) + "\n")
 
@@ -237,6 +271,28 @@ class Cluster:
         return f"127.0.0.1:{self.port_base + 100 + node}"
 
     def storage_usage(self):
+        if self.object_storage:
+            with self._state_lock:
+                running = dict(self.running)
+            details, unavailable = {}, {}
+            for node in (1, 2, 3):
+                if node not in running:
+                    unavailable[str(node)] = "intentionally stopped"
+                    continue
+                event = self.driver.send("STORAGE_STATUS", self.endpoint(node), 0, 1, "", {"phase": "storage_observation"},
+                                         timeout_ms=1000)
+                try:
+                    payload = json.loads(bytes.fromhex(event["payload_hex"]))
+                    if payload.get("storage_version") != 1:
+                        raise ValueError("missing storage status version")
+                    details[str(node)] = payload
+                except (KeyError, ValueError, TypeError) as error:
+                    unavailable[str(node)] = str(error)
+            by_node = {node: data["data_committed_bytes"] for node, data in details.items()}
+            return {"kind": "object_data_allocations", "by_node": by_node, "details": details,
+                    "complete": not unavailable, "unavailable": unavailable,
+                    "total_bytes": sum(by_node.values()) if not unavailable else None}
+
         # Current backend adapter: database data only, excluding test histories
         # and proxy files. A raw-device backend must supply actual used-space
         # observations, never the size of its preallocated device.

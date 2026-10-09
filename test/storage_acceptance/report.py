@@ -175,25 +175,34 @@ def trend(values):
 
 def summarize_space(root):
     all_rounds = list(records(root / "space_rounds.jsonl"))
-    rounds = [row for row in all_rounds if row.get("complete", True)]
+    rounds = [row for row in all_rounds if row.get("complete", True) and
+              all(row[side].get("complete", True) and row[side]["total_bytes"] is not None
+                  for side in ("before", "after"))]
     peaks = {row["round"]: max(row["before"]["total_bytes"], row["after"]["total_bytes"]) for row in rounds}
     samples = Counter()
     for sample in records(root / "resources.jsonl"):
         for row in rounds:
             if row["python_start_ns"] <= sample["monotonic_ns"] <= row["python_end_ns"]:
-                samples[row["round"]] += 1
-                peaks[row["round"]] = max(peaks[row["round"]], sample["storage_usage"]["total_bytes"])
+                usage = sample["storage_usage"]
+                if usage.get("complete", True) and usage["total_bytes"] is not None:
+                    samples[row["round"]] += 1
+                    peaks[row["round"]] = max(peaks[row["round"]], usage["total_bytes"])
                 break
     last = rounds[-5:]
     metrics = summarize_windows(root, rounds)
     covered = (len(rounds) == 10 and all(samples[row["round"]] for row in last) and
                rounds[-1]["observed_retention_advances"] - rounds[-6]["observed_retention_advances"] >= 3 and
-               all(row["after"]["kind"] == "filesystem_allocated_blocks" for row in last))
+               all(row["after"].get("complete", True) and row["after"]["kind"] in ("filesystem_allocated_blocks", "object_data_allocations") for row in last))
     ends = trend([row["after"]["total_bytes"] for row in last])
     peak_trend = trend([peaks[row["round"]] for row in last])
     result = {"status": "not_covered", "partial_rounds": [row for row in all_rounds if not row.get("complete", True)],
+              "missing_space_observations": [row["round"] for row in all_rounds
+                                             if any(not row[side].get("complete", True) or row[side]["total_bytes"] is None
+                                                    for side in ("before", "after"))],
               "round_end_trend": ends, "sampled_peak_trend": peak_trend,
-              "scope": "allocated database file blocks; 1Hz observed peaks, not exact peaks or physical flash writes",
+              "scope": ("committed Data allocation units; excludes fixed B/Journal regions" if rounds and
+                        rounds[-1]["after"]["kind"] == "object_data_allocations" else "allocated database file blocks"),
+              "sampling": "1Hz observed peaks, not exact peaks or physical flash writes",
               "rounds": [{**row, "sampled_peak_bytes": peaks[row["round"]],
                           "resource_samples": samples[row["round"]],
                           "metrics": metrics[row["phase"]]} for row in rounds]}

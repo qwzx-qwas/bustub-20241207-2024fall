@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "common/task_executor.h"
 #include "raft/log_store.h"
 #include "raft/snapshot_store.h"
 #include "raft/stable_store.h"
@@ -49,6 +50,7 @@ struct RaftNodeConfig {
   std::string group_id_;
   ElectionTimeoutSource election_timeout_source_{MakeRandomElectionTimeoutSource()};
   std::shared_ptr<ResourceBudget> memory_budget_{};
+  std::function<void()> wake_{};
 };
 
 /** Single-threaded, explicitly ticked Raft core for one static voter group. */
@@ -63,14 +65,19 @@ class RaftNode {
   void Tick(uint64_t now_ms);
   void Receive(NodeId from, const RaftMessage &message);
 
-  /** Returns the locally durable index, or nullopt when this node is not Leader. */
+  /** Returns an accepted index; durable/commit/apply progress follows completion. */
   auto Propose(EntryType type, std::vector<std::byte> payload) -> std::optional<uint64_t>;
   /** Start one non-coalesced current-term quorum probe for a linearizable read. */
   auto StartReadIndex(uint64_t context) -> bool;
   /** Consume a completed probe's read index; nullopt means incomplete or unknown. */
   auto TakeReadIndex(uint64_t context) -> std::optional<uint64_t>;
   void CancelReadIndex(uint64_t context);
-  auto CreateSnapshot() -> RaftSnapshot;
+  auto TakeProposalError(uint64_t index) -> std::exception_ptr;
+  auto CreateSnapshot() -> bool;
+  auto Busy() const -> bool;
+  void Poll();
+  void Drain();
+  auto BusinessTasks() -> TaskExecutor & { return *business_tasks_; }
   auto ReadSnapshotChunk(const RaftSnapshot &snapshot, uint64_t offset, size_t maximum_size) -> std::vector<std::byte>;
 
   auto Role() const -> RaftRole { return role_; }
@@ -80,49 +87,80 @@ class RaftNode {
   auto PublishedAppliedIndex() const -> uint64_t { return published_applied_index_; }
   /** A Leader serves clients only after its current-term NOOP is committed and applied. */
   auto LeaderReady() const -> bool {
-    return role_ == RaftRole::LEADER && leader_barrier_index_ != 0 && last_applied_ >= leader_barrier_index_;
+    return role_ == RaftRole::LEADER && observed_term_ <= hard_state_.current_term_ && leader_barrier_index_ != 0 &&
+           last_applied_ >= leader_barrier_index_;
   }
   auto LeaderId() const -> std::optional<NodeId> { return leader_id_; }
+  auto LastLogIndex() const -> uint64_t { return durable_tip_; }
+  auto LastLogTerm() const -> uint64_t { return durable_tip_term_; }
+  auto SnapshotBaseIndex() const -> uint64_t { return durable_base_; }
   auto Log() const -> const LogStore & { return *log_store_; }
   auto LatestSnapshot() const -> std::optional<RaftSnapshot>;
 
  private:
   friend class RaftNodeTestPeer;
+  class Operation;
+  template <typename F>
+  auto Slow(F work, bool business = false);
+  void Start(Operation operation);
+  void HeartbeatWhileBusy();
+  void RefreshLogTip();
+  auto UpdateLogTip() -> Operation;
+  auto Dispatch(NodeId from, RaftMessage message, ResourceCharge charge) -> Operation;
+  auto RunTick() -> Operation;
+  auto RunProposal(ReplicatedLogEntry entry) -> Operation;
+  auto RunSnapshot() -> Operation;
 
-  void StartElection();
-  void BecomeLeader();
-  void ObserveHigherTerm(uint64_t term);
-  void PersistHardState(uint64_t term, std::optional<NodeId> voted_for, uint64_t commit_index);
+  auto StartElection() -> Operation;
+  auto BecomeLeader() -> Operation;
+  auto ObserveHigherTerm(uint64_t term) -> Operation;
+  auto PersistHardState(uint64_t term, std::optional<NodeId> voted_for, uint64_t commit_index) -> Operation;
   void FailStop();
-  void AppendLogDurably(const std::vector<ReplicatedLogEntry> &entries);
-  void ReplaceLogSuffixDurably(uint64_t from_index, const std::vector<ReplicatedLogEntry> &entries);
-  void InstallLogSnapshotBaseDurably(uint64_t index, uint64_t term, bool retain_old_suffix);
-  void AdvanceLogCommitOrStop(uint64_t committed_index);
+  auto AppendLogDurably(const std::vector<ReplicatedLogEntry> &entries) -> Operation;
+  auto ReplaceLogSuffixDurably(uint64_t from_index, const std::vector<ReplicatedLogEntry> &entries) -> Operation;
+  auto InstallLogSnapshotBaseDurably(uint64_t index, uint64_t term, bool retain_old_suffix) -> Operation;
+  auto AdvanceLogCommitOrStop(uint64_t committed_index) -> Operation;
   void ResetElectionDeadline();
 
-  void Handle(NodeId from, const RequestVoteRequest &request);
-  void Handle(NodeId from, const RequestVoteResponse &response);
-  void Handle(NodeId from, const AppendEntriesRequest &request);
-  void Handle(NodeId from, const AppendEntriesResponse &response);
-  void Handle(NodeId from, const InstallSnapshotRequest &request);
-  void Handle(NodeId from, const InstallSnapshotResponse &response);
-  void Handle(NodeId from, const SnapshotOfferRequest &request);
-  void Handle(NodeId from, const SnapshotOfferResponse &response);
-  void CancelIncomingDelta();
-  void PollSnapshotTasks();
+  auto Handle(NodeId from, const RequestVoteRequest &request) -> Operation;
+  auto Handle(NodeId from, const RequestVoteResponse &response) -> Operation;
+  auto Handle(NodeId from, const AppendEntriesRequest &request) -> Operation;
+  auto Handle(NodeId from, const AppendEntriesResponse &response) -> Operation;
+  auto Handle(NodeId from, const InstallSnapshotRequest &request) -> Operation;
+  auto Handle(NodeId from, const InstallSnapshotResponse &response) -> Operation;
+  auto Handle(NodeId from, const SnapshotOfferRequest &request) -> Operation;
+  auto Handle(NodeId from, const SnapshotOfferResponse &response) -> Operation;
+  auto CancelIncomingDelta() -> Operation;
+  auto PollSnapshotTasks() -> Operation;
 
   void Send(NodeId to, RaftMessage message);
-  void SendAppend(NodeId peer, std::optional<uint64_t> read_context = std::nullopt);
-  void SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_offset = std::nullopt);
-  void BroadcastAppend();
-  void BroadcastReadIndex(uint64_t context);
-  void AdvanceLeaderCommit();
-  void ApplyCommitted();
+  auto SendAppend(NodeId peer, std::optional<uint64_t> read_context = std::nullopt) -> Operation;
+  auto SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_offset = std::nullopt) -> Operation;
+  auto BroadcastAppend() -> Operation;
+  auto BroadcastReadIndex(uint64_t context) -> Operation;
+  auto AdvanceLeaderCommit() -> Operation;
+  auto ApplyCommitted() -> Operation;
   auto HasMajority(size_t votes) const -> bool;
   auto CandidateLogIsUpToDate(uint64_t last_term, uint64_t last_index) const -> bool;
   auto FirstIndexOfTerm(uint64_t index, uint64_t term) const -> uint64_t;
   auto LastIndexOfTerm(uint64_t term) const -> std::optional<uint64_t>;
 
+  std::unique_ptr<Operation> operation_;
+  std::function<bool()> poll_work_;
+  std::unique_ptr<TaskExecutor> storage_tasks_, business_tasks_;
+  std::shared_ptr<ResourceAccount> pending_memory_;
+  struct PendingMessage {
+    NodeId from_;
+    RaftMessage message_;
+    ResourceCharge charge_;
+  };
+  std::deque<PendingMessage> pending_messages_;
+  uint64_t observed_term_{0};
+  uint64_t durable_tip_{0}, durable_tip_term_{0}, durable_base_{0};
+  std::optional<RaftSnapshot> latest_snapshot_;
+  bool draining_{false};
+  bool log_mutating_{false};
+  std::optional<std::pair<uint64_t, std::exception_ptr>> proposal_error_;
   RaftNodeConfig config_;
   std::shared_ptr<RaftTransport> transport_;
   std::unique_ptr<StableStore> stable_store_;
@@ -154,7 +192,7 @@ class RaftNode {
     std::optional<SnapshotDeltaOffer> offer_{std::nullopt};
     std::optional<SnapshotDelta> delta_{std::nullopt};
     std::shared_ptr<InstallSnapshotRequest> chunk_{};
-    std::optional<std::future<std::shared_ptr<InstallSnapshotRequest>>> work_{std::nullopt};
+    std::shared_ptr<TaskExecutor::Result<std::shared_ptr<InstallSnapshotRequest>>> work_{};
     bool extended_{true}, compression_{false};
     uint64_t offer_id_{0}, offer_deadline_{0};
     bool offering_{false};
@@ -172,7 +210,7 @@ class RaftNode {
     uint64_t request_id_;
     uint64_t encoding_session_;
     std::string snapshot_id_;
-    std::future<std::shared_ptr<InstallSnapshotRequest>> work_;
+    std::shared_ptr<TaskExecutor::Result<std::shared_ptr<InstallSnapshotRequest>>> work_;
   };
   std::optional<IncomingDecode> incoming_decode_;
   // Destroyed explicitly before stores and input leases. Workers never access this node.

@@ -18,7 +18,7 @@
 #include "distributed/raft_state_machine.h"
 #include "gtest/gtest.h"
 #include "raft/in_memory_raft_transport.h"
-#include "raft/raft_node.h"
+#include "raft/synchronous_test_node.h"
 #include "type/value_factory.h"
 
 namespace bustub {
@@ -46,7 +46,7 @@ class ThreeNodeBusTubCluster {
       directories_[offset] = NodeDirectory::Open(root_ / ("node-" + std::to_string(id)), storage_);
       machines_[offset] = BusTubRaftStateMachine::Open(directories_[offset].get(), storage_, 64);
       const auto raft_directory = directories_[offset]->RaftDirectory();
-      nodes_[offset] = std::make_unique<RaftNode>(
+      nodes_[offset] = std::make_unique<SynchronousTestNode>(
           RaftNodeConfig{id, {1, 2, 3}, 100, 300, 50, "test-group", MakeFixedElectionTimeoutSource(100U * id)},
           transport_, StableStore::Open(raft_directory, storage_), LogStore::Open(raft_directory / "log", storage_, 0),
           machines_[offset], SnapshotStore::Open(raft_directory / "snapshots", storage_));
@@ -74,7 +74,7 @@ class ThreeNodeBusTubCluster {
     storage_->RemoveTree(root_);
   }
 
-  auto Node(NodeId id) -> RaftNode & { return *nodes_.at(id - 1); }
+  auto Node(NodeId id) -> SynchronousTestNode & { return *nodes_.at(id - 1); }
   auto Machine(NodeId id) -> BusTubRaftStateMachine & { return *machines_.at(id - 1); }
   auto Transport() -> InMemoryRaftTransport & { return *transport_; }
 
@@ -125,7 +125,7 @@ class ThreeNodeBusTubCluster {
   std::shared_ptr<InMemoryRaftTransport> transport_;
   std::array<std::unique_ptr<NodeDirectory>, 3> directories_;
   std::array<std::shared_ptr<BusTubRaftStateMachine>, 3> machines_;
-  std::array<std::unique_ptr<RaftNode>, 3> nodes_;
+  std::array<std::unique_ptr<SynchronousTestNode>, 3> nodes_;
 };
 
 auto Key(int32_t value) -> EncodedPrimaryKeyV1 {

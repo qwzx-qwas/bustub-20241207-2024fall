@@ -1,5 +1,7 @@
 # F24 StableStore / HardState
 
+> **2026-10-09 S13.1 / S13.2a 接续：** F24 的 term/vote/commit 更新仍等真正 durable；F35 将同步调用交给存储角色，完成回到协议拥有者后才推进状态及响应。 见 [共同协议](../s13_protocol_execution.md) 与 [实际审查](../s13_execution_20261009.md)。
+
 > **本轮 S8 已授权：** 最新共同恢复协议、实施顺序、开源内化和 prompt 见 [S8 共同方案](../s8_raft_object_stores.md)，优先于下文历史候选。当轮实现与验证已完成，见 [执行及八项审查](../s8_execution_20261003.md)；后续阶段不自动标记完成。
 
 更新时间：2026-10-03（Asia/Shanghai）

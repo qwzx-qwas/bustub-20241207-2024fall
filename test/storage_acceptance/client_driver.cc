@@ -138,9 +138,9 @@ auto Parse(const std::string &line) -> Request {
   if (result.kind == "CLOCK") {
     return result;
   }
-  if ((result.kind != "READ" && result.kind != "STALE" && result.kind != "WRITE" && result.kind != "STATUS") ||
+  if ((result.kind != "READ" && result.kind != "STALE" && result.kind != "WRITE" && result.kind != "STATUS" && result.kind != "STORAGE_STATUS") ||
       result.request == 0 || result.timeout == 0 || result.timeout > 60000 ||
-      (result.kind == "WRITE" && result.client == 0) || (result.kind != "STATUS" && result.sql.empty())) {
+      (result.kind == "WRITE" && result.client == 0) || (result.kind != "STATUS" && result.kind != "STORAGE_STATUS" && result.sql.empty())) {
     throw std::runtime_error("invalid bridge request");
   }
   static_cast<void>(bustub::TcpEndpoint::Parse(result.endpoint));
@@ -213,7 +213,7 @@ class Driver {
     Emit(Base(request, "call") + ",\"call_ns\":" + std::to_string(start) + "}");
     uint64_t returned = 0;
     try {
-      bustub::ClientRequestV1 message = bustub::ClientStatusRequestV1{request.request};
+      bustub::ClientRequestV1 message = bustub::ClientStatusRequestV1{request.request, request.kind == "STORAGE_STATUS"};
       if (request.kind == "WRITE") {
         message = bustub::ClientWriteRequestV1{request.client, request.request, request.sql};
       } else if (request.kind == "READ" || request.kind == "STALE") {

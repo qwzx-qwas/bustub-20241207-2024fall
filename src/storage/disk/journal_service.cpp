@@ -881,6 +881,15 @@ struct JournalService::Impl {
     if (bytes > options_.max_group_bytes_) {
       throw std::invalid_argument("Journal batch including segment headers exceeds group budget");
     }
+    // Data and the separately prepared Flush must fit together. Full is for
+    // capacity held by other work, not a batch that can never be admitted.
+    IOReadBudget io_budget{1, 0};  // The Flush owns one operation, no body buffer.
+    for (const auto &request : plan.requests_) {
+      if (!executor_.AccumulateReadBudget(&io_budget, 1, static_cast<size_t>(request.size_)) ||
+          !executor_.AccumulateReadBudget(&io_budget, 0, executor_.DeviceInfo().memory_alignment_ - 1)) {
+        throw JournalError(JournalErrorCode::RequestTooLarge, "Journal data and Flush exceed IO capacity");
+      }
+    }
     {
       std::lock_guard<std::mutex> lock(budget_->mutex_);
       if (budget_->tickets_ == options_.max_pending_batches_ || bytes > options_.max_pending_bytes_ - budget_->bytes_) {

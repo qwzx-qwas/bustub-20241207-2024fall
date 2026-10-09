@@ -81,6 +81,11 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
         string(REPLACE "_test" "" legacy_replacer ${bustub_test_name})
         target_sources(${bustub_test_name} PRIVATE "${PROJECT_SOURCE_DIR}/src/buffer/${legacy_replacer}.cpp")
     endif ()
+    # Current PageStorage uses F02 or the synchronous file adapter. The old
+    # scheduler remains available to its coursework test, not the production library.
+    if (bustub_test_name STREQUAL "disk_scheduler_test")
+        target_sources(${bustub_test_name} PRIVATE "${PROJECT_SOURCE_DIR}/src/storage/disk/disk_scheduler.cpp")
+    endif ()
 
     target_link_libraries(${bustub_test_name} bustub gtest gmock_main)
 

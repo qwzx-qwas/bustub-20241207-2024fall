@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,6 +26,11 @@ namespace bustub {
 /**
  * IndexScanPlanNode identifies a table that should be scanned with an optional predicate.
  */
+struct IndexScanBounds {
+  std::optional<Value> lower_, upper_;
+  bool lower_inclusive_{true}, upper_inclusive_{true};
+};
+
 class IndexScanPlanNode : public AbstractPlanNode {
  public:
   /**
@@ -41,6 +47,13 @@ class IndexScanPlanNode : public AbstractPlanNode {
         index_oid_(index_oid),
         filter_predicate_(std::move(filter_predicate)),
         pred_keys_(std::move(pred_keys)) {}
+
+  IndexScanPlanNode(SchemaRef output, table_oid_t table_oid, index_oid_t index_oid,
+                    AbstractExpressionRef filter_predicate, IndexScanBounds bounds)
+      : IndexScanPlanNode(std::move(output), table_oid, index_oid, std::move(filter_predicate)) {
+    bounds_ = std::move(bounds);
+  }
+  std::optional<IndexScanBounds> bounds_;
 
   auto GetType() const -> PlanType override { return PlanType::IndexScan; }
 

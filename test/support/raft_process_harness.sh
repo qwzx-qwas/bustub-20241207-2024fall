@@ -234,10 +234,8 @@ raft_harness_cleanup() {
   exit "${cleanup_status}"
 }
 
-raft_start_node() {
+raft_node_arguments() {
   local node_id=$1
-  local exit_status
-  local log_path="${RAFT_ARTIFACT_ROOT}/node-${node_id}.log"
   local peer_id
   local peer_args=()
   for peer_id in 1 2 3
@@ -247,17 +245,28 @@ raft_start_node() {
       peer_args+=(--peer "${peer_id}=127.0.0.1:$(raft_advertised_port "${peer_id}"),127.0.0.1:$(raft_client_port "${peer_id}")")
     fi
   done
+  RAFT_NODE_ARGS=(
+    --node-id "${node_id}" --group-id "${RAFT_GROUP_ID}"
+    --data-dir "${RAFT_ARTIFACT_ROOT}/node-${node_id}"
+    --raft-listen "127.0.0.1:$(raft_port "${node_id}")"
+    --client-listen "127.0.0.1:$(raft_client_port "${node_id}")"
+    --election-timeout-min-ms "${RAFT_ELECTION_TIMEOUT_MIN_MS}"
+    --election-timeout-max-ms "${RAFT_ELECTION_TIMEOUT_MAX_MS}"
+    --client-timeout-ms "${RAFT_CLIENT_TIMEOUT_MS:-3000}"
+    "${RAFT_EXTRA_NODE_ARGS[@]}" "${peer_args[@]}"
+  )
+  if [[ -n ${RAFT_STORAGE_CONFIG_DIR:-} ]]; then
+    RAFT_NODE_ARGS+=(--storage-config "${RAFT_STORAGE_CONFIG_DIR}/node-${node_id}.conf")
+  fi
+}
+
+raft_start_node() {
+  local node_id=$1
+  local exit_status
+  local log_path="${RAFT_ARTIFACT_ROOT}/node-${node_id}.log"
+  raft_node_arguments "$node_id"
   UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 "${RAFT_NODE_BIN}" \
-    --node-id "${node_id}" \
-    --group-id "${RAFT_GROUP_ID}" \
-    --data-dir "${RAFT_ARTIFACT_ROOT}/node-${node_id}" \
-    --raft-listen "127.0.0.1:$(raft_port "${node_id}")" \
-    --client-listen "127.0.0.1:$(raft_client_port "${node_id}")" \
-    --election-timeout-min-ms "${RAFT_ELECTION_TIMEOUT_MIN_MS}" \
-    --election-timeout-max-ms "${RAFT_ELECTION_TIMEOUT_MAX_MS}" \
-    --client-timeout-ms "${RAFT_CLIENT_TIMEOUT_MS:-3000}" \
-    "${RAFT_EXTRA_NODE_ARGS[@]}" \
-    "${peer_args[@]}" >>"${log_path}" 2>&1 &
+    "${RAFT_NODE_ARGS[@]}" >>"${log_path}" 2>&1 &
   RAFT_NODE_PIDS[${node_id}]=$!
   sleep 0.25
   if raft_node_alive "${node_id}"

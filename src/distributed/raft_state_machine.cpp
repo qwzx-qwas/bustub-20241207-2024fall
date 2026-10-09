@@ -125,16 +125,21 @@ struct BusTubRaftStateMachine::WorkingState {
   std::unique_ptr<SessionTable> sessions_;
   std::unique_ptr<TransactionManager> transaction_manager_;
   std::unique_ptr<ExecutionEngine> execution_engine_;
+  // Replaced runtime states retire immediately. At process shutdown the durable
+  // workspace registry already makes abandoned cleanup resumable on Open.
+  bool retire_on_destruction_{true};
   ~WorkingState() {
     if (object_pages_) {
       if (buffer_pool_manager_) {
         buffer_pool_manager_->Close();
       }
-      try {
-        object_pages_->Retire();
-      } catch (const std::exception &e) {
-        // The persistent registry keeps cleanup resumable on the next Open.
-        LOG_ERROR("working page retirement deferred: %s", e.what());
+      if (retire_on_destruction_) {
+        try {
+          object_pages_->Retire();
+        } catch (const std::exception &e) {
+          // The persistent registry keeps cleanup resumable on the next Open.
+          LOG_ERROR("working page retirement deferred: %s", e.what());
+        }
       }
     }
   }
@@ -245,6 +250,7 @@ BusTubRaftStateMachine::~BusTubRaftStateMachine() {
     checkpoint_->changed_.wait(lock, [&] { return !checkpoint_->busy_; });
   }
   checkpoint_.reset();
+  if (state_) state_->retire_on_destruction_ = false;
 }
 auto BusTubRaftStateMachine::LocalRecoveryPoint() const -> std::optional<StateMachineRecoveryPoint> {
   std::lock_guard lock(lifecycle_mutex_);
@@ -980,7 +986,17 @@ auto BusTubRaftStateMachine::PrepareSql(const std::string &sql, uint64_t client_
     -> TransactionCommandBatch {
   std::lock_guard lifecycle(lifecycle_mutex_);
   auto shared = visibility_.LockShared();
-  return SqlCommandPreparer(state_->catalog_.get()).Prepare(sql, client_id, request_id, request_fingerprint);
+  auto *transaction = state_->transaction_manager_->BeginReadAt(fsm_->PublishedAppliedIndex());
+  try {
+    ExecutorContext context(transaction, state_->catalog_.get(), state_->buffer_pool_manager_.get(),
+                            state_->transaction_manager_.get(), nullptr, false);
+    auto result = SqlCommandPreparer(&context).Prepare(sql, client_id, request_id, request_fingerprint);
+    state_->transaction_manager_->EndRead(transaction);
+    return result;
+  } catch (...) {
+    state_->transaction_manager_->Abort(transaction);
+    throw;
+  }
 }
 
 auto BusTubRaftStateMachine::ClassifyRequest(uint64_t client_id, uint64_t request_id,
@@ -1007,12 +1023,12 @@ auto BusTubRaftStateMachine::GetLastResponse(uint64_t client_id) const -> std::o
   return fsm_->GetLastResponse(client_id);
 }
 
-auto BusTubRaftStateMachine::ExecuteReadSql(const std::string &sql, uint64_t read_timestamp) const
-    -> std::vector<std::byte> {
+auto BusTubRaftStateMachine::ExecuteReadSql(const std::string &sql, uint64_t minimum_index) const -> PublishedSqlRead {
   std::lock_guard lifecycle(lifecycle_mutex_);
   auto shared = visibility_.LockShared();
-  if (read_timestamp != fsm_->PublishedAppliedIndex() || read_timestamp >= TXN_START_ID) {
-    throw std::runtime_error("read timestamp is not the current published Raft index");
+  const auto read_timestamp = fsm_->PublishedAppliedIndex();
+  if (read_timestamp < minimum_index || read_timestamp >= TXN_START_ID) {
+    throw std::runtime_error("read barrier is ahead of the published Raft state");
   }
 
   Binder binder(*state_->catalog_);
@@ -1055,7 +1071,7 @@ auto BusTubRaftStateMachine::ExecuteReadSql(const std::string &sql, uint64_t rea
       result.rows_.push_back(std::move(row));
     }
     state_->transaction_manager_->EndRead(transaction);
-    return ClientQueryResultCodec::Encode(result);
+    return {read_timestamp, ClientQueryResultCodec::Encode(result)};
   } catch (...) {
     state_->transaction_manager_->Abort(transaction);
     throw;

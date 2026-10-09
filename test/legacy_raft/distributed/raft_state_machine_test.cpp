@@ -228,10 +228,11 @@ TEST(BusTubRaftStateMachineTest, CanonicalPayloadInstallAndSuffixApply) {
   EXPECT_EQ(updated->second.GetValue(&catalog.tables_[0].schema_, 1).ToString(), "after");
   EXPECT_EQ(right->PublishedAppliedIndex(), 3);
   const auto query =
-      ClientQueryResultCodec::Decode(right->ExecuteReadSql("SELECT id, name FROM accounts WHERE id = 1;", 3));
+      ClientQueryResultCodec::Decode(right->ExecuteReadSql("SELECT id, name FROM accounts WHERE id = 1;", 3).payload_);
   EXPECT_EQ(query.columns_, (std::vector<std::string>{"accounts.id", "accounts.name"}));
   EXPECT_EQ(query.rows_, (std::vector<std::vector<std::string>>{{"1", "after"}}));
-  EXPECT_THROW(right->ExecuteReadSql("SELECT * FROM accounts;", 2), std::runtime_error);
+  EXPECT_EQ(right->ExecuteReadSql("SELECT * FROM accounts;", 2).index_, 3);
+  EXPECT_THROW(right->ExecuteReadSql("SELECT * FROM accounts;", 4), std::runtime_error);
 
   right.reset();
   left.reset();

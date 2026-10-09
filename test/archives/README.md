@@ -1,5 +1,19 @@
 # 阶段测试源码归档
 
+2026-10-09（F35 类型复审）：唯一源码包仍保留6个阶段场景；run.py新增一个复用原BIGINT测试的类型变异，并核验实际运行XML。原SQL测试在既有文件中扩充负数、混合类型条件及快照恢复，没有新增同义用例。本次9项相关回归、6项阶段场景、7个run.py变异通过，TCP及共同C/P未重跑。包内另保留原TCP变异脚本，因此共有8个可执行变异、分版本报告实际运行。旧F35包原位替换，详见 [审查§12](../../docs/storage_redesign/s13_execution_20261009.md#12-再次逻辑审查等值键类型与测试实际执行)。
+
+2026-10-09（F35 / S13.1、S13.2a，再次复查）：原位更新唯一 [F35-raft-pipeline.tar.gz](F35-raft-pipeline.tar.gz)，含6项阶段场景、6个组件变异＋1个复用原TCP用例的变异脚本、恢复说明和源指纹。65项既有回归、6项阶段场景、7项指定变异、本次正式对象C5-short通过；上轮C1–C5八种场景及低缓存P2保留原源码归属，未冒充本次重跑。见 [八项审查及本轮§11](../../docs/storage_redesign/s13_execution_20261009.md) 与 [原始证据](../../test-results/storage-s13-20261009/README.md)。旧F35包不留备份；阶段源码仅压缩保留，不注册新的常驻目标，多提案/会话窗口与完整性能验收未完成。
+
+2026-10-09 提交门槛复验：同一 F34 包仅更新构建指纹与恢复说明，阶段源码不变。旧 DiskScheduler 移至原课程测试目标并验证；原 C1 与低缓存 P2 再次未通过，未 commit。最新证据/源快照为 final-review；旧阶段成功仍归 review3，不计作新执行。见 [审查 §14](../../docs/storage_redesign/s12_node_execution_20261009.md#14-提交门槛复查跨模块去重与原场景复验)。
+
+2026-10-09 第三次追加复查（历史）：同一 F34 包扩展 MetadataAdmission 的 checkpoint 准入场景，新增 JournalAdmission 检查段写与独立 Flush 合计容量；两个指定变异、Close/Store、原 C4 通过。当轮源码/证据为 review3，旧结果保留原版本归属；当时 C1/P2 未复验，见执行审查 §12。
+
+2026-10-09 第二次追加复查：同一 F34 包加入 MetadataAdmission 一个真实组合场景，扩展原 runner；临时 Full、固定容量超限、实际 EIO 三个指定变异检出，ClosePressure/StorePressure 与原 C4 复验通过。当前源码/证据归 review2，旧结果保持原版本归属；C1/P2 未复验，见执行审查 §11。
+
+2026-10-09 同日追加复查：F34 原位加入 ClosePressure/StorePressure，共用真实 NodeStorage/B/Direct 装置；两项通过，一处移除协助写回的变异在两场景均按指定断言检出，原共同 C4 复跑通过。本次未重跑其余历史场景；C1、低缓存 P2 仍未通过。统一 deployment 校验清单，并补齐新压力源码指纹，详见执行审查 §10。
+
+2026-10-09（F34 正式部署接续）：原位更新唯一 [F34-node-lifecycle.tar.gz](F34-node-lifecycle.tar.gz)，deployment/ 保存 8 项 CLI 检查、1 项真实 B 范围场景、1 项快照观察器契约及变异源码。10 项阶段检查、3 项已有客户端协议通过；4 个指定变异检出。原 F34 本地编排测试为历史，未计入本轮通过数。共同 C/P 仍常驻原目录，C1 与低缓存 P2/关闭未通过；不冒称全部验收完成。见 [八项审查](../../docs/storage_redesign/s12_node_execution_20261009.md) 和 [结果与限制](../../test-results/storage-s12-node-20261009/README.md)。
+
 2026-10-09（F32 再次复审）：唯一 [F32-metadata-cache.tar.gz](F32-metadata-cache.tar.gz)，仍含 11 项阶段场景及复用/变异 runner。T4/T5/T7 改用输入模型、简化 T5；11 项重跑通过、12 个变异检出，66 项既有同源回归沿用，合计 77 项证据（含 1 项旧 LRU-K 课程兼容）。ASan/LSan 开启；三个 benchmark 清理旧头依赖后编译通过。[八项审查 §10](../../docs/storage_redesign/s12_cache_execution_20261008.md#10-2026-10-09-再次复审预期正文必须来自独立输入) · [结果/清理](../../test-results/storage-f32-20261008/README.md)。旧 F32 源码/结果包原位替换，不留备份；阶段源码仅压缩保存，七个有效依赖包保持原哈希。完整性能比较未完成。
 
 2026-10-08（F30）：唯一 [F30-integrity-scanning.tar.gz](F30-integrity-scanning.tar.gz)。最新修正 B 扫描由写回/checkpoint 接手时的结果与损坏分类；原 B 场景扩展三个完成入口，无新增正常场景。本轮全部 41 项正常场景通过、10 个变异检出，ASan/LSan 开启；旧同模块包及旧分轮结果已由完整复验替换。阶段源码仅压缩保存，无常驻新增目标；五个有效依赖包保持原哈希。见 [八项审查 §13](../../docs/storage_redesign/s12_integrity_execution_20261008.md#13-再次复核2026-10-08写回接手扫描失败的结果与状态) 与 [结果](../../test-results/storage-f30-20261008/README.md)。

@@ -131,6 +131,10 @@ class MetadataCache {
     page_id_t prev_{INVALID_PAGE_ID}, next_{INVALID_PAGE_ID};
     bool queued_{false};
   };
+  auto Status() -> MetadataCacheStatus {
+    std::lock_guard lock(mutex_);
+    return {slots_.size(), budget_->live_.load(), loads_, evictions_};
+  }
   auto NewImage() -> std::shared_ptr<PageImage>;
   auto Describe(page_id_t id, std::shared_ptr<PageImage> body) -> std::shared_ptr<PageState>;
   auto Get(const std::shared_ptr<PageState> &page) -> std::shared_ptr<const PageImage>;
@@ -162,6 +166,7 @@ class MetadataCache {
   std::condition_variable changed_;
   bool closed_{false};
   size_t calls_{0}, frame_cursor_{0};
+  uint64_t loads_{0}, evictions_{0};
   page_id_t head_{INVALID_PAGE_ID}, tail_{INVALID_PAGE_ID};
 };
 }  // namespace
@@ -645,6 +650,31 @@ void CheckMetadataAdmission(IOAdmission admission) {
   }
 }
 
+void CheckMetadataJournalAdmission(JournalAdmission admission) {
+  if (admission == JournalAdmission::Accepted) return;
+  if (admission == JournalAdmission::Full) throw MetadataCommitBusy("metadata Journal capacity is held");
+  throw MetadataError(admission == JournalAdmission::NoSpace ? MetadataErrorCode::ResourceUnavailable
+                                                            : MetadataErrorCode::NotReady,
+                      "metadata Journal did not admit this batch");
+}
+
+// F02 Full covers both fixed capacity and current contention. Check the former
+// before admission so automatic maintenance never retries an impossible batch
+// or treats temporarily held IO credits as a device failure.
+auto PrepareMetadataPages(MetadataBackend &backend, IOExecutor &executor,
+                          const std::vector<MetadataPageRequest> &requests, bool durable) -> IOPreparation {
+  IOReadBudget budget;
+  const auto bytes_per_page = static_cast<size_t>(BUSTUB_PAGE_SIZE) + executor.DeviceInfo().memory_alignment_ - 1;
+  for (size_t i = 0; i < requests.size(); ++i) {
+    if (!executor.AccumulateReadBudget(&budget, 1, bytes_per_page))
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata page batch exceeds IO capacity");
+  }
+  auto prepared = backend.TryPrepare(requests, durable);
+  if (prepared.admission_ == IOAdmission::Full) throw MetadataCommitBusy("metadata page IO credits held");
+  CheckMetadataAdmission(prepared.admission_);
+  return prepared;
+}
+
 struct DiskPageStamp {
   PageKind kind_;
   uint64_t generation_, lsn_;
@@ -710,6 +740,7 @@ auto MetadataCache::Reclaim() -> bool {
     frames_[*frame].reset();
     page->frame_ = INVALID_FRAME_ID;
     page->body_.reset();
+    ++evictions_;
     return finish(true);
   }
   return finish(false);
@@ -821,8 +852,7 @@ auto MetadataCache::LoadLocked(const std::shared_ptr<PageState> &page) -> std::s
     Require(page->reloadable_, "metadata version has no recoverable body");
   }
   auto image = NewImage();
-  auto preparation = backend_.TryPrepare({{page->id_, IOOperation::Read}}, false);
-  CheckMetadataAdmission(preparation.admission_);
+  auto preparation = PrepareMetadataPages(backend_, executor_, {{page->id_, IOOperation::Read}}, false);
   auto &batch = *preparation.batch_;
   CheckMetadataAdmission(executor_.TrySubmit(batch));
   batch.Wait();
@@ -843,6 +873,7 @@ auto MetadataCache::LoadLocked(const std::shared_ptr<PageState> &page) -> std::s
     std::lock_guard lock(mutex_);
     page->body_ = image;
     Track(page);
+    ++loads_;
     policy_.RecordAccess(page->frame_);
   }
   return image;
@@ -953,8 +984,7 @@ class MetadataPageWriter {
       requests.push_back({page->id_, IOOperation::Write});
       versions.push_back({page->generation_, page->lsn_});
     }
-    auto preparation = backend_.TryPrepare(requests, true);
-    CheckMetadataAdmission(preparation.admission_);
+    auto preparation = PrepareMetadataPages(backend_, executor_, requests, true);
     auto &batch = *preparation.batch_;
     for (size_t i = 0; i < requests.size(); i++) {
       const auto hold = cache->Get(pages[i]);
@@ -1006,9 +1036,7 @@ class MetadataPageWriter {
       ++scrub_cursor_;
       return true;
     }
-    auto prepared = backend_.TryPrepare({{static_cast<page_id_t>(id), IOOperation::Read}}, false);
-    if (prepared.admission_ == IOAdmission::Full) throw MetadataCommitBusy("metadata scrub IO credits held");
-    CheckMetadataAdmission(prepared.admission_);
+    auto prepared = PrepareMetadataPages(backend_, executor_, {{static_cast<page_id_t>(id), IOOperation::Read}}, false);
     auto batch = std::move(*prepared.batch_);
     CheckMetadataAdmission(executor_.TrySubmit(batch));
     scrub_id_ = id;
@@ -1392,8 +1420,7 @@ struct MetadataEngine::Impl {
       if (plan.modified_[id]) {
         continue;
       }
-      auto preparation = backend_.TryPrepare({{static_cast<page_id_t>(id), IOOperation::Read}}, false);
-      CheckMetadataAdmission(preparation.admission_);
+      auto preparation = PrepareMetadataPages(backend_, executor_, {{static_cast<page_id_t>(id), IOOperation::Read}}, false);
       auto &batch = *preparation.batch_;
       CheckMetadataAdmission(executor_.TrySubmit(batch));
       batch.Wait();
@@ -1455,13 +1482,7 @@ struct MetadataEngine::Impl {
     auto submission = payloads.empty() ? journal_.TryAppend(prepared.records_)
                                        : journal_.AppendPayload(prepared.records_,
                                                                 next->payloads_.size() * completion_units_, completion);
-    if (submission.admission_ != JournalAdmission::Accepted) {
-      if (submission.admission_ == JournalAdmission::Full)
-        throw MetadataCommitBusy("metadata Journal capacity is held");
-      throw MetadataError(submission.admission_ == JournalAdmission::NoSpace ? MetadataErrorCode::ResourceUnavailable
-                                                                             : MetadataErrorCode::NotReady,
-                          "metadata Journal did not admit this batch");
-    }
+    CheckMetadataJournalAdmission(submission.admission_);
     submission.ticket_->Wait();
     auto result = submission.ticket_->Result();
     if (result.outcome_ != JournalOutcome::Durable) {
@@ -1537,18 +1558,30 @@ auto MetadataSnapshot::GetFloor(const MetadataKey &upper) const -> std::optional
   }
   return MetadataEntry{DecodeKey(entry->first), ReadValue(pager, entry->second)};
 }
-auto MetadataSnapshot::Scan(const MetadataKey &lower, size_t limit) const -> std::vector<MetadataEntry> {
+namespace {
+auto ScanMetadata(const MetadataVersion &version, const MetadataKey &lower, const MetadataKey *upper, size_t limit)
+    -> std::vector<MetadataEntry> {
   if (limit == 0) {
     throw std::invalid_argument("metadata scan limit must be positive");
   }
-  MetadataPager pager(*version_);
+  MetadataPager pager(version);
   auto tree = TreeFor(&pager);
+  const auto stop = upper == nullptr ? std::nullopt : std::optional(EncodeKey(*upper));
   std::vector<MetadataEntry> result;
   for (auto it = tree.Begin(EncodeKey(lower)); !it.IsEnd() && result.size() < limit; ++it) {
     auto entry = *it;
+    if (stop && KeyCompare{}(entry.first, *stop) >= 0) break;
     result.push_back({DecodeKey(entry.first), ReadValue(pager, entry.second)});
   }
   return result;
+}
+}  // namespace
+auto MetadataSnapshot::Scan(const MetadataKey &lower, size_t limit) const -> std::vector<MetadataEntry> {
+  return ScanMetadata(*version_, lower, nullptr, limit);
+}
+auto MetadataSnapshot::Scan(const MetadataKey &lower, const MetadataKey &upper, size_t limit) const
+    -> std::vector<MetadataEntry> {
+  return ScanMetadata(*version_, lower, &upper, limit);
 }
 MetadataEngine::MetadataEngine(BootstrapStore &bootstrap, const JournalIdentity &identity,
                                const JournalOptions &journal_options, const MetadataOptions &options)
@@ -1768,6 +1801,7 @@ auto MetadataEngine::ReadPayload(const JournalPayload &payload, IOReadBudget &bu
     -> JournalPayloadRead {
   return impl_->journal_.ReadPayload(payload, budget, std::move(complete), std::move(ready));
 }
+auto MetadataEngine::CacheStatus() const -> MetadataCacheStatus { return impl_->cache_->Status(); }
 auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
   ProgressWork progress(true);
   if (max_pages == 0) {
@@ -1776,7 +1810,7 @@ auto MetadataEngine::Writeback(size_t max_pages) -> MetadataWritebackResult {
   auto &s = *impl_;
   std::unique_lock<std::mutex> writeback(s.writeback_mutex_, std::try_to_lock);
   if (!writeback.owns_lock()) {
-    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata writeback is already active");
+    throw MetadataCommitBusy("metadata writeback is already active");
   }
   std::shared_ptr<const MetadataVersion> view;
   {
@@ -1837,9 +1871,11 @@ auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
       throw MetadataError(MetadataErrorCode::NotReady, "metadata engine is not ready");
     }
     if (s.checkpointing_) {
-      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "metadata checkpoint is already active");
+      throw MetadataCommitBusy("metadata checkpoint is already active");
     }
   }
+  if (s.lsn_ == s.checkpoint_lsn_ && s.checkpoint_lsn_ != 0)
+    return {MetadataCheckpointOutcome::Durable, nullptr};
   // Drain an admitted F09 batch before fixing the checkpoint. It never needs
   // writer_mutex_. Close uses this same lock order.
   std::unique_lock<std::mutex> writeback(s.writeback_mutex_);
@@ -1870,9 +1906,7 @@ auto MetadataEngine::Checkpoint(size_t max_pages) -> MetadataCheckpointResult {
     }
   }
   auto submission = s.journal_.AppendCheckpoint(records);
-  if (submission.admission_ != JournalAdmission::Accepted) {
-    throw MetadataError(MetadataErrorCode::ResourceUnavailable, "checkpoint Journal admission failed");
-  }
+  CheckMetadataJournalAdmission(submission.admission_);
   submission.ticket_->Wait();
   const auto result = submission.ticket_->Result();
   if (result.outcome_ != JournalOutcome::Durable) {

@@ -179,17 +179,40 @@ TEST(SqlCommandPreparerTest, BigIntPrimaryKeyIsPreparedAppliedAndRecovered) {
   storage->RemoveTree(root);
   auto runtime = SingleNodeCommandRuntime::Open(root, storage);
   EXPECT_NO_THROW(runtime->CommitSql("CREATE TABLE ledger(code bigint PRIMARY KEY, note varchar(32));", 91, 1));
-  EXPECT_NO_THROW(runtime->CommitSql("INSERT INTO ledger VALUES (10, 'ten');", 91, 2));
+  EXPECT_NO_THROW(runtime->CommitSql(
+      "INSERT INTO ledger VALUES (10, 'ten'), (-17, 'debit'), (-43, 'removed'), (91, 'removed');", 91, 2));
   const auto key = PrimaryKeyCodecV1::Encode(ValueFactory::GetBigIntValue(10));
+  const auto negative_key = PrimaryKeyCodecV1::Encode(ValueFactory::GetBigIntValue(-17));
   ASSERT_TRUE(runtime->GetRow(0, key).has_value());
   EXPECT_EQ(runtime->GetRow(0, key)->second.GetValue(&runtime->CatalogForRead()->GetTable(0)->schema_, 1).ToString(),
             "ten");
+  // SQL integer/decimal constants retain their types; key encoding must not
+  // mistake their representation for the BIGINT column's representation.
+  EXPECT_NO_THROW(runtime->CommitSql("UPDATE ledger SET note='changed' WHERE code=-17 AND note='debit';", 91, 3));
+  const auto updated = runtime->GetRow(0, negative_key);
+  ASSERT_TRUE(updated.has_value());
+  EXPECT_EQ(updated->second.GetValue(&runtime->CatalogForRead()->GetTable(0)->schema_, 1).ToString(),
+            "changed");
+  EXPECT_NO_THROW(runtime->CommitSql("UPDATE ledger SET note='both' WHERE code=10 OR code=-17.0;", 91, 4));
+  EXPECT_NO_THROW(runtime->CommitSql("DELETE FROM ledger WHERE code=-43 OR code=91;", 91, 5));
+  const auto check_rows = [&] {
+    for (const auto &retained : {key, negative_key}) {
+      const auto row = runtime->GetRow(0, retained);
+      ASSERT_TRUE(row.has_value());
+      EXPECT_EQ(row->second.GetValue(&runtime->CatalogForRead()->GetTable(0)->schema_, 1).ToString(), "both");
+    }
+    for (const int64_t removed : {-43, 91}) {
+      EXPECT_FALSE(runtime->GetRow(0, PrimaryKeyCodecV1::Encode(ValueFactory::GetBigIntValue(removed))).has_value());
+    }
+  };
+  check_rows();
   runtime->CreateSnapshot();
   runtime.reset();
 
   runtime = SingleNodeCommandRuntime::Open(root, storage);
   ASSERT_TRUE(runtime->GetRow(0, key).has_value());
   EXPECT_EQ(runtime->CatalogForRead()->GetTable(0)->replicated_primary_key_->type_, TypeId::BIGINT);
+  check_rows();
   runtime.reset();
   storage->RemoveTree(root);
 }

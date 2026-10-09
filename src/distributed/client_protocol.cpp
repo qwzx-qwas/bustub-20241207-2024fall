@@ -27,7 +27,7 @@ constexpr size_t MAX_LEADER_ADDRESS_BYTES = 1024;
 constexpr uint32_t MAX_RESULT_COLUMNS = 10000;
 constexpr uint32_t MAX_RESULT_ROWS = 1000000;
 
-enum class ClientFrameType : uint32_t { WRITE_REQUEST = 1, READ_REQUEST = 2, STATUS_REQUEST = 3, RESPONSE = 4 };
+enum class ClientFrameType : uint32_t { WRITE_REQUEST = 1, READ_REQUEST = 2, STATUS_REQUEST = 3, RESPONSE = 4, STORAGE_STATUS_REQUEST = 5 };
 
 void PutBool(ByteWriter *writer, bool value) { writer->PutU8(value ? 1 : 0); }
 
@@ -107,7 +107,7 @@ auto ClientProtocolCodec::EncodeRequest(const ClientRequestV1 &request) -> std::
             throw std::runtime_error("invalid client status request");
           }
           body.PutU64(value.request_id_);
-          return Frame(ClientFrameType::STATUS_REQUEST, body.Data());
+          return Frame(value.storage_ ? ClientFrameType::STORAGE_STATUS_REQUEST : ClientFrameType::STATUS_REQUEST, body.Data());
         }
       },
       request);
@@ -125,8 +125,9 @@ auto ClientProtocolCodec::DecodeRequest(const std::vector<std::byte> &frame) -> 
       request =
           ClientReadRequestV1{body.ReadU64(), static_cast<ClientReadConsistency>(body.ReadU32()), body.ReadString()};
       break;
+    case ClientFrameType::STORAGE_STATUS_REQUEST:
     case ClientFrameType::STATUS_REQUEST:
-      request = ClientStatusRequestV1{body.ReadU64()};
+      request = ClientStatusRequestV1{body.ReadU64(), type == ClientFrameType::STORAGE_STATUS_REQUEST};
       break;
     default:
       throw std::runtime_error("client frame is not a request");

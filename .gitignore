@@ -265,3 +265,6 @@ docs/dev
 
 # Submission zip files
 *.zip
+
+# Versioned deployment example; node-local configs remain ignored.
+!docs/storage_redesign/node-storage.example.conf

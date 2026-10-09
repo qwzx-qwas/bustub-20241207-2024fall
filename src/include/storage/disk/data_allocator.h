@@ -41,6 +41,9 @@ class AllocationError : public std::runtime_error {
   AllocationErrorCode code_;
 };
 
+struct DataAllocationUsage {
+  uint64_t capacity_bytes_, committed_bytes_, reserved_bytes_, quarantined_bytes_, free_bytes_;
+};
 struct AllocationReservationState;
 /** Keeps an uncommitted reservation unavailable until the last lease exits.
  * The caller carries this lease through actual F04/F02 IO completion. It does
@@ -94,6 +97,7 @@ class DataAllocator {
 
   auto Create() -> JournalResult;
   void Open();
+  auto Usage() const -> DataAllocationUsage;
   auto Reserve(uint64_t bytes) -> DataReservation;
   /** Bounds the companion records plus actual bitmap records before data IO. */
   void CheckCommit(const DataReservation &reservation, const std::vector<MetadataMutation> &related) const;

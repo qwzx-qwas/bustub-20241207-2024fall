@@ -7,6 +7,54 @@
 #include "optimizer/optimizer.h"
 
 namespace bustub {
+namespace {
+// Only conjunctions imply both bounds. OR branches remain in the full predicate.
+void CollectBounds(const AbstractExpressionRef &expr, uint32_t column, TypeId type, IndexScanBounds *bounds) {
+  if (const auto *logic = dynamic_cast<const LogicExpression *>(expr.get())) {
+    if (logic->logic_type_ == LogicType::And) {
+      CollectBounds(logic->GetChildAt(0), column, type, bounds);
+      CollectBounds(logic->GetChildAt(1), column, type, bounds);
+    }
+    return;
+  }
+  const auto *comparison = dynamic_cast<const ComparisonExpression *>(expr.get());
+  if (!comparison) return;
+  auto *col = dynamic_cast<const ColumnValueExpression *>(comparison->GetChildAt(0).get());
+  auto *constant = dynamic_cast<const ConstantValueExpression *>(comparison->GetChildAt(1).get());
+  auto op = comparison->comp_type_;
+  if (!col || !constant) {
+    col = dynamic_cast<const ColumnValueExpression *>(comparison->GetChildAt(1).get());
+    constant = dynamic_cast<const ConstantValueExpression *>(comparison->GetChildAt(0).get());
+    if (op == ComparisonType::LessThan)
+      op = ComparisonType::GreaterThan;
+    else if (op == ComparisonType::LessThanOrEqual)
+      op = ComparisonType::GreaterThanOrEqual;
+    else if (op == ComparisonType::GreaterThan)
+      op = ComparisonType::LessThan;
+    else if (op == ComparisonType::GreaterThanOrEqual)
+      op = ComparisonType::LessThanOrEqual;
+  }
+  if (!col || !constant || col->GetColIdx() != column || constant->GetReturnType().GetType() != type) return;
+  const auto value = constant->Evaluate(nullptr, Schema({}));
+  if (value.IsNull()) return;
+  if (op == ComparisonType::GreaterThan || op == ComparisonType::GreaterThanOrEqual || op == ComparisonType::Equal) {
+    const bool inclusive = op != ComparisonType::GreaterThan;
+    if (!bounds->lower_ || value.CompareGreaterThan(*bounds->lower_) == CmpBool::CmpTrue) {
+      bounds->lower_ = value;
+      bounds->lower_inclusive_ = inclusive;
+    } else if (value.CompareEquals(*bounds->lower_) == CmpBool::CmpTrue)
+      bounds->lower_inclusive_ &= inclusive;
+  }
+  if (op == ComparisonType::LessThan || op == ComparisonType::LessThanOrEqual || op == ComparisonType::Equal) {
+    const bool inclusive = op != ComparisonType::LessThan;
+    if (!bounds->upper_ || value.CompareLessThan(*bounds->upper_) == CmpBool::CmpTrue) {
+      bounds->upper_ = value;
+      bounds->upper_inclusive_ = inclusive;
+    } else if (value.CompareEquals(*bounds->upper_) == CmpBool::CmpTrue)
+      bounds->upper_inclusive_ &= inclusive;
+  }
+}
+}  // namespace
 
 auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef {
   // TODO(student): implement seq scan with predicate -> index scan optimizer rule
@@ -54,7 +102,11 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
             constant_expr = left_expr;
           }
 
-          if (column_expr != nullptr) {
+          // Tuple serializes the value's type, not the index column's type.
+          // Mixed-type comparisons keep the SQL predicate's comparison rules
+          // through the normal scan instead of encoding an incompatible key.
+          if (column_expr != nullptr &&
+              column_expr->GetReturnType().GetType() == constant_expr->GetReturnType().GetType()) {
             return std::make_pair(column_expr->GetColIdx(), constant_expr);
           }
         }
@@ -96,9 +148,17 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
         return false;
       };
 
-      if (collect_conditions(predicate, pred_keys, target_col_idx)) {
-        is_valid_index_scan = true;
-      }
+      // A conjunct can restrict candidates; the executor still checks the full
+      // predicate. An OR must be covered in full, never by just one branch.
+      std::function<bool(const AbstractExpressionRef &)> choose = [&](const AbstractExpressionRef &expr) {
+        pred_keys.clear();
+        target_col_idx = static_cast<uint32_t>(-1);
+        if (collect_conditions(expr, pred_keys, target_col_idx)) return true;
+        const auto logic = dynamic_cast<const LogicExpression *>(expr.get());
+        return logic != nullptr && logic->logic_type_ == LogicType::And &&
+               (choose(logic->GetChildAt(0)) || choose(logic->GetChildAt(1)));
+      };
+      is_valid_index_scan = choose(predicate);
 
       if (is_valid_index_scan) {
         // 去catalog里查找有没有对应的索引（看它有没有建立B+树索引）
@@ -108,13 +168,29 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
           // 获取该索引所包含的所有列的id
           const auto &key_attrs = index_info->index_->GetKeyAttrs();
           // 检查第一个属性是否是谓词中涉及的列
-          if (!key_attrs.empty() && key_attrs[0] == target_col_idx) {
+          if (key_attrs.size() == 1 && key_attrs[0] == target_col_idx) {
             // 找到了合适的索引，可以转换为IndexScanPlanNode
             auto index_scan_plan = std::make_shared<bustub::IndexScanPlanNode>(
                 std::make_shared<Schema>(new_plan->OutputSchema()), seq_scan_plan->GetTableOid(),
                 index_info->index_oid_, seq_scan_plan->filter_predicate_, pred_keys);
             return index_scan_plan;
           }
+        }
+      }
+      // Reuse the existing ordered B+Tree snapshot and MVCC executor. Other
+      // index shapes retain the original scan; no key truncation or cast.
+      const auto table = catalog_.GetTable(seq_scan_plan->GetTableOid());
+      for (const auto &index : catalog_.GetTableIndexes(table->name_)) {
+        if (index->index_type_ != IndexType::BPlusTreeIndex || index->key_size_ != 8 || index->key_attrs_.size() != 1)
+          continue;
+        IndexScanBounds bounds;
+        const auto column = index->key_attrs_[0];
+        const auto type = table->schema_.GetColumn(column).GetType();
+        if (type != TypeId::INTEGER && type != TypeId::BIGINT) continue;
+        CollectBounds(predicate, column, type, &bounds);
+        if (bounds.lower_ || bounds.upper_) {
+          return std::make_shared<IndexScanPlanNode>(std::make_shared<Schema>(new_plan->OutputSchema()), table->oid_,
+                                                     index->index_oid_, predicate, std::move(bounds));
         }
       }
     }

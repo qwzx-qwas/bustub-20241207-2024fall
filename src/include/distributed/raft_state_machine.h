@@ -75,6 +75,10 @@ struct ObjectPageDeployment {
   ObjectPageOptions pages_;
   BufferPoolOptions cache_;
 };
+struct PublishedSqlRead {
+  uint64_t index_;
+  std::vector<std::byte> payload_;
+};
 class BusTubRaftStateMachine : public RaftStateMachine {
  public:
   ~BusTubRaftStateMachine() override;
@@ -112,7 +116,7 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   auto GetRow(table_oid_t table_oid, const EncodedPrimaryKeyV1 &primary_key) const
       -> std::optional<std::pair<TupleMeta, Tuple>>;
   auto GetLastResponse(uint64_t client_id) const -> std::optional<std::vector<std::byte>>;
-  auto ExecuteReadSql(const std::string &sql, uint64_t read_timestamp) const -> std::vector<std::byte>;
+  auto ExecuteReadSql(const std::string &sql, uint64_t minimum_index) const -> PublishedSqlRead;
   auto PublishedAppliedIndex() const -> uint64_t;
   auto CatalogSnapshotForRead() const -> CatalogSnapshot;
 

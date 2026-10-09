@@ -2,8 +2,7 @@ add_library(
     bustub_storage_disk 
     OBJECT
     disk_manager.cpp
-    disk_manager_memory.cpp
-    disk_scheduler.cpp)
+    disk_manager_memory.cpp)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(bustub_storage_disk PRIVATE block_device.cpp io_executor.cpp bootstrap_store.cpp region_manager.cpp metadata_backend.cpp metadata_engine.cpp journal_backend.cpp journal_service.cpp node_storage.cpp data_allocator.cpp object_mapping.cpp object_reference.cpp object_io.cpp object_transaction.cpp)

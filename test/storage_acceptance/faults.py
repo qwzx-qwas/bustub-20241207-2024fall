@@ -14,6 +14,10 @@ class NotCovered(RuntimeError):
     pass
 
 
+def is_snapshot_request(event):
+    return event.get("snapshot_request", event.get("type") == 5)
+
+
 class FaultIO:
     """Bounded delivery of the same intent; never fabricate service recovery."""
 
@@ -138,7 +142,7 @@ class Network:
         while True:
             self.control.check(deadline)
             events = [event for event in self.events(since) if event["event"] == "forwarded"]
-            if mode == "short" and any(event["type"] == 5 and event["to"] == node for event in events):
+            if mode == "short" and any(is_snapshot_request(event) and event["to"] == node for event in events):
                 raise NotCovered("short catch-up used InstallSnapshot")
             # Snapshot chunks can be retransmitted with the same request ID.
             # A later stale acknowledgement must not overwrite proof that the
@@ -147,7 +151,7 @@ class Network:
                          for event in events if event["type"] in (4, 6) and event["success"] and
                          (event["type"] != 6 or (event["complete"] and not event["stale"]))}
             for request in events:
-                kind = request["type"]
+                kind = 5 if is_snapshot_request(request) else request["type"]
                 if kind not in ((3, 5) if mode == "either" else (3,) if mode == "short" else (5,)) or request["to"] != node:
                     continue
                 if kind == 3 and request.get("entry_count", 0) == 0:

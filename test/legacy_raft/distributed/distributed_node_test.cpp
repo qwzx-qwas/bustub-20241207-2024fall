@@ -797,8 +797,8 @@ TEST(DistributedNodeTest, ConcurrentWritesShareOneUnresolvedProposalGate) {
 }
 
 // Keep the old process object alive so its in-memory ActiveWrite must reconcile
-// an overwritten proposal after a later-term Leader commits the same request
-// identity with a different valid payload.
+// an overwritten proposal, first with no result for the old request and then
+// after a later-term Leader commits that identity with a different payload.
 TEST(DistributedNodeTest, LiveOldLeaderClearsOverwrittenProposalAfterDifferentPayloadCommitsElsewhere) {
   ThreeNodeInProcessCluster cluster;
   const auto old_leader = cluster.AwaitLeader();
@@ -827,17 +827,24 @@ TEST(DistributedNodeTest, LiveOldLeaderClearsOverwrittenProposalAfterDifferentPa
   cluster.Restart(majority.back());
   const auto new_leader = cluster.AwaitLeader(old_leader);
   ASSERT_NE(new_leader, old_leader);
+  // Replacing index 3 with the new leader's NOOP publishes that index without
+  // executing the old request. A missing session result here is normal.
+  cluster.Pause(new_leader);
+  cluster.Resume(old_leader);
+  cluster.Resume(new_leader);
+  cluster.AwaitCommit(3);
+  const auto before_retry = cluster.Send(old_leader, ClientStatusRequestV1{1298});
+  ASSERT_EQ(before_retry.status_, ClientResponseStatus::OK);
+  const auto untouched = cluster.Send(
+      old_leader, ClientReadRequestV1{1299, ClientReadConsistency::STALE, "SELECT id, note FROM live_heal;"});
+  ASSERT_EQ(untouched.status_, ClientResponseStatus::OK);
+  EXPECT_TRUE(ClientQueryResultCodec::Decode(untouched.payload_).rows_.empty());
+
   const std::string winning_sql = "INSERT INTO live_heal VALUES (7, 'winner-after-heal');";
   const auto committed_elsewhere = cluster.Send(new_leader, ClientWriteRequestV1{908, 2, winning_sql});
   ASSERT_EQ(committed_elsewhere.status_, ClientResponseStatus::COMMITTED);
   ASSERT_EQ(WriteResponseCodec::Decode(committed_elsewhere.payload_).commit_index_, 4);
 
-  // Drop any queued index-3-only heartbeat. On restart this Leader still has
-  // next_index[old]=3, so its first fresh replication carries 3..4 together and
-  // exercises overwrite + Apply + active reconciliation in one Receive path.
-  cluster.Pause(new_leader);
-  cluster.Resume(old_leader);
-  cluster.Resume(new_leader);
   cluster.AwaitCommit(4);
   const auto old_status = cluster.Send(old_leader, ClientStatusRequestV1{1300});
   EXPECT_EQ(old_status.status_, ClientResponseStatus::OK);

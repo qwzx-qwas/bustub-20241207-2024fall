@@ -110,6 +110,14 @@ def save_environment(args):
         "checker_sha256": sha256(args.checker) if args.checker else None,
     })
     (root / "source.diff").write_text(git("diff", "--binary", "HEAD"))
+    # A new production source is absent from git diff until staged. Preserve it
+    # too, so a qualification run can be reproduced before the user's commit.
+    for name in git("ls-files", "--others", "--exclude-standard", "src", "tools").splitlines():
+        source = REPO / name
+        if source.suffix in (".h", ".cpp", ".txt"):
+            target = root / "untracked-source" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
     if args.rate_source:
         shutil.copyfile(args.rate_source, root / "frozen-rate-source.json")
     shutil.copyfile(args.build / "CMakeCache.txt", root / "CMakeCache.txt")
@@ -144,6 +152,7 @@ def run_one(args, config, root):
     try:
         cluster = Cluster(args.build, root, config)
         driver = Driver(args.build / "test/storage-e2e-driver", root, control)
+        cluster.driver = driver
         monitor = Monitor(root, args.output, cluster, driver.process.pid, control)
         endpoints = [f"127.0.0.1:{config['port_base'] + 100 + node}" for node in (1, 2, 3)]
         adapter = Adapter(driver, endpoints)
@@ -261,6 +270,7 @@ def run_one(args, config, root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scenario", choices=("C1", "C2", "C3", "C4", "C5", "P1", "P2", "P3", "P4"))
+    parser.add_argument("--storage-template", type=Path, help="explicit object deployment template; omitted selects file backend")
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="new directory; never overwritten or deleted")
     parser.add_argument("--role", choices=("qualification", "baseline"), required=True)
@@ -371,6 +381,7 @@ def main():
                       "seed": SEED + repeat - 1 if args.scenario == "C2" else SEED,
                       "rows": 20000 if args.scenario.startswith("P") else 2048, "buffer_pages": 256,
                       "snapshot_threshold": 64 if args.scenario == "C4" or variant == "long" else 10000,
+                      "storage_template": str(args.storage_template.resolve()) if args.storage_template else None,
                       "proxies": args.scenario in ("C5", "P4") or variant == "isolate", "port_base": args.port_base,
                       "clients": 1 if variant == "drop" else clients, "repeat": repeat,
                       "seconds": args.seconds, "max_seconds": args.max_seconds,

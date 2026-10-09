@@ -96,6 +96,9 @@ struct MetadataCheckpointResult {
   std::exception_ptr error_;
 };
 
+struct MetadataCacheStatus {
+  uint64_t descriptors_, live_bodies_, loads_, evictions_;
+};
 struct MetadataVersion;
 
 /** Immutable committed view. Concurrent queries require the original engine to
@@ -108,6 +111,8 @@ class MetadataSnapshot {
  public:
   auto Get(const MetadataKey &key) const -> std::optional<std::vector<std::byte>>;
   auto Scan(const MetadataKey &lower, size_t limit) const -> std::vector<MetadataEntry>;
+  /** Range [lower, upper); stop before reading values outside the requested range. */
+  auto Scan(const MetadataKey &lower, const MetadataKey &upper, size_t limit) const -> std::vector<MetadataEntry>;
   /** Greatest key <= upper in this immutable view; may belong to another prefix. */
   auto GetFloor(const MetadataKey &upper) const -> std::optional<MetadataEntry>;
   auto Payload(const MetadataKey &key) const -> std::optional<JournalPayload>;
@@ -156,11 +161,13 @@ class MetadataEngine {
   auto ReadPayload(const JournalPayload &payload, IOReadBudget &budget,
                    std::function<void(const IOBatchResult &)> complete, std::function<void()> ready)
       -> JournalPayloadRead;
+  /** Operational snapshot; descriptors include prepared slots, bodies include old views. */
+  auto CacheStatus() const -> MetadataCacheStatus;
   /** F09: write at most max_pages committed pages, including their Flush.
    * Called by the maintenance owner, not implicitly on each Commit. Different
    * pages run on F02 workers; only one writeback call is admitted at a time.
-   * Read/Commit can proceed during IO. Full/Stopped reject before page IO with
-   * ResourceUnavailable/NotReady. Accepted failures return the original error,
+   * Read/Commit can proceed during IO. Concurrent writeback reports
+   * MetadataCommitBusy; a stopped engine reports NotReady. Accepted failures return the original error,
    * retain dirty progress and never undo a prior durable Commit. No auto retry.
    * Clean means the observed view needs no writes; it is NOT a global barrier.
    * max_pages must be positive. Close drains an admitted call before returning.

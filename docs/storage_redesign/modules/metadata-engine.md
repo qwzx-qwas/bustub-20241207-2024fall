@@ -386,3 +386,11 @@ B 区分提交前基准视图过期的 `MetadataViewConflict`（仍是 Conflict 
 F08 增加正式 PayloadMutation 提交：短引用进入 B 树，独立正文记录与 FULL/PATCH 同批 durable；B 私有 category 高八位 254 不供普通值操作写入。固定快照持有其正文引用。普通页 pageLSN 仍取实际提交结果；正文引用由唯一 B 提交者预定下一批位置并核对结果，不对普通调用者开放猜 LSN 接口。
 
 执行顺序、格式/预算、开源机制如何内化及后续 prompt 统一见 [S10 协议](../s10_deferred_protocol.md)。本模块不复制测试套件；复用 F27 归档及既有回归，按主方案八项审查，先逻辑分析再测试，未约定内容用易懂的话汇报。实际证据及未覆盖项见 [执行记录](../s10_execution_20261005.md)。
+
+## 2026-10-09 S12 正式部署范围查询接续
+
+普通对象 Resolve 继续使用前驱查询定位覆盖 offset 的已有范围；随后使用 B 的显式 [lower, upper) 扫描，只读请求终点之前的值，避免先读满 max_query_spans 再丢弃范围外元数据。原无上界扫描仍服务需要枚举的维护调用，两者共享遍历实现，不新增目录或缓存。详细实现与测试边界见 [S12 协议 §8](../s12_node_deployment.md#8-冷元数据范围扫描接续)。
+
+2026-10-09 再次压力复查：B 页 IO 共用已有 F02 容量计算；永久超限与暂时占用先分开，再提交实际 IO。可容纳批次的 Full 转为 MetadataCommitBusy，自动维护让出后重试；超限、停止及真实 IO 错误不冒充 Busy。换入/写回/校验/checkpoint 恢复读取共用 B 内部准入入口，不新增公开接口、额度账本或错误类型。见 [节点部署 §2](../s12_node_deployment.md#2-逻辑审查发现的生产交接)。
+
+2026-10-09 checkpoint 准入复查：F08/F10 共用 Journal 准入分类；Full 为可重试 Busy，NoSpace 与 Stopped/Faulted 不混为 Busy。F07 在准入前联合检查数据批次与独立 Flush 的总名额及对齐缓冲，单批超过固定容量抛既有 RequestTooLarge。拒绝不推进日志游标；checkpoint 退出释放修改门控。沿用 F02 计算和 F22 调度，不新增预算或重试模块；共同证据归 F34，不复制 F07/F10 测试。见 [节点部署 §2](../s12_node_deployment.md#2-逻辑审查发现的生产交接)。

@@ -312,7 +312,7 @@
 
 ### 16.3 核对发现的具体限制
 
-1. [SqlCommandPreparer::PrepareUpdate](../../src/distributed/sql_command_preparer.cpp) 当前在准备阶段遍历表并计算修改；按主键条件 UPDATE 不代表整条写入路径仅做索引点访问。P2 必须标注这种成本，D1 的装载/运行时间和瓶颈需资格确认；不能为测试改生产查询路径，也不能直接将 CPU 扫描成本归因于 FS。
+1. [SqlCommandPreparer::PrepareUpdate](../../src/distributed/sql_command_preparer.cpp) 旧基线在准备阶段遍历表并计算修改。2026-10-09 用户授权的 S13.1 接入现有优化器与只读执行器，合法等值候选可使用单列索引，完整谓词继续过滤，其余条件仍可能扫描。P2 应区分这项正式业务路径改进和底层 FS 成本；D1 装载/运行仍需资格确认，不为测试增加生产捷径。
 2. 现有 [进程 harness](../../test/support/raft_process_harness.sh) 的 `raft_current_snapshot_index` 读取旧版 CURRENT 文件，注释明确指出 status 的 snapshot base 未必等于最新发布快照。这个文件格式断言不能直接成为新旧共同内容。优先核对协议快照传输/完成与已发布进度能证明哪些事件；无法证明的精确阶段保持覆盖缺口。
 3. 测试驱动可考虑在测试侧复用 `DistributedClient::Send`，通过真实网络访问节点；业务预期仍独立生成。性能驱动优先避免每请求启动一个 CLI 进程，并在资格阶段核对客户端自身是否限速；具体实现组织待收敛，不新增生产便捷接口。
 4. 本机较大工作集可能仍命中 OS/宿主缓存；首期 E2E 能比较给定条件下的业务成本，不能据此自动证明冷设备 IO、消除了多少内存复制或掉电安全。正式块设备比较的部署与设备边界需要在运行前明确；更换环境后旧版也要重测。

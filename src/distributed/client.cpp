@@ -156,7 +156,8 @@ void ValidateSuccessfulResponse(const ClientRequestV1 &request, const ClientResp
     static_cast<void>(ClientQueryResultCodec::Decode(response.payload_));
     return;
   }
-  if (response.read_timestamp_.has_value() || !response.payload_.empty()) {
+  if (response.read_timestamp_.has_value() ||
+      (!std::get<ClientStatusRequestV1>(request).storage_ && !response.payload_.empty())) {
     throw std::runtime_error("distributed client status response contains read-result state");
   }
 }

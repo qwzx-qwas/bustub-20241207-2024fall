@@ -110,6 +110,9 @@ auto ObjectPageStorage::Create(std::shared_ptr<NodeStorage> storage, ObjectPageO
       // Background metadata work may publish between Read and Commit. No
       // identity was allocated by this rejected attempt; recompute from B.
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } catch (const MetadataCommitBusy &) {
+      // A periodic B checkpoint has not admitted the identity allocation.
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
   ObjectTransaction tx{{},

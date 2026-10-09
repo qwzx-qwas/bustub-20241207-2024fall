@@ -39,7 +39,18 @@ void IndexScanExecutor::Init() {
     if (tree_ == nullptr) {
       throw Exception("full IndexScan requires the supported B+Tree key specialization");
     }
-    full_scan_entries_ = tree_->GetAllEntriesSnapshot();
+    std::optional<IntegerKeyType_BTree> lower, upper;
+    if (plan_->bounds_) {
+      const auto encode = [&](const Value &value) {
+        IntegerKeyType_BTree key;
+        key.SetFromKey(Tuple({value}, index_info_->index_->GetKeySchema()));
+        return key;
+      };
+      if (plan_->bounds_->lower_) lower = encode(*plan_->bounds_->lower_);
+      if (plan_->bounds_->upper_) upper = encode(*plan_->bounds_->upper_);
+    }
+    full_scan_entries_ = tree_->GetEntriesSnapshot(lower, !plan_->bounds_ || plan_->bounds_->lower_inclusive_, upper,
+                                                   !plan_->bounds_ || plan_->bounds_->upper_inclusive_);
   }
 
   auto txn = exec_ctx_->GetTransaction();
@@ -116,6 +127,10 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       if (actual.CompareEquals(expected) != CmpBool::CmpTrue) {
         continue;
       }
+      if (plan_->filter_predicate_ != nullptr) {
+        const auto selected = plan_->filter_predicate_->Evaluate(&*visible_tuple, table_info->schema_);
+        if (selected.IsNull() || !selected.GetAs<bool>()) continue;
+      }
       if (!emitted_rids_.insert(*rid).second) {
         continue;
       }
@@ -154,6 +169,10 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       continue;
     }
     const auto &visible_tuple = *visible_tuple_opt;
+    if (plan_->filter_predicate_) {
+      const auto selected = plan_->filter_predicate_->Evaluate(&visible_tuple, table_info->schema_);
+      if (selected.IsNull() || !selected.GetAs<bool>()) continue;
+    }
 
     // 普通二级索引会保留旧键，以便旧快照仍能定位同一 RID。全索引扫描只能在 entry
     // 的物理键与当前事务可见 tuple 的键一致时输出它，否则更新后的行会出现在旧排序位置。

@@ -69,6 +69,10 @@ struct NodeStorageOptions {
   size_t external_buffer_bytes_{0};  // Explicit frame retention budget; zero disables it.
   std::optional<ResourceBudgetOptions> memory_budget_{std::nullopt};
 };
+struct NodeStorageUsage {
+  DataAllocationUsage data_;
+  MetadataCacheStatus metadata_;
+};
 struct PageIOCapabilities {
   size_t memory_alignment_;
   size_t max_batch_pages_;
@@ -100,6 +104,8 @@ class NodeStorage {
   void Create(const BootstrapLayout &layout);
   void Open();
   auto State() const -> NodeStorageView;
+  /** Operational counters, sampled under component locks; no device IO. */
+  auto Usage() -> NodeStorageUsage;
   /** Shared assembly dependency for page caches and Raft work. May be absent. */
   auto MemoryBudget() const -> std::shared_ptr<ResourceBudget>;
   /** One Store owner joins the existing bounded GC role. Empty detaches and

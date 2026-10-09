@@ -8,27 +8,7 @@
 namespace bustub {
 
 SnapshotTasks::SnapshotTasks(std::shared_ptr<ResourceBudget> memory)
-    : memory_(ResourceAccount::Create(std::move(memory))) {
-  try {
-    for (size_t i = 0; i < 2; ++i) threads_.emplace_back([this] { Run(); });
-  } catch (...) {
-    {
-      std::lock_guard lock(mutex_);
-      closing_ = true;
-    }
-    ready_.notify_all();
-    for (auto &thread : threads_) thread.join();
-    throw;
-  }
-}
-SnapshotTasks::~SnapshotTasks() {
-  {
-    std::lock_guard lock(mutex_);
-    closing_ = true;
-  }
-  ready_.notify_all();
-  for (auto &thread : threads_) thread.join();
-}
+    : memory_(ResourceAccount::Create(memory)), tasks_(2, 4, std::move(memory), {}) {}
 auto SnapshotTasks::Reserve() -> std::shared_ptr<ResourceCharge> {
   // The wire protocol caps one block at 64 KiB. Own the original/read block,
   // LZ4's worst-case output, and one protocol handoff copy. This reservation
@@ -41,13 +21,13 @@ auto SnapshotTasks::Reserve() -> std::shared_ptr<ResourceCharge> {
 }
 auto SnapshotTasks::Submit(std::function<InstallSnapshotRequest()> work) -> Future {
   auto charge = Reserve();
-  if (!charge) return std::nullopt;
+  if (!charge) return {};
   return Enqueue(std::move(charge), std::move(work));
 }
 auto SnapshotTasks::Decode(const InstallSnapshotRequest &request) -> Future {
   if (request.data_.size() > 64U * 1024U) throw std::runtime_error("snapshot input exceeded block limit");
   auto charge = Reserve();
-  if (!charge) return std::nullopt;
+  if (!charge) return {};
   // Reserve before copying the incoming body, rather than copying a lambda
   // argument before discovering the worker/byte budget is full.
   return Enqueue(std::move(charge), [decoded = InstallSnapshotRequest(request)]() mutable {
@@ -55,35 +35,12 @@ auto SnapshotTasks::Decode(const InstallSnapshotRequest &request) -> Future {
     return std::move(decoded);
   });
 }
-auto SnapshotTasks::Enqueue(std::shared_ptr<ResourceCharge> charge,
-                            std::function<InstallSnapshotRequest()> work) -> Future {
-  std::lock_guard lock(mutex_);
-  if (closing_ || outstanding_ == 4) return std::nullopt;
-  std::packaged_task<Result()> task([charge = std::move(charge), work = std::move(work)] {
+auto SnapshotTasks::Enqueue(std::shared_ptr<ResourceCharge> charge, std::function<InstallSnapshotRequest()> work)
+    -> Future {
+  return tasks_.Submit(0, false, [charge = std::move(charge), work = std::move(work)] {
     auto result = work();
     return Result(new InstallSnapshotRequest(std::move(result)), [charge](InstallSnapshotRequest *p) { delete p; });
   });
-  auto result = task.get_future();
-  queue_.push_back(std::move(task));
-  ++outstanding_;
-  ready_.notify_one();
-  return result;
-}
-void SnapshotTasks::Run() {
-  for (;;) {
-    std::packaged_task<Result()> task;
-    {
-      std::unique_lock lock(mutex_);
-      ready_.wait(lock, [this] { return closing_ || !queue_.empty(); });
-      if (queue_.empty()) return;
-      task = std::move(queue_.front());
-      queue_.pop_front();
-    }
-    task();     // Exceptions belong to the completion cell, never to a detached thread.
-    task = {};  // Release the input lease before returning admission capacity.
-    std::lock_guard lock(mutex_);
-    --outstanding_;
-  }
 }
 
 void CompressSnapshotChunk(InstallSnapshotRequest *request, uint64_t session) {

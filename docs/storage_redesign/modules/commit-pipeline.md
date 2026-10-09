@@ -221,3 +221,10 @@ B 区分提交前基准视图过期的 `MetadataViewConflict`（仍是 Conflict 
 F19 保留已有准入、对象依赖、异步协调与串行 B 提交角色；Common 成员先 durable，Deferred 正文与全部 B 变化随后同批提交。新增加的 F27 后台角色独立排空持久任务，复用 F02 worker。组装缓冲转移所有权，不再无条件复制一份任务正文；借用帧在提交前复制成受预算约束的恢复正文。
 
 执行顺序、格式/预算、开源机制如何内化及后续 prompt 统一见 [S10 协议](../s10_deferred_protocol.md)。本模块不复制测试套件；复用 F27 归档及既有回归，按主方案八项审查，先逻辑分析再测试，未约定内容用易懂的话汇报。实际证据及未覆盖项见 [执行记录](../s10_execution_20261005.md)。
+
+
+## 2026-10-09 正式节点交接
+
+S12 正式部署接入周期 B checkpoint 后，已接纳的 Common/Deferred 元数据提交遇到明确 MetadataCommitBusy 时，保留已持久 Data 依赖，只重试元数据发布；不重新发数据 IO，不重试不明确提交及永久容量错误。 详细边界统一见 [S12 节点部署协议](../s12_node_deployment.md)。
+
+2026-10-09 S12 压力复查：已经执行 Data IO 的请求遇 `MetadataCommitBusy` 时保留原数据依赖；自动维护启用时可调用同一个 B Writeback 推进一批后重试发布。不得仅等周期角色，否则 Store 同步回调及关闭排空可能相互等待。协助不执行周期回收或 checkpoint，Busy 仍退让、真实错误进入原错误路径。见 [部署 §2](../s12_node_deployment.md#2-逻辑审查发现的生产交接)。

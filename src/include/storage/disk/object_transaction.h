@@ -54,6 +54,8 @@ struct ObjectTransactionOptions {
   uint64_t deferred_pending_bytes_{0};
   size_t deferred_pending_tasks_{0};
   bool integrity_scan_{false};  // Optional cold Data/retained-payload check, one unit per GC round.
+  size_t metadata_writeback_pages_{0};  // Zero retains explicit/manual B maintenance.
+  size_t metadata_checkpoint_rounds_{0};  // GC rounds between B checkpoints; zero disables.
 };
 struct IntegrityScanStatus {
   uint64_t data_bytes_{0};

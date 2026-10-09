@@ -10,9 +10,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <coroutine>
 #include <limits>
 #include <random>
 #include <stdexcept>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -43,6 +45,170 @@ auto MakeSeededElectionTimeoutSource(uint64_t seed) -> ElectionTimeoutSource {
   return MakeGeneratorBackedElectionTimeoutSource(std::mt19937_64(seed));
 }
 
+// Only the serialized protocol owner resumes these frames. A worker never
+// resumes a coroutine or changes Raft state.
+class RaftNode::Operation {
+ public:
+  struct promise_type {
+    std::exception_ptr error_;
+    std::coroutine_handle<> parent_{std::noop_coroutine()};
+    auto get_return_object() -> Operation {
+      return Operation{std::coroutine_handle<promise_type>::from_promise(*this)};
+    }
+    auto initial_suspend() noexcept -> std::suspend_always { return {}; }
+    struct Final {
+      auto await_ready() noexcept -> bool { return false; }
+      auto await_suspend(std::coroutine_handle<promise_type> handle) noexcept -> std::coroutine_handle<> {
+        return handle.promise().parent_;
+      }
+      void await_resume() noexcept {}
+    };
+    auto final_suspend() noexcept -> Final { return {}; }
+    void return_void() {}
+    void unhandled_exception() { error_ = std::current_exception(); }
+  };
+  explicit Operation(std::coroutine_handle<promise_type> handle) : handle_(handle) {}
+  Operation(Operation &&other) noexcept : handle_(std::exchange(other.handle_, {})) {}
+  ~Operation() {
+    if (handle_) handle_.destroy();
+  }
+  auto await_ready() -> bool { return false; }
+  auto await_suspend(std::coroutine_handle<> parent) -> std::coroutine_handle<> {
+    handle_.promise().parent_ = parent;
+    return handle_;
+  }
+  void await_resume() { Check(); }
+  void Resume() { handle_.resume(); }
+  auto Done() const -> bool { return handle_.done(); }
+  void Check() {
+    if (handle_.promise().error_) std::rethrow_exception(handle_.promise().error_);
+  }
+
+ private:
+  std::coroutine_handle<promise_type> handle_;
+};
+
+template <typename F>
+auto RaftNode::Slow(F work, bool business) {
+  struct Awaiter {
+    RaftNode *node_;
+    F work_;
+    bool business_;
+    using T = std::invoke_result_t<F>;
+    std::shared_ptr<TaskExecutor::Result<T>> result_;
+    auto await_ready() -> bool { return false; }
+    void await_suspend(std::coroutine_handle<> continuation) {
+      auto &executor = business_ ? node_->business_tasks_ : node_->storage_tasks_;
+      result_ = executor->Submit(sizeof(T) + sizeof(F), true, std::move(work_));
+      node_->poll_work_ = [this, continuation] {
+        if (!result_) {
+          auto &executor = business_ ? node_->business_tasks_ : node_->storage_tasks_;
+          result_ = executor->Submit(sizeof(T) + sizeof(F), true, std::move(work_));
+        }
+        if (!result_ || !result_->Ready()) return false;
+        continuation.resume();
+        return true;
+      };
+    }
+    auto await_resume() -> T { return result_->Take(); }
+  };
+  return Awaiter{this, std::move(work), business, {}};
+}
+
+void RaftNode::RefreshLogTip() {
+  durable_tip_ = log_store_->LastLogIndex();
+  durable_tip_term_ = log_store_->LastLogTerm();
+  durable_base_ = log_store_->SnapshotBaseIndex();
+  latest_snapshot_ = snapshot_store_ ? snapshot_store_->Latest() : std::nullopt;
+}
+auto RaftNode::UpdateLogTip() -> Operation {
+  const auto values = co_await Slow([&] {
+    return std::make_tuple(log_store_->LastLogIndex(), log_store_->LastLogTerm(), log_store_->SnapshotBaseIndex(),
+                           snapshot_store_ ? snapshot_store_->Latest() : std::optional<RaftSnapshot>{});
+  });
+  std::tie(durable_tip_, durable_tip_term_, durable_base_, latest_snapshot_) = values;
+}
+
+auto RaftNode::Busy() const -> bool { return operation_ != nullptr || !pending_messages_.empty(); }
+
+void RaftNode::Start(Operation operation) {
+  if (operation_) throw std::logic_error("overlapping protocol operations");
+  operation_ = std::make_unique<Operation>(std::move(operation));
+  operation_->Resume();
+  if (operation_->Done()) {
+    auto completed = std::move(operation_);
+    try {
+      completed->Check();
+    } catch (...) {
+      FailStop();
+      throw;
+    }
+  }
+}
+
+void RaftNode::Poll() {
+  if (poll_work_) {
+    auto poll = std::move(poll_work_);
+    if (!poll()) poll_work_ = std::move(poll);
+  }
+  if (operation_ && operation_->Done()) {
+    auto completed = std::move(operation_);
+    try {
+      completed->Check();
+    } catch (...) {
+      FailStop();
+      throw;
+    }
+  }
+  if (operation_ || role_ == RaftRole::STOPPED) return;
+  if (observed_term_ > hard_state_.current_term_) {
+    Start(ObserveHigherTerm(observed_term_));
+  } else if (!pending_messages_.empty()) {
+    auto pending = std::move(pending_messages_.front());
+    pending_messages_.pop_front();
+    // The coroutine owns its message until the last dependent operation.
+    Start(Dispatch(pending.from_, std::move(pending.message_), std::move(pending.charge_)));
+  }
+}
+
+void RaftNode::Drain() {
+  draining_ = true;
+  pending_messages_.clear();
+  while (operation_) {
+    Poll();
+    if (operation_) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  business_tasks_->Drain();
+  storage_tasks_->Drain();
+  if (snapshot_tasks_) snapshot_tasks_->Drain();
+  draining_ = false;
+}
+
+void RaftNode::HeartbeatWhileBusy() {
+  if (role_ != RaftRole::LEADER || observed_term_ > hard_state_.current_term_ || now_ms_ < heartbeat_deadline_ms_)
+    return;
+  for (auto peer : config_.voters_)
+    if (peer != config_.node_id_) {
+      Send(peer, AppendEntriesRequest{hard_state_.current_term_,
+                                      config_.node_id_,
+                                      ++last_request_id_[peer],
+                                      durable_tip_,
+                                      durable_tip_term_,
+                                      {},
+                                      hard_state_.commit_index_,
+                                      std::nullopt});
+    }
+  heartbeat_deadline_ms_ = now_ms_ + config_.heartbeat_interval_ms_;
+}
+
+auto RaftNode::Dispatch(NodeId from, RaftMessage message, ResourceCharge charge) -> Operation {
+  // visit returns the selected suspended operation; message remains in this frame.
+  co_await std::visit([&](const auto &value) { return Handle(from, value); }, message);
+  co_await PollSnapshotTasks();
+
+  co_return;
+}
+
 RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transport,
                    std::unique_ptr<StableStore> stable_store, std::unique_ptr<LogStore> log_store,
                    std::shared_ptr<RaftStateMachine> state_machine, std::unique_ptr<SnapshotStore> snapshot_store)
@@ -67,7 +233,8 @@ RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transpo
     throw std::runtime_error("Raft LogStore is behind HARD_STATE commit index");
   }
   if (log_store_->CommittedIndex() > hard_state_.commit_index_) {
-    PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, log_store_->CommittedIndex());
+    stable_store_->Update(hard_state_.current_term_, hard_state_.voted_for_, log_store_->CommittedIndex());
+    hard_state_ = stable_store_->State();
   }
   if (snapshot_store_ != nullptr && snapshot_store_->Latest().has_value()) {
     const auto snapshot = *snapshot_store_->Latest();
@@ -94,12 +261,31 @@ RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transpo
   }
   last_applied_ = state_machine_->LastApplied();
   published_applied_index_ = last_applied_;
-  ApplyCommitted();
+  while (last_applied_ < hard_state_.commit_index_) {
+    auto entry = log_store_->EntryAt(last_applied_ + 1);
+    if (!entry) throw std::runtime_error("committed recovery entry is unavailable");
+    state_machine_->Apply(*entry);
+    last_applied_ = entry->index_;
+    published_applied_index_ = last_applied_;
+  }
+  storage_tasks_ = std::make_unique<TaskExecutor>(1, 1, config_.memory_budget_, config_.wake_);
+  business_tasks_ = std::make_unique<TaskExecutor>(1, 8, config_.memory_budget_, config_.wake_);
+  pending_memory_ = ResourceAccount::Create(config_.memory_budget_);
+  observed_term_ = hard_state_.current_term_;
+  RefreshLogTip();
   ResetElectionDeadline();
   if (snapshot_store_) snapshot_tasks_ = std::make_unique<SnapshotTasks>(config_.memory_budget_);
 }
 
-RaftNode::~RaftNode() { snapshot_tasks_.reset(); }
+RaftNode::~RaftNode() {
+  try {
+    Drain();
+  } catch (...) { /* failure already stopped protocol; accepted IO is drained below */
+  }
+  snapshot_tasks_.reset();
+  business_tasks_.reset();
+  storage_tasks_.reset();
+}
 
 void RaftNode::ResetElectionDeadline() {
   const auto timeout =
@@ -113,14 +299,19 @@ void RaftNode::ResetElectionDeadline() {
   election_deadline_ms_ = now_ms_ + timeout;
 }
 
-void RaftNode::PersistHardState(uint64_t term, std::optional<NodeId> voted_for, uint64_t commit_index) {
+auto RaftNode::PersistHardState(uint64_t term, std::optional<NodeId> voted_for, uint64_t commit_index) -> Operation {
   try {
-    stable_store_->Update(term, voted_for, commit_index);
-    hard_state_ = stable_store_->State();
+    hard_state_ = co_await Slow([=, this] {
+      stable_store_->Update(term, voted_for, commit_index);
+      return stable_store_->State();
+    });
+    observed_term_ = std::max(observed_term_, hard_state_.current_term_);
   } catch (...) {
     FailStop();
     throw;
   }
+
+  co_return;
 }
 
 void RaftNode::FailStop() {
@@ -135,105 +326,127 @@ void RaftNode::FailStop() {
   completed_read_indexes_.clear();
 }
 
-void RaftNode::AppendLogDurably(const std::vector<ReplicatedLogEntry> &entries) {
+auto RaftNode::AppendLogDurably(const std::vector<ReplicatedLogEntry> &entries) -> Operation {
   try {
-    log_store_->Append(entries);
+    co_await Slow([&] {
+      log_store_->Append(entries);
+      return true;
+    });
+    co_await UpdateLogTip();
   } catch (...) {
     // A failed durable append may already have changed the on-disk image. The
     // in-memory log cannot be trusted to choose another index until restart.
     FailStop();
     throw;
   }
+
+  co_return;
 }
 
-void RaftNode::ReplaceLogSuffixDurably(uint64_t from_index, const std::vector<ReplicatedLogEntry> &entries) {
+auto RaftNode::ReplaceLogSuffixDurably(uint64_t from_index, const std::vector<ReplicatedLogEntry> &entries)
+    -> Operation {
+  log_mutating_ = true;
   try {
-    log_store_->ReplaceSuffix(from_index, entries);
+    co_await Slow([&] {
+      log_store_->ReplaceSuffix(from_index, entries);
+      return true;
+    });
+    co_await UpdateLogTip();
+    log_mutating_ = false;
   } catch (...) {
     FailStop();
     throw;
   }
+
+  co_return;
 }
 
-void RaftNode::InstallLogSnapshotBaseDurably(uint64_t index, uint64_t term, bool retain_old_suffix) {
+auto RaftNode::InstallLogSnapshotBaseDurably(uint64_t index, uint64_t term, bool retain_old_suffix) -> Operation {
+  log_mutating_ = true;
   try {
-    log_store_->InstallSnapshotBase(index, term, retain_old_suffix);
+    co_await Slow([&] {
+      log_store_->InstallSnapshotBase(index, term, retain_old_suffix);
+      return true;
+    });
+    co_await UpdateLogTip();
+    log_mutating_ = false;
   } catch (...) {
     FailStop();
     throw;
   }
+
+  co_return;
 }
 
-void RaftNode::AdvanceLogCommitOrStop(uint64_t committed_index) {
+auto RaftNode::AdvanceLogCommitOrStop(uint64_t committed_index) -> Operation {
   try {
-    log_store_->AdvanceCommittedIndex(committed_index);
+    co_await Slow([&] {
+      log_store_->AdvanceCommittedIndex(committed_index);
+      return true;
+    });
+    co_await UpdateLogTip();
   } catch (...) {
     FailStop();
     throw;
   }
+
+  co_return;
 }
 
 void RaftNode::Tick(uint64_t now_ms) {
-  if (role_ == RaftRole::STOPPED) {
+  if (now_ms < now_ms_) throw std::runtime_error("Raft logical clock cannot move backwards");
+  now_ms_ = now_ms;
+  Poll();
+  if (role_ == RaftRole::STOPPED) return;
+  if (operation_) {
+    HeartbeatWhileBusy();
     return;
   }
-  if (now_ms < now_ms_) {
-    throw std::runtime_error("Raft logical clock cannot move backwards");
-  }
-  now_ms_ = now_ms;
-  PollSnapshotTasks();
-  if (incoming_delta_ && now_ms_ >= incoming_delta_->deadline_) CancelIncomingDelta();
-  if (role_ == RaftRole::LEADER) {
+  Start(RunTick());
+}
+
+auto RaftNode::RunTick() -> Operation {
+  co_await PollSnapshotTasks();
+  if (incoming_delta_ && now_ms_ >= incoming_delta_->deadline_) co_await CancelIncomingDelta();
+  if (role_ == RaftRole::LEADER && observed_term_ <= hard_state_.current_term_) {
     if (now_ms_ >= heartbeat_deadline_ms_) {
-      BroadcastAppend();
-      // Keep heartbeats alive both before admission and while a body worker runs.
-      // Use the normal last-log match rule; never commit an unchecked suffix.
-      for (const auto &[peer, transfer] : snapshot_transfers_) {
-        if (!transfer.offering_ && !transfer.chunk_) {
-          Send(peer, AppendEntriesRequest{hard_state_.current_term_,
-                                          config_.node_id_,
-                                          ++last_request_id_[peer],
-                                          log_store_->LastLogIndex(),
-                                          log_store_->LastLogTerm(),
-                                          {},
-                                          hard_state_.commit_index_,
-                                          std::nullopt});
-        }
-      }
+      co_await BroadcastAppend();
+      std::vector<uint64_t> contexts;
+      for (const auto &[context, read] : pending_read_indexes_) contexts.push_back(context);
+      for (const auto context : contexts) co_await BroadcastReadIndex(context);
       heartbeat_deadline_ms_ = now_ms_ + config_.heartbeat_interval_ms_;
     }
-    return;
-  }
-  if (role_ != RaftRole::TERM_PERSISTING && now_ms_ >= election_deadline_ms_) {
-    StartElection();
+  } else if (role_ != RaftRole::TERM_PERSISTING && now_ms_ >= election_deadline_ms_) {
+    co_await StartElection();
   }
 }
 
-void RaftNode::StartElection() {
-  CancelIncomingDelta();
+auto RaftNode::StartElection() -> Operation {
+  co_await CancelIncomingDelta();
   snapshot_request_floor_ = 0;
   incoming_encoding_.reset();
   role_ = RaftRole::TERM_PERSISTING;
   const auto new_term = hard_state_.current_term_ + 1;
-  PersistHardState(new_term, config_.node_id_, hard_state_.commit_index_);
+  co_await PersistHardState(new_term, config_.node_id_, hard_state_.commit_index_);
   role_ = RaftRole::CANDIDATE;
   leader_id_.reset();
   votes_received_ = {config_.node_id_};
   ResetElectionDeadline();
 
-  RequestVoteRequest request{hard_state_.current_term_, config_.node_id_, log_store_->LastLogIndex(),
-                             log_store_->LastLogTerm()};
+  RequestVoteRequest request{hard_state_.current_term_, config_.node_id_, durable_tip_, durable_tip_term_};
   for (const auto peer : config_.voters_) {
     if (peer != config_.node_id_) {
       Send(peer, request);
     }
   }
   if (HasMajority(votes_received_.size())) {
-    BecomeLeader();
+    co_await BecomeLeader();
   }
+
+  co_return;
 }
 
-void RaftNode::BecomeLeader() {
+auto RaftNode::BecomeLeader() -> Operation {
   if (role_ != RaftRole::CANDIDATE) {
     throw std::runtime_error("only a Candidate can become Leader");
   }
@@ -245,33 +458,36 @@ void RaftNode::BecomeLeader() {
   snapshot_transfers_.clear();
   pending_read_indexes_.clear();
   completed_read_indexes_.clear();
-  const auto initial_next = log_store_->LastLogIndex() + 1;
+  const auto initial_next = durable_tip_ + 1;
   for (const auto voter : config_.voters_) {
     next_index_[voter] = initial_next;
-    match_index_[voter] = voter == config_.node_id_ ? log_store_->LastLogIndex() : 0;
+    match_index_[voter] = voter == config_.node_id_ ? durable_tip_ : 0;
     last_request_id_[voter] = 0;
   }
 
-  const auto noop_index = log_store_->LastLogIndex() + 1;
-  AppendLogDurably({ReplicatedLogEntry{1, noop_index, hard_state_.current_term_, EntryType::NOOP, {}}});
+  const auto noop_index = durable_tip_ + 1;
+  const std::vector<ReplicatedLogEntry> noop{{1, noop_index, hard_state_.current_term_, EntryType::NOOP, {}}};
+  co_await AppendLogDurably(noop);
   match_index_[config_.node_id_] = noop_index;
   next_index_[config_.node_id_] = noop_index + 1;
   leader_barrier_index_ = noop_index;
-  BroadcastAppend();
+  co_await BroadcastAppend();
   heartbeat_deadline_ms_ = now_ms_ + config_.heartbeat_interval_ms_;
+
+  co_return;
 }
 
-void RaftNode::ObserveHigherTerm(uint64_t term) {
+auto RaftNode::ObserveHigherTerm(uint64_t term) -> Operation {
   if (term <= hard_state_.current_term_) {
-    return;
+    co_return;
   }
-  CancelIncomingDelta();
+  co_await CancelIncomingDelta();
   snapshot_request_floor_ = 0;
   incoming_encoding_.reset();
   role_ = RaftRole::TERM_PERSISTING;
   leader_id_.reset();
   leader_barrier_index_ = 0;
-  PersistHardState(term, std::nullopt, hard_state_.commit_index_);
+  co_await PersistHardState(term, std::nullopt, hard_state_.commit_index_);
   role_ = RaftRole::FOLLOWER;
   votes_received_.clear();
   next_index_.clear();
@@ -280,58 +496,95 @@ void RaftNode::ObserveHigherTerm(uint64_t term) {
   pending_read_indexes_.clear();
   completed_read_indexes_.clear();
   ResetElectionDeadline();
+
+  co_return;
 }
 
 void RaftNode::Receive(NodeId from, const RaftMessage &message) {
-  if (role_ == RaftRole::STOPPED || from == 0) {
+  if (role_ == RaftRole::STOPPED || from == config_.node_id_ ||
+      std::find(config_.voters_.begin(), config_.voters_.end(), from) == config_.voters_.end())
     return;
+  const auto term = std::visit([](const auto &m) { return m.term_; }, message);
+  observed_term_ = std::max(observed_term_, term);
+  if (const auto *append = std::get_if<AppendEntriesRequest>(&message);
+      append && append->leader_id_ == from && term >= hard_state_.current_term_) {
+    ResetElectionDeadline();
+    // A matching durable prefix can acknowledge a heartbeat during slow work.
+    // Any commit advancement still goes through the ordered operation below.
+    if (operation_ && !log_mutating_ && term == hard_state_.current_term_ && observed_term_ == term &&
+        append->entries_.empty() && append->prev_log_index_ == durable_tip_ &&
+        append->prev_log_term_ == durable_tip_term_ && role_ != RaftRole::TERM_PERSISTING) {
+      Send(from, AppendEntriesResponse{term, append->request_id_, true, durable_tip_, std::nullopt, 0,
+                                       append->read_context_});
+    }
   }
-  std::visit([&](const auto &value) { Handle(from, value); }, message);
-  PollSnapshotTasks();
+  const auto bytes = std::visit(
+      [](const auto &m) -> size_t {
+        using M = std::decay_t<decltype(m)>;
+        size_t size = sizeof(M);
+        if constexpr (std::is_same_v<M, AppendEntriesRequest>) {
+          for (const auto &entry : m.entries_) size += sizeof(entry) + entry.payload_.size();
+        } else if constexpr (std::is_same_v<M, InstallSnapshotRequest>) {
+          size += m.data_.size() + m.snapshot_id_.size();
+        }
+        return size;
+      },
+      message);
+  // Network requests remain retryable until a matching response. Higher terms
+  // are remembered even when the bounded payload queue cannot admit a copy.
+  if (pending_messages_.size() < 32 && pending_memory_->Reserve(bytes, true)) {
+    ResourceCharge charge(pending_memory_, bytes, true);
+    pending_messages_.push_back({from, message, std::move(charge)});
+  }
+  Poll();
 }
 
-void RaftNode::Handle(NodeId from, const RequestVoteRequest &request) {
+auto RaftNode::Handle(NodeId from, const RequestVoteRequest &request) -> Operation {
   if (request.term_ > hard_state_.current_term_) {
-    ObserveHigherTerm(request.term_);
+    co_await ObserveHigherTerm(request.term_);
   }
   bool grant = false;
   if (request.term_ == hard_state_.current_term_ && request.candidate_id_ == from &&
       (hard_state_.voted_for_ == std::nullopt || hard_state_.voted_for_ == request.candidate_id_) &&
       CandidateLogIsUpToDate(request.last_log_term_, request.last_log_index_)) {
     if (hard_state_.voted_for_ != request.candidate_id_) {
-      PersistHardState(hard_state_.current_term_, request.candidate_id_, hard_state_.commit_index_);
+      co_await PersistHardState(hard_state_.current_term_, request.candidate_id_, hard_state_.commit_index_);
     }
     grant = true;
     ResetElectionDeadline();
   }
   Send(from, RequestVoteResponse{hard_state_.current_term_, grant});
+
+  co_return;
 }
 
-void RaftNode::Handle(NodeId from, const RequestVoteResponse &response) {
+auto RaftNode::Handle(NodeId from, const RequestVoteResponse &response) -> Operation {
   if (response.term_ > hard_state_.current_term_) {
-    ObserveHigherTerm(response.term_);
-    return;
+    co_await ObserveHigherTerm(response.term_);
+    co_return;
   }
   if (role_ != RaftRole::CANDIDATE || response.term_ != hard_state_.current_term_ || !response.vote_granted_) {
-    return;
+    co_return;
   }
   if (std::find(config_.voters_.begin(), config_.voters_.end(), from) == config_.voters_.end()) {
-    return;
+    co_return;
   }
   votes_received_.insert(from);
   if (HasMajority(votes_received_.size())) {
-    BecomeLeader();
+    co_await BecomeLeader();
   }
+
+  co_return;
 }
 
-void RaftNode::Handle(NodeId from, const AppendEntriesRequest &request) {
+auto RaftNode::Handle(NodeId from, const AppendEntriesRequest &request) -> Operation {
   if (request.term_ > hard_state_.current_term_) {
-    ObserveHigherTerm(request.term_);
+    co_await ObserveHigherTerm(request.term_);
   }
   if (request.term_ < hard_state_.current_term_ || request.leader_id_ != from) {
     Send(from, AppendEntriesResponse{hard_state_.current_term_, request.request_id_, false, 0, std::nullopt,
-                                     log_store_->LastLogIndex() + 1, std::nullopt});
-    return;
+                                     durable_tip_ + 1, std::nullopt});
+    co_return;
   }
   if (role_ != RaftRole::FOLLOWER) {
     role_ = RaftRole::FOLLOWER;
@@ -346,28 +599,27 @@ void RaftNode::Handle(NodeId from, const AppendEntriesRequest &request) {
     incoming_delta_->deadline_ = election_deadline_ms_;
   }
 
-  const auto local_prev_term = log_store_->TermAt(request.prev_log_index_);
+  const auto local_prev_term = (co_await Slow([&] { return log_store_->TermAt(request.prev_log_index_); }));
   if (!local_prev_term.has_value()) {
-    const auto conflict = request.prev_log_index_ < log_store_->SnapshotBaseIndex()
-                              ? log_store_->SnapshotBaseIndex() + 1
-                              : log_store_->LastLogIndex() + 1;
+    const auto conflict = request.prev_log_index_ < durable_base_ ? durable_base_ + 1 : durable_tip_ + 1;
     Send(from, AppendEntriesResponse{hard_state_.current_term_, request.request_id_, false, 0, std::nullopt, conflict,
                                      request.read_context_});
-    return;
+    co_return;
   }
   if (*local_prev_term != request.prev_log_term_) {
-    Send(from,
-         AppendEntriesResponse{hard_state_.current_term_, request.request_id_, false, 0, *local_prev_term,
-                               FirstIndexOfTerm(request.prev_log_index_, *local_prev_term), request.read_context_});
-    return;
+    Send(from, AppendEntriesResponse{
+                   hard_state_.current_term_, request.request_id_, false, 0, *local_prev_term,
+                   (co_await Slow([&] { return FirstIndexOfTerm(request.prev_log_index_, *local_prev_term); })),
+                   request.read_context_});
+    co_return;
   }
 
   uint64_t expected_index = request.prev_log_index_ + 1;
   for (const auto &entry : request.entries_) {
     if (entry.index_ != expected_index) {
       Send(from, AppendEntriesResponse{hard_state_.current_term_, request.request_id_, false, 0, std::nullopt,
-                                       log_store_->LastLogIndex() + 1, request.read_context_});
-      return;
+                                       durable_tip_ + 1, request.read_context_});
+      co_return;
     }
     expected_index++;
   }
@@ -375,7 +627,7 @@ void RaftNode::Handle(NodeId from, const AppendEntriesRequest &request) {
   size_t first_new = 0;
   while (first_new < request.entries_.size()) {
     const auto &entry = request.entries_[first_new];
-    const auto local_term = log_store_->TermAt(entry.index_);
+    const auto local_term = (co_await Slow([&] { return log_store_->TermAt(entry.index_); }));
     if (!local_term.has_value() || *local_term != entry.term_) {
       break;
     }
@@ -385,31 +637,35 @@ void RaftNode::Handle(NodeId from, const AppendEntriesRequest &request) {
     const auto from_index = request.entries_[first_new].index_;
     std::vector<ReplicatedLogEntry> suffix(request.entries_.begin() + static_cast<ptrdiff_t>(first_new),
                                            request.entries_.end());
-    if (from_index <= log_store_->LastLogIndex()) {
-      ReplaceLogSuffixDurably(from_index, suffix);
+    if (from_index <= durable_tip_) {
+      co_await ReplaceLogSuffixDurably(from_index, suffix);
     } else {
-      AppendLogDurably(suffix);
+      co_await AppendLogDurably(suffix);
     }
   }
 
   const auto match_index = request.prev_log_index_ + request.entries_.size();
-  const auto new_commit = std::min(request.leader_commit_, log_store_->LastLogIndex());
+  // A heartbeat or partial append proves only this prefix. A longer local
+  // suffix may still belong to an old leader and must not be committed yet.
+  const auto new_commit = std::min(request.leader_commit_, match_index);
   if (new_commit > hard_state_.commit_index_) {
-    PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, new_commit);
-    AdvanceLogCommitOrStop(new_commit);
-    ApplyCommitted();
+    co_await PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, new_commit);
+    co_await AdvanceLogCommitOrStop(new_commit);
+    co_await ApplyCommitted();
   }
   Send(from, AppendEntriesResponse{hard_state_.current_term_, request.request_id_, true, match_index, std::nullopt, 0,
                                    request.read_context_});
+
+  co_return;
 }
 
-void RaftNode::Handle(NodeId from, const AppendEntriesResponse &response) {
+auto RaftNode::Handle(NodeId from, const AppendEntriesResponse &response) -> Operation {
   if (response.term_ > hard_state_.current_term_) {
-    ObserveHigherTerm(response.term_);
-    return;
+    co_await ObserveHigherTerm(response.term_);
+    co_return;
   }
   if (role_ != RaftRole::LEADER || response.term_ != hard_state_.current_term_ || next_index_.count(from) == 0) {
-    return;
+    co_return;
   }
   if (response.read_context_.has_value()) {
     const auto pending = pending_read_indexes_.find(*response.read_context_);
@@ -429,33 +685,41 @@ void RaftNode::Handle(NodeId from, const AppendEntriesResponse &response) {
         response.match_index_ >= transfer->second.snapshot_.last_included_index_) {
       snapshot_transfers_.erase(transfer);
     }
-    AdvanceLeaderCommit();
-    if (next_index_[from] <= log_store_->LastLogIndex()) {
-      SendAppend(from);
+    co_await AdvanceLeaderCommit();
+    if (next_index_[from] <= durable_tip_) {
+      co_await SendAppend(from);
     }
-    return;
+    co_return;
   }
   if (response.request_id_ != last_request_id_[from]) {
-    return;
+    co_return;
   }
   uint64_t next = response.conflict_index_;
   if (response.conflict_term_.has_value()) {
-    if (const auto local = LastIndexOfTerm(*response.conflict_term_); local.has_value()) {
+    if (const auto local = co_await Slow([&] { return LastIndexOfTerm(*response.conflict_term_); });
+        local.has_value()) {
       next = *local + 1;
     }
   }
-  next_index_[from] = std::max<uint64_t>(1, std::min(next, log_store_->LastLogIndex() + 1));
-  SendAppend(from);
+  next_index_[from] = std::max<uint64_t>(1, std::min(next, durable_tip_ + 1));
+  co_await SendAppend(from);
+
+  co_return;
 }
 
-void RaftNode::CancelIncomingDelta() {
+auto RaftNode::CancelIncomingDelta() -> Operation {
   if (incoming_delta_) {
-    snapshot_store_->CancelStaged(incoming_delta_->target_);
+    co_await Slow([&] {
+      snapshot_store_->CancelStaged(incoming_delta_->target_);
+      return true;
+    });
     incoming_delta_.reset();
   }
+
+  co_return;
 }
-void RaftNode::Handle(NodeId from, const SnapshotOfferRequest &request) {
-  if (request.term_ > hard_state_.current_term_) ObserveHigherTerm(request.term_);
+auto RaftNode::Handle(NodeId from, const SnapshotOfferRequest &request) -> Operation {
+  if (request.term_ > hard_state_.current_term_) co_await ObserveHigherTerm(request.term_);
   auto status = SnapshotOfferStatus::Unsupported;
   if (request.term_ == hard_state_.current_term_ && request.leader_id_ == from && snapshot_store_) {
     role_ = RaftRole::FOLLOWER;
@@ -463,6 +727,7 @@ void RaftNode::Handle(NodeId from, const SnapshotOfferRequest &request) {
     leader_id_ = from;
     ResetElectionDeadline();
     if (request.target_.last_included_index_ > published_applied_index_) {
+      bool failed = false;
       try {
         if (request.extended_ && incoming_encoding_ && incoming_encoding_->term_ == request.term_ &&
             incoming_encoding_->leader_ == from && incoming_encoding_->session_ == request.request_id_ &&
@@ -479,16 +744,20 @@ void RaftNode::Handle(NodeId from, const SnapshotOfferRequest &request) {
           status = SnapshotOfferStatus::Error;
         } else {
           snapshot_request_floor_ = request.request_id_;
-          CancelIncomingDelta();
-          if (!request.base_.snapshot_id_.empty() &&
-              snapshot_store_->BeginDelta(request.target_, request.base_, request.request_id_)) {
+          co_await CancelIncomingDelta();
+          if (!request.base_.snapshot_id_.empty() && (co_await Slow([&] {
+                return snapshot_store_->BeginDelta(request.target_, request.base_, request.request_id_);
+              }))) {
             incoming_delta_ = IncomingDelta{request.term_, from, request.request_id_, election_deadline_ms_,
                                             request.target_.snapshot_id_};
             status = SnapshotOfferStatus::Accepted;
           }
         }
       } catch (const std::exception &) {
-        CancelIncomingDelta();
+        failed = true;
+      }
+      if (failed) {
+        co_await CancelIncomingDelta();
         status = SnapshotOfferStatus::Error;
       }
     }
@@ -500,40 +769,45 @@ void RaftNode::Handle(NodeId from, const SnapshotOfferRequest &request) {
         IncomingDelta{request.term_, from, request.request_id_, election_deadline_ms_, request.target_.snapshot_id_};
   }
   Send(from, SnapshotOfferResponse{hard_state_.current_term_, request.request_id_, status, request.extended_});
+
+  co_return;
 }
-void RaftNode::Handle(NodeId from, const SnapshotOfferResponse &response) {
-  if (response.term_ > hard_state_.current_term_) ObserveHigherTerm(response.term_);
+auto RaftNode::Handle(NodeId from, const SnapshotOfferResponse &response) -> Operation {
+  if (response.term_ > hard_state_.current_term_) co_await ObserveHigherTerm(response.term_);
   const auto it = snapshot_transfers_.find(from);
   if (role_ != RaftRole::LEADER || response.term_ != hard_state_.current_term_ || it == snapshot_transfers_.end() ||
       !it->second.offering_ || it->second.offer_id_ != response.request_id_ ||
       it->second.extended_ != response.extended_)
-    return;
+    co_return;
   auto &t = it->second;
   if (response.status_ == SnapshotOfferStatus::Error) {
     snapshot_transfers_.erase(it);
-    return;
+    co_return;
   }
   t.offering_ = false;
   t.compression_ = response.extended_;
-  if (response.status_ == SnapshotOfferStatus::Accepted && t.offer_) t.delta_ = t.offer_->plan_();
+  if (response.status_ == SnapshotOfferStatus::Accepted && t.offer_)
+    t.delta_ = co_await Slow([&] { return t.offer_->plan_(); });
   t.offer_.reset();
   t.request_id_ = ++last_request_id_[from];
-  SendSnapshot(from);
+  co_await SendSnapshot(from);
+
+  co_return;
 }
 
-void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
+auto RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) -> Operation {
   if (request.term_ > hard_state_.current_term_) {
-    ObserveHigherTerm(request.term_);
+    co_await ObserveHigherTerm(request.term_);
   }
   if (request.term_ < hard_state_.current_term_ || request.leader_id_ != from || snapshot_store_ == nullptr) {
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
-    return;
+    co_return;
   }
   // Full fallback has a newer request ID than its Offer. An older full chunk
   // must not cancel the delta session that superseded it.
   if (request.delta_session_ == 0 && request.request_id_ < snapshot_request_floor_) {
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
-    return;
+    co_return;
   }
   if (role_ != RaftRole::FOLLOWER) {
     role_ = RaftRole::FOLLOWER;
@@ -546,21 +820,24 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     if (!incoming_delta_ || incoming_delta_->term_ != request.term_ || incoming_delta_->leader_ != from ||
         incoming_delta_->session_ != request.delta_session_ || incoming_delta_->target_ != request.snapshot_id_) {
       Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
-      return;
+      co_return;
     }
     incoming_delta_->deadline_ = election_deadline_ms_;
   } else {
     snapshot_request_floor_ = std::max(snapshot_request_floor_, request.request_id_);
-    CancelIncomingDelta();
+    co_await CancelIncomingDelta();
   }
 
   // First stale guard: do not even retain download state for an obsolete image.
   if (request.offset_ == 0 && request.last_included_index_ <= published_applied_index_) {
-    snapshot_store_->CancelStaged(request.snapshot_id_);
+    co_await Slow([&] {
+      snapshot_store_->CancelStaged(request.snapshot_id_);
+      return true;
+    });
     incoming_delta_.reset();
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, true, true, true,
                                        published_applied_index_, 0});
-    return;
+    co_return;
   }
 
   if (request.encoding_ != SnapshotEncoding::Raw) {
@@ -568,51 +845,59 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
         incoming_encoding_->session_ != request.encoding_session_ ||
         incoming_encoding_->target_ != request.snapshot_id_) {
       Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
-      return;
+      co_return;
     }
     // A duplicate waits for the same completion. No ACK until decoding and Stage finish.
-    if (incoming_decode_) return;
+    if (incoming_decode_) co_return;
     auto work = snapshot_tasks_->Decode(request);
     if (work)
       incoming_decode_.emplace(IncomingDecode{from, request.term_, request.request_id_, request.encoding_session_,
-                                              request.snapshot_id_, std::move(*work)});
-    return;  // Busy admission is retried by the sender; there is no unbounded pending queue.
+                                              request.snapshot_id_, std::move(work)});
+    co_return;  // Busy admission is retried by the sender; there is no unbounded pending queue.
   }
 
-  SnapshotStageResult stage{SnapshotStageStatus::IN_PROGRESS, 0};
-  try {
-    stage =
-        snapshot_store_->StageChunk({request.snapshot_id_, request.last_included_index_, request.last_included_term_,
-                                     request.offset_, request.total_size_, request.payload_checksum_, request.done_,
-                                     request.data_, request.delta_session_, request.reuse_});
-  } catch (const std::exception &) {
-    snapshot_store_->CancelStaged(request.snapshot_id_);
+  const auto staged_result = co_await Slow([&]() -> std::optional<SnapshotStageResult> {
+    try {
+      return snapshot_store_->StageChunk({request.snapshot_id_, request.last_included_index_,
+                                          request.last_included_term_, request.offset_, request.total_size_,
+                                          request.payload_checksum_, request.done_, request.data_,
+                                          request.delta_session_, request.reuse_});
+    } catch (const std::exception &) {
+      snapshot_store_->CancelStaged(request.snapshot_id_);
+      return std::nullopt;
+    }
+  });
+  if (!staged_result) {
     incoming_delta_.reset();
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
-    return;
+    co_return;
   }
+  const auto stage = *staged_result;
   if (stage.status_ == SnapshotStageStatus::IN_PROGRESS) {
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, true, false, false, 0,
                                        stage.next_offset_});
-    return;
+    co_return;
   }
 
   // Final stale guard runs in this same single-threaded Apply/Install sequence.
   if (request.last_included_index_ <= published_applied_index_) {
-    snapshot_store_->CancelStaged(request.snapshot_id_);
+    co_await Slow([&] {
+      snapshot_store_->CancelStaged(request.snapshot_id_);
+      return true;
+    });
     incoming_delta_.reset();
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, true, true, true,
                                        published_applied_index_, 0});
-    return;
+    co_return;
   }
-  const auto staged = snapshot_store_->Staged(request.snapshot_id_);
-  const auto staged_payload = snapshot_store_->StagedInput(request.snapshot_id_);
+  const auto staged = co_await Slow([&] { return snapshot_store_->Staged(request.snapshot_id_); });
+  const auto staged_payload = co_await Slow([&] { return snapshot_store_->StagedInput(request.snapshot_id_); });
   if (!staged.has_value() || !staged_payload.has_value()) {
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
-    return;
+    co_return;
   }
 
-  const auto preinstall_term = log_store_->TermAt(staged->last_included_index_);
+  const auto preinstall_term = (co_await Slow([&] { return log_store_->TermAt(staged->last_included_index_); }));
   const bool retain_suffix = preinstall_term == std::optional<uint64_t>{staged->last_included_term_};
   if (hard_state_.commit_index_ > staged->last_included_index_ && !retain_suffix) {
     // The snapshot cannot replace an already-committed suffix unless its
@@ -621,7 +906,10 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     // Cleaning the non-authoritative download is safe; a failed cleanup still
     // leaves the node unable to continue without a restart.
     try {
-      snapshot_store_->CancelStaged(request.snapshot_id_);
+      co_await Slow([&] {
+        snapshot_store_->CancelStaged(request.snapshot_id_);
+        return true;
+      });
       incoming_delta_.reset();
     } catch (...) {
       FailStop();
@@ -630,46 +918,60 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
     FailStop();
     throw std::runtime_error("Raft snapshot boundary cannot preserve the committed suffix");
   }
-  std::unique_ptr<PreparedSnapshot> prepared;
-  try {
-    prepared = state_machine_->PrepareSnapshot(*staged_payload, staged->last_included_index_);
-  } catch (const std::exception &) {
-    try {
-      snapshot_store_->CancelStaged(request.snapshot_id_);
-      incoming_delta_.reset();
-    } catch (...) {
-      FailStop();
-      throw;
-    }
+  auto prepared = co_await Slow(
+      [&]() -> std::unique_ptr<PreparedSnapshot> {
+        try {
+          return state_machine_->PrepareSnapshot(*staged_payload, staged->last_included_index_);
+        } catch (const std::exception &) {
+          snapshot_store_->CancelStaged(request.snapshot_id_);
+          return {};
+        }
+      },
+      true);
+  if (!prepared) {
+    incoming_delta_.reset();
     Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, false, false, false, 0, 0});
-    return;
+    co_return;
   }
   try {
-    snapshot_store_->PublishStaged(request.snapshot_id_, retain_suffix);
+    co_await Slow([&] {
+      snapshot_store_->PublishStaged(request.snapshot_id_, retain_suffix);
+      return true;
+    });
     const auto new_commit = std::max(hard_state_.commit_index_, staged->last_included_index_);
     if (new_commit > hard_state_.commit_index_) {
-      PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, new_commit);
+      co_await PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, new_commit);
     }
-    const auto recovery_base = snapshot_store_->OldestRetained();
+    const auto recovery_base = co_await Slow([&] { return snapshot_store_->OldestRetained(); });
     if (!recovery_base.has_value()) {
       throw std::runtime_error("published Raft snapshot has no recovery base");
     }
-    if (recovery_base->last_included_index_ > log_store_->SnapshotBaseIndex()) {
-      const bool retain_bridge = log_store_->TermAt(recovery_base->last_included_index_) ==
-                                 std::optional<uint64_t>{recovery_base->last_included_term_};
-      InstallLogSnapshotBaseDurably(recovery_base->last_included_index_, recovery_base->last_included_term_,
-                                    retain_bridge);
+    if (recovery_base->last_included_index_ > durable_base_) {
+      const bool retain_bridge =
+          (co_await Slow([&] { return log_store_->TermAt(recovery_base->last_included_index_); })) ==
+          std::optional<uint64_t>{recovery_base->last_included_term_};
+      co_await InstallLogSnapshotBaseDurably(recovery_base->last_included_index_, recovery_base->last_included_term_,
+                                             retain_bridge);
     }
-    if (log_store_->CommittedIndex() < new_commit) {
-      AdvanceLogCommitOrStop(new_commit);
+    if ((co_await Slow([&] { return log_store_->CommittedIndex(); })) < new_commit) {
+      co_await AdvanceLogCommitOrStop(new_commit);
     }
-    prepared->Install();
-    prepared.reset();
-    snapshot_store_->CancelStaged(request.snapshot_id_);
+    co_await Slow(
+        [&] {
+          prepared->Install();
+          prepared.reset();
+          return true;
+        },
+        true);
+    co_await Slow([&] {
+      snapshot_store_->CancelStaged(request.snapshot_id_);
+      return true;
+    });
     incoming_delta_.reset();
     last_applied_ = staged->last_included_index_;
     published_applied_index_ = staged->last_included_index_;
-    ApplyCommitted();
+    co_await UpdateLogTip();
+    co_await ApplyCommitted();
   } catch (...) {
     // Publication may already have changed durable authority. Only restart
     // recovery can safely choose and install the resulting state.
@@ -678,68 +980,94 @@ void RaftNode::Handle(NodeId from, const InstallSnapshotRequest &request) {
   }
   Send(from, InstallSnapshotResponse{hard_state_.current_term_, request.request_id_, true, false, true,
                                      staged->last_included_index_, 0});
+
+  co_return;
 }
 
-void RaftNode::Handle(NodeId from, const InstallSnapshotResponse &response) {
+auto RaftNode::Handle(NodeId from, const InstallSnapshotResponse &response) -> Operation {
   if (response.term_ > hard_state_.current_term_) {
-    ObserveHigherTerm(response.term_);
-    return;
+    co_await ObserveHigherTerm(response.term_);
+    co_return;
   }
   const auto transfer = snapshot_transfers_.find(from);
   if (role_ != RaftRole::LEADER || response.term_ != hard_state_.current_term_ || next_index_.count(from) == 0 ||
       transfer == snapshot_transfers_.end() || response.request_id_ != transfer->second.request_id_) {
-    return;
+    co_return;
   }
   if (!response.success_) {
     snapshot_transfers_.erase(transfer);
-    return;
+    co_return;
   }
   if (!response.complete_) {
     if (response.stale_ || response.next_offset_ < transfer->second.end_offset_ ||
         response.next_offset_ >= transfer->second.snapshot_.payload_size_) {
       snapshot_transfers_.erase(transfer);
-      return;
+      co_return;
     }
-    SendSnapshot(from, response.next_offset_);
-    return;
+    co_await SendSnapshot(from, response.next_offset_);
+    co_return;
   }
   if (response.match_index_ < transfer->second.snapshot_.last_included_index_) {
     snapshot_transfers_.erase(transfer);
-    return;
+    co_return;
   }
   snapshot_transfers_.erase(transfer);
   match_index_[from] = std::max(match_index_[from], response.match_index_);
   next_index_[from] = std::max(next_index_[from], response.match_index_ + 1);
-  if (next_index_[from] <= log_store_->LastLogIndex()) {
-    SendAppend(from);
+  if (next_index_[from] <= durable_tip_) {
+    co_await SendAppend(from);
   }
+
+  co_return;
 }
 
 auto RaftNode::Propose(EntryType type, std::vector<std::byte> payload) -> std::optional<uint64_t> {
-  if (!LeaderReady()) {
-    return std::nullopt;
-  }
-  state_machine_->ValidateProposalPayload(type, payload);
-  if (log_store_->LastLogIndex() != hard_state_.commit_index_ || last_applied_ != hard_state_.commit_index_ ||
-      published_applied_index_ != hard_state_.commit_index_) {
+  if (!LeaderReady() || Busy()) return std::nullopt;
+  if (durable_tip_ != hard_state_.commit_index_ || last_applied_ != hard_state_.commit_index_) {
     throw std::runtime_error("V1 allows only one unresolved Raft proposal");
   }
-  const auto index = log_store_->LastLogIndex() + 1;
-  AppendLogDurably({ReplicatedLogEntry{1, index, hard_state_.current_term_, type, std::move(payload)}});
-  match_index_[config_.node_id_] = index;
-  next_index_[config_.node_id_] = index + 1;
-  BroadcastAppend();
+  const auto index = durable_tip_ + 1;
+  proposal_error_.reset();
+  Start(RunProposal({1, index, hard_state_.current_term_, type, std::move(payload)}));
   return index;
 }
 
+auto RaftNode::TakeProposalError(uint64_t index) -> std::exception_ptr {
+  if (!proposal_error_ || proposal_error_->first != index) return {};
+  auto error = proposal_error_->second;
+  proposal_error_.reset();
+  return error;
+}
+
+auto RaftNode::RunProposal(ReplicatedLogEntry entry) -> Operation {
+  try {
+    co_await Slow(
+        [&] {
+          state_machine_->ValidateProposalPayload(entry.type_, entry.payload_);
+          return true;
+        },
+        true);
+  } catch (...) {
+    proposal_error_ = std::make_pair(entry.index_, std::current_exception());
+    co_return;  // Admission failed before storage was changed.
+  }
+  if (!LeaderReady() || observed_term_ != entry.term_) co_return;
+  std::vector<ReplicatedLogEntry> entries;
+  entries.push_back(std::move(entry));
+  co_await AppendLogDurably(entries);
+  match_index_[config_.node_id_] = entries.front().index_;
+  next_index_[config_.node_id_] = entries.front().index_ + 1;
+  co_await BroadcastAppend();
+}
+
 auto RaftNode::StartReadIndex(uint64_t context) -> bool {
-  if (!LeaderReady() || context == 0 || context <= highest_read_context_) {
+  if (!LeaderReady() || Busy() || context == 0 || context <= highest_read_context_) {
     return false;
   }
   highest_read_context_ = context;
   pending_read_indexes_.emplace(context,
                                 PendingReadIndex{hard_state_.current_term_, std::set<NodeId>{config_.node_id_}});
-  BroadcastReadIndex(context);
+  Start(BroadcastReadIndex(context));
   return true;
 }
 
@@ -758,30 +1086,49 @@ void RaftNode::CancelReadIndex(uint64_t context) {
   completed_read_indexes_.erase(context);
 }
 
-auto RaftNode::CreateSnapshot() -> RaftSnapshot {
+auto RaftNode::CreateSnapshot() -> bool {
+  if (Busy()) return false;
+  Start(RunSnapshot());
+  return true;
+}
+
+auto RaftNode::RunSnapshot() -> Operation {
   if (snapshot_store_ == nullptr || last_applied_ != hard_state_.commit_index_ ||
       published_applied_index_ != last_applied_) {
     throw std::runtime_error("Raft node is not at a stable snapshot boundary");
   }
   const auto index = published_applied_index_;
-  const auto term = log_store_->TermAt(index);
+  const auto term = (co_await Slow([&] { return log_store_->TermAt(index); }));
   if (!term.has_value()) {
     throw std::runtime_error("Raft snapshot term is unavailable before compaction");
   }
-  const auto existing = snapshot_store_->Latest();
+  const auto existing = latest_snapshot_;
   if (existing.has_value() && index <= existing->last_included_index_) {
     if (existing->last_included_index_ != index) {
       throw std::runtime_error("Raft state is behind its latest published snapshot");
     }
-    return *existing;
+    co_return;
   }
   try {
-    auto snapshot = snapshot_store_->Capture(index, *term, *state_machine_);
-    const auto recovery_base = snapshot_store_->OldestRetained();
+    co_await Slow(
+        [&] {
+          try {
+            return snapshot_store_->Capture(index, *term, *state_machine_);
+          } catch (...) {
+            const auto error = std::current_exception();
+            try {
+              snapshot_store_->CancelCapture();
+            } catch (...) {
+            }
+            std::rethrow_exception(error);
+          }
+        },
+        true);
+    const auto recovery_base = co_await Slow([&] { return snapshot_store_->OldestRetained(); });
     if (!recovery_base.has_value()) {
       throw std::runtime_error("published Raft snapshot has no recovery base");
     }
-    if (recovery_base->last_included_index_ > log_store_->SnapshotBaseIndex()) {
+    if (recovery_base->last_included_index_ > durable_base_) {
       // A session keeps its target across publication, but may not pin an
       // unbounded log tail. Cancel only when the normal recovery floor actually
       // crosses that target; the next attempt selects the current latest.
@@ -791,24 +1138,18 @@ auto RaftNode::CreateSnapshot() -> RaftSnapshot {
         else
           ++it;
       }
-      InstallLogSnapshotBaseDurably(recovery_base->last_included_index_, recovery_base->last_included_term_, true);
+      co_await InstallLogSnapshotBaseDurably(recovery_base->last_included_index_, recovery_base->last_included_term_,
+                                             true);
     }
-    return snapshot;
+    co_await UpdateLogTip();
+    co_return;
   } catch (...) {
     FailStop();
-    try {
-      snapshot_store_->CancelCapture();
-    } catch (...) {
-      // Preserve the publication failure as the primary exception. Startup
-      // cleanup owns any leftover capture file.
-    }
     throw;
   }
 }
 
-auto RaftNode::LatestSnapshot() const -> std::optional<RaftSnapshot> {
-  return snapshot_store_ == nullptr ? std::nullopt : snapshot_store_->Latest();
-}
+auto RaftNode::LatestSnapshot() const -> std::optional<RaftSnapshot> { return latest_snapshot_; }
 
 auto RaftNode::ReadSnapshotChunk(const RaftSnapshot &snapshot, uint64_t offset, size_t maximum_size)
     -> std::vector<std::byte> {
@@ -819,49 +1160,52 @@ auto RaftNode::ReadSnapshotChunk(const RaftSnapshot &snapshot, uint64_t offset, 
 }
 
 void RaftNode::Send(NodeId to, RaftMessage message) {
-  if (role_ == RaftRole::STOPPED || role_ == RaftRole::TERM_PERSISTING) {
-    throw std::runtime_error("Raft node cannot send while durable term state is unavailable");
-  }
+  if (role_ == RaftRole::STOPPED || draining_) return;
+  if (std::visit([](const auto &m) { return m.term_; }, message) < observed_term_) return;
+  if (role_ == RaftRole::TERM_PERSISTING) throw std::logic_error("send before durable term");
   transport_->Send({config_.node_id_, to, std::move(message), config_.group_id_});
 }
 
-void RaftNode::SendAppend(NodeId peer, std::optional<uint64_t> read_context) {
+auto RaftNode::SendAppend(NodeId peer, std::optional<uint64_t> read_context) -> Operation {
   if (snapshot_transfers_.count(peer) != 0) {
     // Heartbeats retransmit the one in-flight durable chunk with the same
     // request identity. A later heartbeat must not invalidate an ACK that is
     // delayed by the follower's fsync.
-    SendSnapshot(peer);
-    return;
+    co_await SendSnapshot(peer);
+    co_return;
   }
   auto next = next_index_.at(peer);
-  if (next <= log_store_->SnapshotBaseIndex()) {
-    SendSnapshot(peer);
-    return;
+  if (next <= durable_base_) {
+    co_await SendSnapshot(peer);
+    co_return;
   }
   const auto prev = next - 1;
-  const auto prev_term = log_store_->TermAt(prev);
+  const auto prev_term = (co_await Slow([&] { return log_store_->TermAt(prev); }));
   if (!prev_term.has_value()) {
     throw std::runtime_error("AppendEntries needs a compacted snapshot transfer");
   }
   std::vector<ReplicatedLogEntry> entries;
-  if (next <= log_store_->LastLogIndex()) {
-    entries = log_store_->Entries(next, log_store_->LastLogIndex());
+  if (next <= durable_tip_) {
+    entries = co_await Slow([&] { return log_store_->Entries(next, durable_tip_); });
   }
   const auto request_id = ++last_request_id_[peer];
   Send(peer, AppendEntriesRequest{hard_state_.current_term_, config_.node_id_, request_id, prev, *prev_term,
                                   std::move(entries), hard_state_.commit_index_, read_context});
+
+  co_return;
 }
 
-void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_offset) {
-  if (snapshot_store_ == nullptr || !snapshot_store_->Latest().has_value()) {
+auto RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_offset) -> Operation {
+  if (snapshot_store_ == nullptr || !latest_snapshot_.has_value()) {
     throw std::runtime_error("Raft Leader has no published snapshot for a compacted follower");
   }
   auto transfer = snapshot_transfers_.find(peer);
-  const auto snapshot = transfer == snapshot_transfers_.end() ? *snapshot_store_->Latest() : transfer->second.snapshot_;
+  const auto snapshot = transfer == snapshot_transfers_.end() ? *latest_snapshot_ : transfer->second.snapshot_;
   if (transfer == snapshot_transfers_.end()) {
     const auto request_id = ++last_request_id_[peer];
-    SnapshotTransfer t{snapshot, 0, 0, request_id, snapshot_store_->Input(snapshot)};
-    t.offer_ = snapshot_store_->OfferDelta(snapshot);
+    auto input = co_await Slow([&] { return snapshot_store_->Input(snapshot); });
+    SnapshotTransfer t{snapshot, 0, 0, request_id, std::move(input)};
+    t.offer_ = co_await Slow([&] { return snapshot_store_->OfferDelta(snapshot); });
     t.offering_ = true;
     t.offer_id_ = request_id;
     t.offer_deadline_ = now_ms_ + config_.heartbeat_interval_ms_;
@@ -889,7 +1233,7 @@ void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_of
     if (t.offering_) {
       Send(peer, SnapshotOfferRequest{hard_state_.current_term_, config_.node_id_, t.offer_id_, snapshot,
                                       t.offer_ ? t.offer_->base_ : RaftSnapshot{}, t.extended_});
-      return;
+      co_return;
     }
   }
   if (!t.chunk_) {
@@ -931,14 +1275,15 @@ void RaftNode::SendSnapshot(NodeId peer, std::optional<uint64_t> acknowledged_of
         return result;
       });
     }
-    return;
+    co_return;
   }
   Send(peer, *t.chunk_);
+
+  co_return;
 }
 
-void RaftNode::PollSnapshotTasks() {
-  using namespace std::chrono_literals;
-  if (incoming_decode_ && incoming_decode_->work_.wait_for(0ms) == std::future_status::ready) {
+auto RaftNode::PollSnapshotTasks() -> Operation {
+  if (incoming_decode_ && incoming_decode_->work_->Ready()) {
     auto task = std::move(*incoming_decode_);
     incoming_decode_.reset();
     if (role_ == RaftRole::FOLLOWER && hard_state_.current_term_ == task.term_ && incoming_encoding_ &&
@@ -946,24 +1291,30 @@ void RaftNode::PollSnapshotTasks() {
         incoming_encoding_->target_ == task.snapshot_id_) {
       std::shared_ptr<InstallSnapshotRequest> decoded;
       try {
-        decoded = task.work_.get();
+        decoded = task.work_->Take();
       } catch (const std::exception &) {
-        snapshot_store_->CancelStaged(task.snapshot_id_);
+        // Cleanup is resumed below, outside the exception handler.
         incoming_delta_.reset();
         Send(task.from_,
              InstallSnapshotResponse{hard_state_.current_term_, task.request_id_, false, false, false, 0, 0});
       }
-      if (decoded) Handle(task.from_, *decoded);  // Recheck term, offset, session and publication before Stage.
+      if (!decoded)
+        co_await Slow([&] {
+          snapshot_store_->CancelStaged(task.snapshot_id_);
+          return true;
+        });
+      if (decoded)
+        co_await Handle(task.from_, *decoded);  // Recheck term, offset, session and publication before Stage.
     }
   }
   for (auto it = snapshot_transfers_.begin(); it != snapshot_transfers_.end();) {
     auto &t = it->second;
-    if (!t.work_ || t.work_->wait_for(0ms) != std::future_status::ready) {
+    if (!t.work_ || !t.work_->Ready()) {
       ++it;
       continue;
     }
     try {
-      t.chunk_ = t.work_->get();
+      t.chunk_ = t.work_->Take();
     } catch (...) {
       // A failed immutable body read is a storage error, not a codec-capability fallback.
       FailStop();
@@ -982,27 +1333,34 @@ void RaftNode::PollSnapshotTasks() {
     Send(it->first, c);
     ++it;
   }
+
+  co_return;
 }
 
-void RaftNode::BroadcastAppend() {
+auto RaftNode::BroadcastAppend() -> Operation {
   for (const auto peer : config_.voters_) {
     if (peer != config_.node_id_) {
-      SendAppend(peer);
+      co_await SendAppend(peer);
     }
   }
+
+  co_return;
 }
 
-void RaftNode::BroadcastReadIndex(uint64_t context) {
+auto RaftNode::BroadcastReadIndex(uint64_t context) -> Operation {
   for (const auto peer : config_.voters_) {
     if (peer != config_.node_id_) {
-      SendAppend(peer, context);
+      co_await SendAppend(peer, context);
     }
   }
+
+  co_return;
 }
 
-void RaftNode::AdvanceLeaderCommit() {
-  for (uint64_t candidate = log_store_->LastLogIndex(); candidate > hard_state_.commit_index_; candidate--) {
-    if (log_store_->TermAt(candidate) != std::optional<uint64_t>{hard_state_.current_term_}) {
+auto RaftNode::AdvanceLeaderCommit() -> Operation {
+  for (uint64_t candidate = durable_tip_; candidate > hard_state_.commit_index_; candidate--) {
+    if ((co_await Slow([&] { return log_store_->TermAt(candidate); })) !=
+        std::optional<uint64_t>{hard_state_.current_term_}) {
       continue;
     }
     size_t replicas = 0;
@@ -1014,24 +1372,31 @@ void RaftNode::AdvanceLeaderCommit() {
     if (!HasMajority(replicas)) {
       continue;
     }
-    PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, candidate);
-    AdvanceLogCommitOrStop(candidate);
-    ApplyCommitted();
-    BroadcastAppend();
-    return;
+    co_await PersistHardState(hard_state_.current_term_, hard_state_.voted_for_, candidate);
+    co_await AdvanceLogCommitOrStop(candidate);
+    co_await ApplyCommitted();
+    co_await BroadcastAppend();
+    co_return;
   }
+
+  co_return;
 }
 
-void RaftNode::ApplyCommitted() {
+auto RaftNode::ApplyCommitted() -> Operation {
   while (last_applied_ < hard_state_.commit_index_) {
     const auto next = last_applied_ + 1;
-    const auto entry = log_store_->EntryAt(next);
+    const auto entry = co_await Slow([&] { return log_store_->EntryAt(next); });
     if (!entry.has_value()) {
       FailStop();
       throw std::runtime_error("committed Raft entry is unavailable for Apply");
     }
     try {
-      state_machine_->Apply(*entry);
+      co_await Slow(
+          [&] {
+            state_machine_->Apply(*entry);
+            return true;
+          },
+          true);
     } catch (...) {
       FailStop();
       throw;
@@ -1039,17 +1404,19 @@ void RaftNode::ApplyCommitted() {
     last_applied_ = next;
     published_applied_index_ = next;
   }
+
+  co_return;
 }
 
 auto RaftNode::HasMajority(size_t votes) const -> bool { return votes >= config_.voters_.size() / 2 + 1; }
 
 auto RaftNode::CandidateLogIsUpToDate(uint64_t last_term, uint64_t last_index) const -> bool {
-  const auto local_term = log_store_->LastLogTerm();
-  return last_term > local_term || (last_term == local_term && last_index >= log_store_->LastLogIndex());
+  const auto local_term = durable_tip_term_;
+  return last_term > local_term || (last_term == local_term && last_index >= durable_tip_);
 }
 
 auto RaftNode::FirstIndexOfTerm(uint64_t index, uint64_t term) const -> uint64_t {
-  while (index > log_store_->SnapshotBaseIndex()) {
+  while (index > durable_base_) {
     const auto previous = log_store_->TermAt(index - 1);
     if (!previous.has_value() || *previous != term) {
       break;
@@ -1060,13 +1427,13 @@ auto RaftNode::FirstIndexOfTerm(uint64_t index, uint64_t term) const -> uint64_t
 }
 
 auto RaftNode::LastIndexOfTerm(uint64_t term) const -> std::optional<uint64_t> {
-  auto index = log_store_->LastLogIndex();
+  auto index = durable_tip_;
   while (true) {
     const auto value = log_store_->TermAt(index);
     if (value == std::optional<uint64_t>{term}) {
       return index;
     }
-    if (index == log_store_->SnapshotBaseIndex()) {
+    if (index == durable_base_) {
       break;
     }
     index--;

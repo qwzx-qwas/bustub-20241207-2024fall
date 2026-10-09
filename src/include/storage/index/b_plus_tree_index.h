@@ -46,8 +46,11 @@ class BPlusTreeIndex : public Index {
 
   auto GetEndIterator() -> INDEXITERATOR_TYPE;
 
-  /** Return a key-ordered snapshot containing every RID, including non-unique secondary-index buckets. */
-  auto GetAllEntriesSnapshot() -> std::vector<std::pair<KeyType, ValueType>>;
+  /** Return a bounded key-ordered snapshot, including every RID in non-unique buckets.
+   * Empty bounds select the full index. Bounds are explicit production query inputs. */
+  auto GetEntriesSnapshot(const std::optional<KeyType> &lower, bool lower_inclusive,
+                          const std::optional<KeyType> &upper, bool upper_inclusive)
+      -> std::vector<std::pair<KeyType, ValueType>>;
 
  protected:
   // comparator for key
