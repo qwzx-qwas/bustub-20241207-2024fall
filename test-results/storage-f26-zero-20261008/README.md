@@ -1,3 +1,5 @@
+> 2026-10-10：以下为历史记录；此目录旧结果压缩包已删除，由 [S13.4 当前证据](../storage-f26-short-20261010/README.md) 接替。
+
 # F26 共享零页接续结果
 
 2026-10-08；基线 `3dc23d3` 加本轮变更。已先审逻辑，再编写/执行测试，最后复审契约、接口和冗余。[共同协议](../../docs/storage_redesign/s12_translation_zero_page.md) · [具体改动与八项测试审查](../../docs/storage_redesign/s12_translation_execution_20261008.md) · [唯一测试源码包](../../test/archives/F26-array-buffer-pool.tar.gz)。

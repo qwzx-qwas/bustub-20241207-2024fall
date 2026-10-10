@@ -57,6 +57,8 @@ S12.1 时 `StorageMaintenanceLoop → RaftObjectStorage::Collect` 与 `GarbageLo
 
 ## 5. F26 后续协议已确定的方向
 
+2026-10-10：A 索引点查的实际实现、B隔离、预算和正文保护以 [S13.4](s134_optimistic_reads.md) 为准；本节保留方向及此前交接。
+
 - 状态与事件分开：pins 0→1 才需取消可淘汰，1→0 才可重新淘汰；每次 RecordAccess 是独立事件。S12.1 当时保持 LRU-K 语义并合并同次命中的临界区；后续 F32 已改用 CLOCK-Pro，当前策略以 [按需缓存协议](s12_metadata_cache.md) 为准。
 - 2026-10-08 已接通驻留命中：条目原子读取→帧锁→核对身份/映射/状态→pin；帧锁内不能反向等待条目独占锁。加载/淘汰/关闭全部服从同一交接。
 - 2026-10-08 F26 已用调用级登记预留、组访问登记/回收代次替换 shared_lock；稳定描述符继续保留，打洞前排除旧访问，整数数组寿命不中断。见[零页协议](s12_translation_zero_page.md)。现有周期 Maintain 调度和全局 calls 仍保留，不把它们的进一步后台化或分片计账标为完成；不在目录短访问范围等待 IO。

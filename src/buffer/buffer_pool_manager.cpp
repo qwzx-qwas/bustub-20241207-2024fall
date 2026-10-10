@@ -15,10 +15,12 @@
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <thread>
 #include "buffer_pool_internal.h"
 #include "common/exception.h"
 namespace bustub {
 namespace {
+std::atomic<uint64_t> next_short_identity{1};
 class Call {
  public:
   explicit Call(BufferPoolState &s) : s_(s) {
@@ -68,16 +70,158 @@ BufferPoolState::BufferPoolState(size_t count, std::shared_ptr<PageStorage> stor
       arena_({count, BUSTUB_PAGE_SIZE, storage_->MemoryAlignment(), options.arena_bytes_, options.advise_huge_pages_,
               options.memory_budget_}),
       directory_({options.directory_bytes_, options.memory_budget_}),
-      replacer_(count, options.memory_budget_) {
+      replacer_(count, options.memory_budget_),
+      short_identity_(next_short_identity.fetch_add(1)),
+      spare_options_({1, BUSTUB_PAGE_SIZE, storage_->MemoryAlignment(), options.arena_bytes_, false,
+                      options.memory_budget_}),
+      spare_limit_(options.arena_bytes_ - arena_.Layout().mapping_bytes_) {
   if (max_tasks_ == 0 || storage_->MaxBatchPages() == 0 || max_prefetch_ >= count || max_prefetch_ >= max_tasks_) {
     throw std::invalid_argument("no page task capacity");
   }
+  const auto descriptor_bytes = count * (2 * sizeof(IndexBody) + sizeof(std::unique_ptr<FrameArena>) +
+                                          sizeof(std::atomic<IndexBody *>) + sizeof(unsigned) + sizeof(bool));
+  if (!capture_memory_->Reserve(descriptor_bytes, false)) throw std::bad_alloc();
+  short_metadata_ = ResourceCharge(capture_memory_, descriptor_bytes, false);
   frames_.reserve(count);
   free_.reserve(count);
   for (size_t i = 0; i < count; ++i) {
     frames_.push_back(std::make_unique<FrameHeader>(static_cast<frame_id_t>(i), arena_.Frame(i)));
     free_.push_back(count - i - 1);
   }
+}
+// A bounded registration belongs to a thread, not a hot page. Cached identity
+// prevents a destroyed/recreated cache at the same address reusing stale records.
+auto BufferPoolState::ClaimShortReader() -> ShortReader * {
+  struct Cached { uint64_t owner{0}; ShortReader *reader{nullptr}; };
+  static thread_local Cached cached;
+  if (short_closed_.load()) return nullptr;
+  if (cached.owner == short_identity_ && !cached.reader->claimed_.exchange(true)) {
+    if (!short_closed_.load()) return cached.reader;
+    cached.reader->claimed_.store(false);
+    return nullptr;
+  }
+  std::lock_guard lock(short_mutex_);
+  if (short_closed_.load()) return nullptr;
+  ShortReader *reader = nullptr;
+  for (auto &candidate : short_owned_) {
+    if (!candidate->claimed_.exchange(true)) { reader = candidate.get(); break; }
+  }
+  if (!reader) {
+    if (short_owned_.size() == 128) return nullptr;
+    constexpr auto bytes = sizeof(ShortReader) + 2 * sizeof(std::unique_ptr<ShortReader>);
+    if (!capture_memory_->Reserve(bytes, false)) return nullptr;
+    auto candidate = std::make_unique<ShortReader>(ResourceCharge(capture_memory_, bytes, false));
+    reader = candidate.get();
+    short_owned_.push_back(std::move(candidate));
+    reader->next_ = short_readers_.load();
+    short_readers_.store(reader);
+  }
+  cached = {short_identity_, reader};
+  return reader;
+}
+auto BufferPoolState::BodyHeld(IndexBody *body) const -> bool {
+  for (auto *reader = short_readers_.load(); reader; reader = reader->next_)
+    if (reader->body_.load() == body) return true;
+  return false;
+}
+void BufferPoolState::PrivateBody(FrameHeader &f) {
+  if (!f.index_page_) return;
+  f.published_.store(nullptr);
+  auto *old = &f.bodies_[f.body_slot_];
+  if (!BodyHeld(old)) return;
+  const auto other = 1U - f.body_slot_;
+  if (!f.spare_) {
+    try {
+      std::lock_guard allocation(short_mutex_);
+      auto options = spare_options_;
+      options.max_bytes_ = spare_limit_ - spare_bytes_;
+      f.spare_ = std::make_unique<FrameArena>(options);
+      spare_bytes_ += f.spare_->Layout().mapping_bytes_;
+      f.bodies_[1].memory_ = f.spare_->Frame(0);
+      f.bodies_[1].page_ = f.page_;
+    } catch (const std::bad_alloc &) {
+      // Optional copy capacity may be refused. Existing CPU-only readers can
+      // finish without taking a frame/tree lock or waiting for this writer.
+    }
+  }
+  if (f.spare_ && !BodyHeld(&f.bodies_[other])) {
+    auto &next = f.bodies_[other];
+    std::memcpy(next.memory_.data_, f.memory_.data_, BUSTUB_PAGE_SIZE);
+    f.body_slot_ = other;
+    f.memory_ = next.memory_;
+  } else {
+    while (BodyHeld(old)) std::this_thread::yield();
+  }
+}
+void BufferPoolState::PublishBody(FrameHeader &f) {
+  if (!f.index_page_) return;
+  auto &body = f.bodies_[f.body_slot_];
+  f.published_.store(&body);
+}
+void BufferPoolState::DrainBody(FrameHeader &f, bool release_spare) {
+  f.published_.store(nullptr);
+  while (BodyHeld(&f.bodies_[0]) || BodyHeld(&f.bodies_[1])) std::this_thread::yield();
+  f.index_page_ = false;
+  if (!release_spare) return;
+  f.body_slot_ = 0;
+  f.memory_ = f.bodies_[0].memory_;
+  if (f.spare_) {
+    std::lock_guard allocation(short_mutex_);
+    spare_bytes_ -= f.spare_->Layout().mapping_bytes_;
+    f.spare_.reset();
+  }
+  f.bodies_[1].memory_ = {};
+}
+IndexShortRead::IndexShortRead(BufferPoolState &state) : state_(state) {
+  try {
+    reader_ = state_.ClaimShortReader();
+    if (reader_) directory_scope_.emplace(state_.directory_);
+  } catch (const std::bad_alloc &) {
+    if (reader_) reader_->claimed_.store(false);
+    reader_ = nullptr;  // Optional fast path; the original guarded read remains available.
+  } catch (...) {
+    if (reader_) reader_->claimed_.store(false);
+    throw;
+  }
+}
+IndexShortRead::~IndexShortRead() {
+  Release();
+  directory_scope_.reset();
+  if (reader_) reader_->claimed_.store(false);
+}
+void IndexShortRead::Release() { if (reader_) reader_->body_.store(nullptr); }
+auto IndexShortRead::Acquire(page_id_t page) -> const char * {
+  PageNumber(page);
+  if (!reader_) return nullptr;
+  auto entry = state_.directory_.Lookup(page);
+  const auto id = entry.Frame();
+  if (!id) return nullptr;
+  auto &frame = *state_.frames_[*id];
+  auto *body = frame.published_.load();
+  if (!body) return nullptr;
+  reader_->body_.store(body);
+  // Do not inspect the descriptor until the hazard is visible and the source
+  // still publishes it. A withdrawn, reused frame must pass BOTH identities.
+  if (frame.published_.load() != body || entry.Frame() != id) { Release(); return nullptr; }
+  if (body->page_ != page) { Release(); return nullptr; }
+  state_.replacer_.RecordAccess(*id);
+  return body->memory_.data_;
+}
+auto BufferPoolManager::ShortRead() -> IndexShortRead { return IndexShortRead(*state_); }
+auto BufferPoolManager::ReadIndexPage(page_id_t page) -> ReadPageGuard {
+  auto guard = ReadPage(page);
+  std::lock_guard lock(guard.frame_->mutex_);
+  guard.frame_->index_page_ = true;
+  // A concurrent short read may already hold this descriptor. Republishing
+  // the same body must not rewrite even its unchanged non-atomic identity.
+  if (!guard.frame_->published_.load()) state_->PublishBody(*guard.frame_);
+  return guard;
+}
+auto BufferPoolManager::WriteIndexPage(page_id_t page) -> WritePageGuard {
+  auto guard = WritePage(page);
+  std::lock_guard lock(guard.frame_->mutex_);
+  guard.frame_->index_page_ = true;
+  return guard;
 }
 void BufferPoolState::Unpin(FrameHeader &f) {
   if (f.pins_ == 0) {
@@ -190,6 +334,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
       {
         auto entry = directory_.Access(previous);
         std::lock_guard<std::mutex> lock(f.mutex_);
+        DrainBody(f);
         entry.SetFrame(std::nullopt);
         replacer_.Evicted(f.id_);
         f.page_ = INVALID_PAGE_ID;
@@ -203,6 +348,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
     if (f.generation_ == std::numeric_limits<uint64_t>::max()) {
       Free(f.id_);
       std::lock_guard<std::mutex> lock(mutex_);
+      short_closed_.store(true);
       closed_ = true;
       throw std::overflow_error("frame reuse identity exhausted");
     }
@@ -215,6 +361,7 @@ auto BufferPoolState::PrepareFrame(page_id_t page, AccessType type, bool prefetc
         // Register replacement history before accepting IO: completion must not allocate.
         replacer_.Admit(f.id_, {static_cast<uint64_t>(page), 0, 0});
         f.page_ = page;
+        for (auto &body : f.bodies_) body.page_ = page;
         ++f.generation_;
         f.dirty_version_ = f.clean_version_ = 0;
         f.phase_ = FramePhase::Loading;
@@ -269,6 +416,7 @@ auto BufferPoolState::Fetch(page_id_t page, bool write, AccessType type) -> Fram
     if (hit) {
       hit->changed_.wait(content, [&] { return !hit->writer_ && (!write || (hit->readers_ == 0 && !hit->io_)); });
       if (write) {
+        try { PrivateBody(*hit); } catch (...) { Unpin(*hit); throw; }
         hit->writer_ = true;
       } else {
         ++hit->readers_;
@@ -340,6 +488,16 @@ BufferPoolManager::BufferPoolManager(size_t n, std::shared_ptr<PageStorage> stor
 BufferPoolManager::~BufferPoolManager() { Close(); }
 auto BufferPoolManager::Size() const -> size_t { return state_->frames_.size(); }
 void BufferPoolManager::Close() {
+  state_->short_closed_.store(true);
+  {
+    std::lock_guard lifecycle(state_->mutex_);
+    state_->closed_ = true;
+  }
+  {
+    std::lock_guard registry(state_->short_mutex_);  // Complete any registration already in progress.
+  }
+  for (auto *reader = state_->short_readers_.load(); reader; reader = reader->next_)
+    while (reader->claimed_.load()) std::this_thread::yield();
   std::unique_lock<std::mutex> lock(state_->mutex_);
   state_->closed_ = true;
   state_->changed_.wait(lock, [&] { return state_->calls_ == 0 && state_->tasks_ == 0; });
@@ -424,6 +582,7 @@ auto BufferPoolManager::DeletePage(page_id_t page) -> bool {
       if (f.pins_ || (f.phase_ != FramePhase::Resident && f.phase_ != FramePhase::Failed)) {
         return false;
       }
+      state_->DrainBody(f);
       state_->replacer_.Remove(*id);
       e.SetFrame(std::nullopt);
       f.phase_ = FramePhase::Free;
@@ -456,6 +615,7 @@ auto BufferPoolManager::RetirePage(ReadPageGuard &victim, WritePageGuard &link,
     if (f.pins_ != 1 || f.io_ || f.phase_ != FramePhase::Resident) {
       return false;
     }
+    state_->DrainBody(f, false);  // Failed durable retirement must leave the owned guard's body intact.
     f.phase_ = FramePhase::Evicting;
     f.task_ = task;  // Later lookups join; no entry/frame mutex spans the commit.
   }
@@ -465,6 +625,7 @@ auto BufferPoolManager::RetirePage(ReadPageGuard &victim, WritePageGuard &link,
     const auto error = std::current_exception();
     {
       std::lock_guard<std::mutex> lock(state_->mutex_);
+      state_->short_closed_.store(true);
       state_->closed_ = true;
     }
     {
@@ -486,6 +647,7 @@ auto BufferPoolManager::RetirePage(ReadPageGuard &victim, WritePageGuard &link,
   {
     auto entry = state_->directory_.Access(page);
     std::lock_guard<std::mutex> lock(f.mutex_);
+    state_->DrainBody(f);
     state_->replacer_.SetEvictable(f.id_, true);
     state_->replacer_.Remove(f.id_);
     entry.SetFrame(std::nullopt);

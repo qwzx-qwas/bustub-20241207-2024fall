@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-10",
+  "source_package": "test/archives/F26-array-buffer-pool.tar.gz",
+  "source_replaced_in_place": true,
+  "old_result_deleted": true,
+  "temporary_builds_devices_and_expanded_tests_removed": true,
+  "normal_distinct": 77,
+  "short_tsan_cases": 6,
+  "assertion_mutations": 4,
+  "other_module_archives_unchanged": true,
+  "toolchain_retained": ".cache/toolchains/gcc-16.2.0",
+  "archive_no_binaries_or_bytecode": true,
+  "review_rerun_normal": 17,
+  "review_short_tsan_cases": 7,
+  "review_assertion_mutations": 5,
+  "review_temporary_workspace_removed": true,
+  "old_result_archive_backups_retained": false,
+  "third_audit_no_expanded_tests_or_builds": true,
+  "third_audit_cpp_reruns": 0,
+  "implementation_stage_commit_performed": false,
+  "commit_record": "See git log for the authorized S13.4 commit",
+  "precommit_archive_hashes_verified": 29
+}

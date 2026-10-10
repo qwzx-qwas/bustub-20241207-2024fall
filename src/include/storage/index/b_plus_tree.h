@@ -23,6 +23,8 @@
 #include <deque>
 #include <filesystem>
 #include <iostream>
+#include <atomic>
+#include <type_traits>
 #include <mutex>  // NOLINT(build/c++11)
 #include <optional>
 #include <queue>
@@ -241,6 +243,25 @@ class BPlusTree {
   void BatchOpsFromFile(const std::filesystem::path &file_name);
 
  private:
+  static constexpr bool kShortReads = std::is_same_v<PageAccess, BufferPoolManager>;
+  auto ReadTreePage(page_id_t page) const -> ReadPageGuard {
+    if constexpr (kShortReads) return bpm_->ReadIndexPage(page);
+    else return bpm_->ReadPage(page);
+  }
+  auto WriteTreePage(page_id_t page) -> WritePageGuard {
+    if constexpr (kShortReads) return bpm_->WriteIndexPage(page);
+    else return bpm_->WritePage(page);
+  }
+  std::conditional_t<kShortReads, std::atomic<uint64_t>, std::false_type> sequence_{};
+  class Mutation {
+   public:
+    explicit Mutation(BPlusTree &tree) : tree_(tree) {
+      if constexpr (kShortReads) tree_.sequence_.fetch_add(1);
+    }
+    ~Mutation() { if constexpr (kShortReads) tree_.sequence_.fetch_add(1); }
+   private:
+    BPlusTree &tree_;
+  };
   /* Debug Routines for FREE!! */
   /* 调试例程（免费提供） */
   void ToGraph(page_id_t page_id, const BPlusTreePage *page, std::ofstream &out);

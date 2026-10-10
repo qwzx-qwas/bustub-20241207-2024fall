@@ -102,6 +102,7 @@ void WritePageGuard::Drop() {
   }
   {
     std::lock_guard<std::mutex> lock(frame_->mutex_);
+    state_->PublishBody(*frame_);
     frame_->writer_ = false;
     state_->Unpin(*frame_);
     frame_ = nullptr;

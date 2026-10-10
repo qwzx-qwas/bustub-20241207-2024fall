@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include "buffer/access_type.h"
+#include "buffer/translation_directory.h"
 #include "buffer/page_storage.h"
 #include "common/config.h"
 #include "storage/disk/disk_manager.h"
@@ -28,6 +29,30 @@ class ResourceBudget;
 class DiskManager;
 class LogManager;
 struct BufferPoolState;
+struct ShortReader;
+/** Thread-affine, bounded CPU-only reads. Callback must not retain body pointers,
+ * block, perform IO, or mutate storage. The owning manager outlives this scope. */
+class IndexShortRead {
+ public:
+  explicit IndexShortRead(BufferPoolState &state);
+  ~IndexShortRead();
+  IndexShortRead(const IndexShortRead &) = delete;
+  auto operator=(const IndexShortRead &) -> IndexShortRead & = delete;
+  template <class Function>
+  auto Read(page_id_t page, Function &&consume) -> bool {
+    const auto *body = Acquire(page);
+    if (!body) return false;
+    try { consume(body); } catch (...) { Release(); throw; }
+    Release();
+    return true;
+  }
+ private:
+  auto Acquire(page_id_t page) -> const char *;
+  void Release();
+  BufferPoolState &state_;
+  ShortReader *reader_{nullptr};
+  std::optional<TranslationContext> directory_scope_;
+};
 struct BufferPoolOptions {
   size_t directory_bytes_;
   size_t arena_bytes_;
@@ -68,6 +93,10 @@ class BufferPoolManager {
   auto CheckedReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> std::optional<ReadPageGuard>;
   auto WritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> WritePageGuard;
   auto ReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> ReadPageGuard;
+  // Only A index consumers opt in; MetadataPager has no such capability.
+  auto ReadIndexPage(page_id_t page) -> ReadPageGuard;
+  auto WriteIndexPage(page_id_t page) -> WritePageGuard;
+  auto ShortRead() -> IndexShortRead;
   auto FlushPage(page_id_t page_id) -> bool;
   void FlushAllPages();
   /** Bounded background preflush; does not evict hot pages. */

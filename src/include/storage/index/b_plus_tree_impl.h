@@ -20,7 +20,7 @@ BPLUSTREE_TYPE::BPlusTree(std::string name, page_id_t header_page_id, PageAccess
       internal_max_size_(internal_max_size),
       header_page_id_(header_page_id) {
   if (mode == BPlusTreeOpenMode::Create) {
-    WritePageGuard guard = bpm_->WritePage(header_page_id_);
+    WritePageGuard guard = WriteTreePage(header_page_id_);
     auto root_page = guard.template AsMut<BPlusTreeHeaderPage>();
     root_page->root_page_id_ = INVALID_PAGE_ID;
   }
@@ -46,7 +46,7 @@ auto BPLUSTREE_TYPE::FindLeafPage(page_id_t page_id, const KeyType &key, std::ve
   page_id_t current_page_id = page_id;
 
   while (true) {
-    ReadPageGuard current_guard = bpm_->ReadPage(current_page_id);
+    ReadPageGuard current_guard = ReadTreePage(current_page_id);
     auto current_page = current_guard.template As<BPlusTreePage>();
     // 如果根节点是叶子节点
     if (current_page->IsLeafPage()) {
@@ -103,16 +103,49 @@ auto BPLUSTREE_TYPE::BinarySearch(const BPlusTreePage *page, const KeyType &key,
  */
 PAGE_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool {
+  if constexpr (kShortReads) {
+    for (unsigned attempt = 0; attempt < 2; ++attempt) {
+      const auto before = sequence_.load();
+      if (before & 1) break;
+      auto scope = bpm_->ShortRead();
+      page_id_t page = INVALID_PAGE_ID;
+      if (!scope.Read(header_page_id_, [&](const char *bytes) {
+            page = reinterpret_cast<const BPlusTreeHeaderPage *>(bytes)->root_page_id_;
+          })) break;
+      std::optional<ValueType> value;
+      bool complete = true;
+      while (page != INVALID_PAGE_ID) {
+        bool leaf = false;
+        if (!scope.Read(page, [&](const char *bytes) {
+              const auto *node = reinterpret_cast<const BPlusTreePage *>(bytes);
+              leaf = node->IsLeafPage();
+              if (leaf) {
+                const auto *items = reinterpret_cast<const LeafPage *>(node);
+                const int slot = BinarySearch(node, key, comparator_, false);
+                if (slot >= 0 && slot < items->GetSize() && comparator_(items->KeyAt(slot), key) == 0)
+                  value = items->ValueAt(slot);
+              } else {
+                const auto *items = reinterpret_cast<const InternalPage *>(node);
+                page = items->ValueAt(BinarySearch(node, key, comparator_, true));
+              }
+            })) { complete = false; break; }
+        if (leaf) break;
+      }
+      std::atomic_thread_fence(std::memory_order_acq_rel);
+      if (complete && sequence_.load() == before) {
+        if (value) result->push_back(*value);
+        return value.has_value();
+      }
+      if (!complete) break;  // Demand IO and protected fallback happen after scope exit.
+    }
+  }
   std::shared_lock tree_lock(tree_latch_);
   /*Declaration of context instance.
   Context ctx;
   (void)ctx;
   return false;*/
-  if (IsEmpty()) {
-    return false;
-  }
-  // 从根节点开始查找
   page_id_t current_page_id = GetRootPageId();
+  if (current_page_id == INVALID_PAGE_ID) return false;
 
   page_id_t leaf_page_id = FindLeafPage(current_page_id, key, result);
 
@@ -129,7 +162,7 @@ auto BPLUSTREE_TYPE::GetFloor(const KeyType &upper) -> std::optional<std::pair<K
   }
   page_id_t left = INVALID_PAGE_ID;
   bool rightmost = false;
-  auto guard = bpm_->ReadPage(page);
+  auto guard = ReadTreePage(page);
   for (;;) {
     auto node = guard.template As<BPlusTreePage>();
     if (node->IsLeafPage()) {
@@ -152,7 +185,7 @@ auto BPLUSTREE_TYPE::GetFloor(const KeyType &upper) -> std::optional<std::pair<K
       }
       page = internal->ValueAt(index);
     }
-    guard = bpm_->ReadPage(page);
+    guard = ReadTreePage(page);
   }
 }
 
@@ -169,7 +202,7 @@ auto BPLUSTREE_TYPE::InsertIntoNewTree(const KeyType &key, const ValueType &valu
   // 在此保存根节点的id
   ctx.root_page_id_ = new_root_page_id;
   // 将根节点页面的写保护存放到context中
-  WritePageGuard new_root_guard = bpm_->WritePage(new_root_page_id);
+  WritePageGuard new_root_guard = WriteTreePage(new_root_page_id);
   ctx.write_set_.push_back(std::move(new_root_guard));
   // 初始化根节点为叶子节点
   auto &root_guard = ctx.write_set_.back();
@@ -196,7 +229,7 @@ auto BPLUSTREE_TYPE::HandleLeafSplit(WritePageGuard &leaf_guard, Context &ctx, c
   if (new_leaf_page_id == INVALID_PAGE_ID) {
     throw Exception("Failed to allocate new page for leaf split");
   }
-  WritePageGuard new_leaf_guard = bpm_->WritePage(new_leaf_page_id);
+  WritePageGuard new_leaf_guard = WriteTreePage(new_leaf_page_id);
   ctx.write_set_.push_back(std::move(new_leaf_guard));
 
   // 获取新叶子节点的可变引用，其实也就是刚才push进去的那个guard
@@ -307,7 +340,7 @@ auto BPLUSTREE_TYPE::HandleInternalSplit(WritePageGuard &internal_guard, Context
     throw Exception("Failed to allocate new page for internal split");
   }
 
-  WritePageGuard new_internal_guard = bpm_->WritePage(new_internal_page_id);
+  WritePageGuard new_internal_guard = WriteTreePage(new_internal_page_id);
   ctx.write_set_.push_back(std::move(new_internal_guard));
   auto &new_internal_page_guard = ctx.write_set_.back();
   auto new_internal_page = new_internal_page_guard.template AsMut<InternalPage>();
@@ -399,7 +432,7 @@ auto BPLUSTREE_TYPE::CreateNewRoot(page_id_t left_page_id, page_id_t right_page_
     throw Exception("Failed to allocate new page for new root");
   }
 
-  WritePageGuard new_root_guard = bpm_->WritePage(new_root_page_id);
+  WritePageGuard new_root_guard = WriteTreePage(new_root_page_id);
   ctx.write_set_.push_back(std::move(new_root_guard));
   auto &new_root_page_guard = ctx.write_set_.back();
   auto new_root_page = new_root_page_guard.template AsMut<InternalPage>();
@@ -428,6 +461,7 @@ auto BPLUSTREE_TYPE::CreateNewRoot(page_id_t left_page_id, page_id_t right_page_
 PAGE_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool {
   std::unique_lock tree_lock(tree_latch_);
+  Mutation mutation(*this);  // Construct before all page guards; publish stable only after they drop.
   // Declaration of context instance.
   /*Context ctx;
   (void)ctx;      是一种无副作用的 C++ 技巧，用于在变量尚未被使用时抑制编译器警告。
@@ -435,7 +469,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
   Context ctx;
 
   // 先获取header_page的写入guard，以便后续可能更新root_page_id
-  WritePageGuard header_guard = bpm_->WritePage(header_page_id_);
+  WritePageGuard header_guard = WriteTreePage(header_page_id_);
   // 将header_paged的写保护存放到context中
   ctx.header_page_ = std::move(header_guard);
   auto header_page = ctx.header_page_->template AsMut<BPlusTreeHeaderPage>();
@@ -500,7 +534,7 @@ auto BPLUSTREE_TYPE::FindLeafPageForWrite(const KeyType &key, std::vector<ValueT
   page_id_t current_page_id = ctx.root_page_id_;
 
   while (true) {
-    WritePageGuard current_guard = bpm_->WritePage(current_page_id);
+    WritePageGuard current_guard = WriteTreePage(current_page_id);
     auto current_page = current_guard.template As<BPlusTreePage>();
 
     bool is_safe = false;
@@ -555,6 +589,7 @@ auto BPLUSTREE_TYPE::FindLeafPageForWrite(const KeyType &key, std::vector<ValueT
 PAGE_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   std::unique_lock tree_lock(tree_latch_);
+  Mutation mutation(*this);  // Construct before all page guards; publish stable only after they drop.
   if (IsEmpty()) {
     return;  // 如果B+树为空，直接返回
   }
@@ -562,7 +597,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   Context ctx;
   // (void)ctx;
 
-  WritePageGuard header_guard = bpm_->WritePage(header_page_id_);
+  WritePageGuard header_guard = WriteTreePage(header_page_id_);
   // 将header_paged的写保护存放到context中
   ctx.header_page_ = std::move(header_guard);
   auto header_page = ctx.header_page_->template AsMut<BPlusTreeHeaderPage>();
@@ -705,7 +740,7 @@ auto BPLUSTREE_TYPE::RedistributeLeaf(WritePageGuard &leaf_guard, WritePageGuard
     // 获取左兄弟节点的page_id
     // 这里不将writeguard放到ctx中，因为借完就自动释放锁（RAII）
     page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
-    WritePageGuard left_sibling_guard = bpm_->WritePage(left_sibling_page_id);
+    WritePageGuard left_sibling_guard = WriteTreePage(left_sibling_page_id);
     auto left_sibling_page = left_sibling_guard.template AsMut<LeafPage>();
 
     // 检查左兄弟节点是否可以借
@@ -739,7 +774,7 @@ auto BPLUSTREE_TYPE::RedistributeLeaf(WritePageGuard &leaf_guard, WritePageGuard
   page_id_t sibling_page_id = parent_page->ValueAt(current_index + 1);
 
   // 能借就借，借完更新父节点
-  WritePageGuard sibling_guard = bpm_->WritePage(sibling_page_id);
+  WritePageGuard sibling_guard = WriteTreePage(sibling_page_id);
   auto sibling_page = sibling_guard.template AsMut<LeafPage>();
 
   // 从兄弟节点借一个元素到当前叶子节点
@@ -793,7 +828,7 @@ auto BPLUSTREE_TYPE::RedistributeInternal(WritePageGuard &internal_guard, WriteP
     // 获取左兄弟节点的page_id
     // 这里不将writeguard放到ctx中，因为借完就自动释放锁（RAII）
     page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
-    WritePageGuard left_sibling_guard = bpm_->WritePage(left_sibling_page_id);
+    WritePageGuard left_sibling_guard = WriteTreePage(left_sibling_page_id);
     auto left_sibling_page = left_sibling_guard.template AsMut<InternalPage>();
 
     // 检查左兄弟节点是否可以借
@@ -829,7 +864,7 @@ auto BPLUSTREE_TYPE::RedistributeInternal(WritePageGuard &internal_guard, WriteP
     return false;  // 没有右兄弟节点，不能合并
   }
   page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
-  WritePageGuard right_sibling_guard = bpm_->WritePage(right_sibling_page_id);
+  WritePageGuard right_sibling_guard = WriteTreePage(right_sibling_page_id);
   auto right_sibling_page = right_sibling_guard.template AsMut<InternalPage>();
 
   // 能借就借，借完更新父节点
@@ -882,7 +917,7 @@ auto BPLUSTREE_TYPE::MergeLeaf(WritePageGuard &leaf_guard, WritePageGuard &paren
   if (current_index > 0) {
     // 有左兄弟节点
     page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
-    sibling_guard = bpm_->WritePage(left_sibling_page_id);
+    sibling_guard = WriteTreePage(left_sibling_page_id);
 
     MergeLeafHelper(sibling_guard, leaf_guard, parent_guard, current_index - 1);  // NOLINT
     return true;
@@ -892,7 +927,7 @@ auto BPLUSTREE_TYPE::MergeLeaf(WritePageGuard &leaf_guard, WritePageGuard &paren
     return false;  // 没有右兄弟节点，不能合并
   }
   page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
-  sibling_guard = bpm_->WritePage(right_sibling_page_id);
+  sibling_guard = WriteTreePage(right_sibling_page_id);
 
   MergeLeafHelper(leaf_guard, sibling_guard, parent_guard, current_index);
   return true;
@@ -958,7 +993,7 @@ auto BPLUSTREE_TYPE::MergeInternal(WritePageGuard &internal_guard, WritePageGuar
   if (current_index > 0) {
     // 有左兄弟节点
     page_id_t left_sibling_page_id = parent_page->ValueAt(current_index - 1);
-    sibling_guard = bpm_->WritePage(left_sibling_page_id);
+    sibling_guard = WriteTreePage(left_sibling_page_id);
 
     MergeInternalHelper(sibling_guard, internal_guard, parent_guard, current_index - 1);
     return true;
@@ -968,7 +1003,7 @@ auto BPLUSTREE_TYPE::MergeInternal(WritePageGuard &internal_guard, WritePageGuar
     return false;  // 没有右兄弟节点，不能合并
   }
   page_id_t right_sibling_page_id = parent_page->ValueAt(current_index + 1);
-  sibling_guard = bpm_->WritePage(right_sibling_page_id);
+  sibling_guard = WriteTreePage(right_sibling_page_id);
 
   MergeInternalHelper(internal_guard, sibling_guard, parent_guard, current_index);
   return true;
@@ -1039,7 +1074,7 @@ auto BPLUSTREE_TYPE::Begin() -> PAGE_INDEXITERATOR_TYPE {
     return PAGE_INDEXITERATOR_TYPE();
   }
   // 从根节点开始查找
-  ReadPageGuard current_guard = bpm_->ReadPage(current_page_id);
+  ReadPageGuard current_guard = ReadTreePage(current_page_id);
   while (true) {
     auto current_page = current_guard.template As<BPlusTreePage>();
 
@@ -1052,7 +1087,7 @@ auto BPLUSTREE_TYPE::Begin() -> PAGE_INDEXITERATOR_TYPE {
     auto internal_page = current_guard.template As<InternalPage>();
     // 一直往左走
     current_page_id = internal_page->ValueAt(0);
-    current_guard = bpm_->ReadPage(current_page_id);
+    current_guard = ReadTreePage(current_page_id);
   }
 }
 
@@ -1069,7 +1104,7 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> PAGE_INDEXITERATOR_TYPE {
   if (current_page_id == INVALID_PAGE_ID) {
     return PAGE_INDEXITERATOR_TYPE();
   }
-  ReadPageGuard current_guard = bpm_->ReadPage(current_page_id);
+  ReadPageGuard current_guard = ReadTreePage(current_page_id);
   while (true) {
     auto current_page = current_guard.template As<BPlusTreePage>();
 
@@ -1092,7 +1127,7 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> PAGE_INDEXITERATOR_TYPE {
         if (next_page_id == INVALID_PAGE_ID) {
           return PAGE_INDEXITERATOR_TYPE();
         }
-        current_guard = bpm_->ReadPage(next_page_id);
+        current_guard = ReadTreePage(next_page_id);
         leaf_page = current_guard.template As<LeafPage>();
         page_id_t leaf_page_id = current_guard.GetPageId();
         return PAGE_INDEXITERATOR_TYPE(std::move(current_guard), leaf_page, leaf_page_id, 0, bpm_);
@@ -1104,7 +1139,7 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> PAGE_INDEXITERATOR_TYPE {
     // 在内部节点中二分查找key,需要略过第一个key,用true来说明这一点
     int index = BinarySearch(internal_page, key, comparator_, true);
     current_page_id = internal_page->ValueAt(index);
-    current_guard = bpm_->ReadPage(current_page_id);
+    current_guard = ReadTreePage(current_page_id);
   }
 }
 
@@ -1121,7 +1156,7 @@ auto BPLUSTREE_TYPE::End() -> PAGE_INDEXITERATOR_TYPE { return PAGE_INDEXITERATO
  */
 PAGE_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetRootPageId() const -> page_id_t {
-  ReadPageGuard header_guard = bpm_->ReadPage(header_page_id_);
+  ReadPageGuard header_guard = ReadTreePage(header_page_id_);
   auto header_page = header_guard.template As<BPlusTreeHeaderPage>();
   return header_page->root_page_id_;
 }

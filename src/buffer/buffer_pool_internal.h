@@ -1,5 +1,7 @@
 #pragma once
 #include <condition_variable>
+#include <atomic>
+#include <array>
 #include <mutex>
 #include <vector>
 #include "buffer/buffer_pool_manager.h"
@@ -27,10 +29,26 @@ struct PageTask {
   }
 };
 enum class FramePhase { Free, Loading, Resident, Evicting, Failed };
+struct IndexBody {
+  FrameMemory memory_{};
+  page_id_t page_{INVALID_PAGE_ID};
+};
+struct alignas(64) ShortReader {
+  explicit ShortReader(ResourceCharge charge) : charge_(std::move(charge)) {}
+  ResourceCharge charge_;
+  std::atomic<bool> claimed_{true};
+  std::atomic<IndexBody *> body_{nullptr};
+  ShortReader *next_{nullptr};
+};
 struct FrameHeader {
-  FrameHeader(frame_id_t id, FrameMemory memory) : id_(id), memory_(memory) {}
+  FrameHeader(frame_id_t id, FrameMemory memory) : id_(id), memory_(memory) { bodies_[0].memory_ = memory; }
   std::mutex mutex_;
   std::condition_variable changed_;
+  std::array<IndexBody, 2> bodies_;
+  std::unique_ptr<FrameArena> spare_;
+  unsigned body_slot_{0};
+  bool index_page_{false};
+  std::atomic<IndexBody *> published_{nullptr};
   frame_id_t id_;
   FrameMemory memory_;
   page_id_t page_{INVALID_PAGE_ID};
@@ -58,6 +76,7 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
   FrameArena arena_;
   TranslationDirectory directory_;
   ClockProReplacer replacer_;
+  ResourceCharge short_metadata_;
   std::vector<std::unique_ptr<FrameHeader>> frames_;
   std::vector<frame_id_t> free_;  // Reserved once; retiring a frame cannot allocate.
   struct Slot {
@@ -66,6 +85,19 @@ struct BufferPoolState : std::enable_shared_from_this<BufferPoolState> {
     BufferPoolState &state_;
     bool prefetch_;
   };
+  const uint64_t short_identity_;
+  std::atomic<bool> short_closed_{false};
+  std::atomic<ShortReader *> short_readers_{nullptr};
+  std::mutex short_mutex_;
+  std::vector<std::unique_ptr<ShortReader>> short_owned_;
+  FrameArenaOptions spare_options_;
+  size_t spare_bytes_{0};
+  const size_t spare_limit_;
+  auto ClaimShortReader() -> ShortReader *;
+  auto BodyHeld(IndexBody *body) const -> bool;
+  void PrivateBody(FrameHeader &frame);
+  void DrainBody(FrameHeader &frame, bool release_spare = true);
+  void PublishBody(FrameHeader &frame);
   auto TrySlot(bool prefetch) -> std::unique_ptr<Slot>;
   struct FramePreparation {
     FrameHeader *frame_;

@@ -15,5 +15,7 @@
   "latest_review_reused_tsan_tests": 6,
   "unrelated_failure_counterexamples_rejected": 8,
   "precommit_archive_bytecode_removed": true,
-  "precommit_cpp_tests_rerun": false
+  "precommit_cpp_tests_rerun": false,
+  "superseded_by": "../storage-f26-short-20261010",
+  "this_directory_result_archive_deleted": true
 }

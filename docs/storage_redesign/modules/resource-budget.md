@@ -1,5 +1,7 @@
 # F31 资源预算与背压基础
 
+> 2026-10-10 F26/S13.4：A 索引不可变正文短读、备用帧预算与关闭交接见 [共同协议](../s134_optimistic_reads.md)。B 固定版本、原 CLOCK-Pro 与 F02 IO 职责保留；不将短读测试当完整性能验收。
+
 > 本轮接续：[S13.2b共同协议](../s132b_protocol.md)。F35 S13.2b 请求窗口复用 ResourceAccount/ResourceCharge；已认领任务持有请求额度，TaskExecutor 不重复计算其正文，普通业务保留完成/Apply名额。
 
 
