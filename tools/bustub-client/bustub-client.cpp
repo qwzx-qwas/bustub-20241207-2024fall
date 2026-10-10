@@ -25,6 +25,8 @@ auto Usage() -> std::string {
   bustub-client status --endpoint HOST:PORT --request-id ID [--storage 0|1]
   bustub-client write  --endpoint HOST:PORT --client-id ID --request-id ID --sql SQL
   bustub-client read   --endpoint HOST:PORT --request-id ID [--consistency linearizable|stale] --sql SQL
+  bustub-client window-write --endpoint HOST:PORT --client-id ID --request-id ID --sql SQL [--ack-through ID]
+  bustub-client ack|close --endpoint HOST:PORT --client-id ID --request-id RPC_ID --ack-through ID
   optional for all commands: --timeout-ms N)";
 }
 
@@ -57,6 +59,16 @@ auto StatusName(bustub::ClientResponseStatus status) -> const char * {
       return "REJECTED";
     case bustub::ClientResponseStatus::TIMEOUT:
       return "TIMEOUT";
+    case bustub::ClientResponseStatus::DURABLE_REJECTED:
+      return "DURABLE_REJECTED";
+    case bustub::ClientResponseStatus::RESULT_EXPIRED:
+      return "RESULT_EXPIRED";
+    case bustub::ClientResponseStatus::SESSION_CLOSED:
+      return "SESSION_CLOSED";
+    case bustub::ClientResponseStatus::WINDOW_FULL:
+      return "WINDOW_FULL";
+    case bustub::ClientResponseStatus::GAP:
+      return "GAP";
     case bustub::ClientResponseStatus::UNAVAILABLE:
       return "UNAVAILABLE";
   }
@@ -102,9 +114,15 @@ auto main(int argc, char **argv) -> int {
       const auto storage = values.count("--storage") ? ParseUnsigned(values.at("--storage"), "storage status") : 0;
       if (storage > 1) throw std::runtime_error("--storage must be 0 or 1");
       request = bustub::ClientStatusRequestV1{request_id, storage == 1};
-    } else if (action == "write") {
-      request = bustub::ClientWriteRequestV1{ParseUnsigned(Required(values, "--client-id"), "client ID"), request_id,
-                                             Required(values, "--sql")};
+    } else if (action == "write" || action == "window-write") {
+      request = bustub::ClientWriteRequestV1{
+          ParseUnsigned(Required(values, "--client-id"), "client ID"), request_id, Required(values, "--sql"),
+          action == "window-write",
+          values.count("--ack-through") ? ParseUnsigned(values.at("--ack-through"), "acknowledged prefix") : 0};
+    } else if (action == "ack" || action == "close") {
+      request = bustub::ClientSessionRequestV2{ParseUnsigned(Required(values, "--client-id"), "client ID"), request_id,
+                                               ParseUnsigned(Required(values, "--ack-through"), "acknowledged prefix"),
+                                               action == "close"};
     } else if (action == "read") {
       const auto consistency = values.count("--consistency") == 0 ? "linearizable" : values.at("--consistency");
       if (consistency != "linearizable" && consistency != "stale") {
@@ -132,8 +150,10 @@ auto main(int argc, char **argv) -> int {
     }
     std::cout << '\n';
 
-    if (response.status_ == bustub::ClientResponseStatus::COMMITTED) {
+    if (response.status_ == bustub::ClientResponseStatus::COMMITTED ||
+        response.status_ == bustub::ClientResponseStatus::DURABLE_REJECTED) {
       const auto committed = bustub::WriteResponseCodec::Decode(response.payload_);
+      if (!committed.error_.empty()) std::cout << "message=" << committed.error_ << '\n';
       std::cout << "request_id=" << committed.request_id_ << " entry_term=" << committed.term_
                 << " committed_index=" << committed.commit_index_ << " response_bytes=" << HexPayload(response.payload_)
                 << '\n';

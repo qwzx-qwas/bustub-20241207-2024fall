@@ -117,11 +117,14 @@ class BusTubRaftStateMachine : public RaftStateMachine {
       -> std::optional<TransactionCommandBatch>;
   auto PrepareSql(const std::string &sql, uint64_t client_id, uint64_t request_id,
                   const RequestFingerprintV1 &request_fingerprint) const -> TransactionCommandBatch;
-  auto ClassifyRequest(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint) const
-      -> RequestDisposition;
+  auto ClassifyRequest(uint64_t client_id, uint64_t request_id, const RequestFingerprintV1 &request_fingerprint,
+                       bool window = false) const -> RequestDisposition;
   void ValidateProposal(const TransactionCommandBatch &batch) const;
   auto GetRow(table_oid_t table_oid, const EncodedPrimaryKeyV1 &primary_key) const
       -> std::optional<std::pair<TupleMeta, Tuple>>;
+  auto InspectRequest(uint64_t client, uint64_t request, const RequestFingerprintV1 &fingerprint, bool window) const
+      -> std::pair<RequestDisposition, std::vector<std::byte>>;
+  auto InspectSessionControl(uint64_t client, uint64_t acknowledged, bool close) const -> std::pair<bool, uint64_t>;
   auto GetLastResponse(uint64_t client_id) const -> std::optional<std::vector<std::byte>>;
   auto ExecuteReadSql(const std::string &sql, uint64_t minimum_index) const -> PublishedSqlRead;
   auto PublishedAppliedIndex() const -> uint64_t;

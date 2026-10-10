@@ -354,8 +354,15 @@ auto DistributedNode::AcquireWrite(const std::shared_ptr<ActiveWrite> &active) -
   uint64_t blocker = 0;
   if (!catalog_writes_.empty() && *catalog_writes_.begin() < id) blocker = *catalog_writes_.begin();
   if (plan.scope_ == SqlWritePlan::Scope::CATALOG) {
-    // DDL waits for every earlier request, including those still analyzing.
-    if (writes_.begin()->first != id) blocker = writes_.begin()->first;
+    // Requests waiting for a missing session predecessor have no business scope yet.
+    // Do not let one of them block the very DDL predecessor it needs.
+    for (const auto &[sequence, earlier] : writes_) {
+      if (sequence >= id) break;
+      if (!earlier->control_ && (earlier->plan_ || earlier->proposal_index_ || earlier->prepared_)) {
+        blocker = sequence;
+        break;
+      }
+    }
     if (blocker == 0) {
       // Later requests already holding keys must also publish before catalog changes.
       for (const auto &[table, state] : table_writes_)
@@ -428,7 +435,13 @@ void DistributedNode::FinishWrite(const std::shared_ptr<ActiveWrite> &active, Cl
                                   std::vector<std::byte> bytes) {
   ReleaseWrite(active);
   active->response_ = MakeResponse(active->request_id_, status, std::move(bytes));
-  clients_.erase(active->client_id_);
+  if (active->control_) {
+    control_work_.reset();
+  } else {
+    auto &requests = clients_.at(active->client_id_);
+    requests.erase(active->request_id_);
+    if (requests.empty()) clients_.erase(active->client_id_);
+  }
   write_bytes_ -= active->bytes_;
   writes_.erase(active->sequence_);
   // An accepted worker retains active/charge until its actual work ends.
@@ -444,11 +457,86 @@ void DistributedNode::ReconcileActiveWrite() {
   const size_t maximum_bytes =
       config_.object_storage_ ? config_.object_storage_->raft_.max_batch_bytes_ : 1024U * 1024U;
   size_t batch_bytes = 0;
+  // Serializing session creation makes the replicated session-count cap exact,
+  // including a batch validated before any of its entries has been applied.
+  std::shared_ptr<ActiveWrite> opening;
+  for (const auto &active : window)
+    if (active->window_ && !active->control_ && active->request_id_ == 1) {
+      opening = active;
+      break;
+    }
   for (const auto &active : window) {
     if (!raft_node_->LeaderReady() || raft_node_->CurrentTerm() != active->proposal_term_) {
       FinishWrite(active, ClientResponseStatus::NOT_LEADER);
       continue;
     }
+    if (active->control_) {
+      if (active->proposal_index_) {
+        if (raft_node_->PublishedAppliedIndex() >= active->proposal_index_)
+          FinishWrite(active, ClientResponseStatus::OK);
+        else if (auto error = raft_node_->TakeProposalError(active->proposal_index_))
+          std::rethrow_exception(error);
+        continue;
+      }
+      if (!active->work_ && !active->prepared_) {
+        active->work_ = raft_node_->BusinessTasks().Submit(0, true, [state = state_machine_, active] {
+          const auto &control = *active->control_;
+          auto [needed, observed] =
+              state->InspectSessionControl(control.client_id_, control.acknowledged_through_, control.close_);
+          if (!needed)
+            return WriteWork{WriteWork::Phase::RESULT, RequestDisposition::NEW_REQUEST, {}, {}, false, observed};
+          TransactionCommandBatch batch{3, active->client_id_, active->request_id_, active->request_fingerprint_, 0,
+                                        {}};
+          batch.session_action_ = control.close_ ? SessionAction::CLOSE : SessionAction::ACK;
+          batch.acknowledged_through_ = control.acknowledged_through_;
+          return WriteWork{
+              WriteWork::Phase::PREPARE, RequestDisposition::NEW_REQUEST, CommandBatchCodec::Encode(batch), {}, false};
+        });
+      }
+      if (active->work_ && active->work_->Ready()) {
+        try {
+          active->prepared_ = active->work_->Take();
+          active->work_.reset();
+        } catch (const std::invalid_argument &e) {
+          active->work_.reset();
+          FinishWrite(active, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
+          continue;
+        }
+      }
+      if (active->prepared_ && active->prepared_->phase_ == WriteWork::Phase::RESULT) {
+        if (raft_node_->PublishedAppliedIndex() >= active->prepared_->observed_index_)
+          FinishWrite(active, ClientResponseStatus::OK);
+        continue;
+      }
+      if (active->prepared_ && !raft_node_->Busy()) {
+        std::vector<ReplicatedLogEntry> entries{{1, 0, 0, EntryType::COMMAND_BATCH, active->prepared_->bytes_}};
+        const auto first = raft_node_->ProposeBatch(entries);
+        if (first) {
+          active->proposal_index_ = *first;
+          active->prepared_.reset();
+        }
+      }
+      continue;
+    }
+    if (active->window_ && active->request_id_ == 1 && active != opening) continue;
+    // One session prepares against the preceding request's published state.
+    if (!active->work_ && !active->plan_ && !active->prepared_ && !active->proposal_index_ &&
+        clients_.at(active->client_id_).begin()->first != active->request_id_)
+      continue;
+    auto finish_result = [&](std::vector<std::byte> bytes) {
+      const auto receipt = WriteResponseCodec::Decode(bytes);
+      FinishWrite(active,
+                  receipt.status_ == WriteStatus::COMMITTED ? ClientResponseStatus::COMMITTED
+                                                            : ClientResponseStatus::DURABLE_REJECTED,
+                  std::move(bytes));
+    };
+    auto reject = [&](const std::string &message) {
+      TransactionCommandBatch batch{3, active->client_id_, active->request_id_, active->request_fingerprint_, 0, {}};
+      batch.session_action_ = SessionAction::REJECT;
+      batch.rejection_ = message.substr(0, 512);
+      active->prepared_ = WriteWork{
+          WriteWork::Phase::PREPARE, RequestDisposition::NEW_REQUEST, CommandBatchCodec::Encode(batch), {}, false};
+    };
     if (active->work_ && active->work_->Ready()) {
       try {
         auto result = active->work_->Take();
@@ -459,11 +547,20 @@ void DistributedNode::ReconcileActiveWrite() {
               active->prepared_ = std::move(result);
               continue;
             }
-            FinishWrite(active, ClientResponseStatus::COMMITTED, std::move(result.bytes_));
+            finish_result(std::move(result.bytes_));
+          } else if (active->window_ && (result.disposition_ == RequestDisposition::TOO_OLD ||
+                                         result.disposition_ == RequestDisposition::CLOSED)) {
+            FinishWrite(active, result.disposition_ == RequestDisposition::CLOSED
+                                    ? ClientResponseStatus::SESSION_CLOSED
+                                    : ClientResponseStatus::RESULT_EXPIRED);
           } else if (active->proposal_index_ != 0) {
             throw std::runtime_error("published proposal has no session result");
           } else {
-            FinishWrite(active, ClientResponseStatus::REJECTED,
+            auto status = ClientResponseStatus::REJECTED;
+            if (active->window_ && result.disposition_ == RequestDisposition::WINDOW_FULL)
+              status = ClientResponseStatus::WINDOW_FULL;
+            if (active->window_ && result.disposition_ == RequestDisposition::GAP) status = ClientResponseStatus::GAP;
+            FinishWrite(active, status,
                         ErrorPayload(result.disposition_ == RequestDisposition::PAYLOAD_MISMATCH
                                          ? "request payload does not match request identity"
                                          : "SQL request id is old or contains a session sequence gap"));
@@ -484,14 +581,24 @@ void DistributedNode::ReconcileActiveWrite() {
         } else {
           active->prepared_ = std::move(result);
         }
-      } catch (const std::exception &e) {
+      } catch (const SqlRequestError &e) {
         active->work_.reset();
         if (active->proposal_index_ != 0) throw;
+        if (active->window_)
+          reject(e.what());
+        else {
+          FinishWrite(active, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
+          continue;
+        }
+      } catch (const std::exception &e) {
+        active->work_.reset();
+        if (active->proposal_index_ != 0 || active->window_) throw;
         FinishWrite(active, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
         continue;
       }
     }
     if (auto error = raft_node_->TakeProposalError(active->proposal_index_)) {
+      if (active->window_) std::rethrow_exception(error);
       try {
         std::rethrow_exception(error);
       } catch (const std::exception &e) {
@@ -501,7 +608,7 @@ void DistributedNode::ReconcileActiveWrite() {
     }
     if (active->prepared_ && active->prepared_->disposition_ == RequestDisposition::RETRY_LAST) {
       if (WriteResponseCodec::Decode(active->prepared_->bytes_).commit_index_ <= raft_node_->PublishedAppliedIndex())
-        FinishWrite(active, ClientResponseStatus::COMMITTED, std::move(active->prepared_->bytes_));
+        finish_result(std::move(active->prepared_->bytes_));
       continue;
     }
     if (active->work_) continue;
@@ -509,13 +616,9 @@ void DistributedNode::ReconcileActiveWrite() {
       if (raft_node_->PublishedAppliedIndex() >= active->proposal_index_) {
         if (active->plan_) ReleaseWrite(active);
         active->work_ = raft_node_->BusinessTasks().Submit(0, true, [state = state_machine_, active] {
-          auto disposition =
-              state->ClassifyRequest(active->client_id_, active->request_id_, active->request_fingerprint_);
-          return WriteWork{WriteWork::Phase::RESULT,
-                           disposition,
-                           state->GetLastResponse(active->client_id_).value_or(std::vector<std::byte>{}),
-                           {},
-                           false};
+          auto [disposition, bytes] = state->InspectRequest(active->client_id_, active->request_id_,
+                                                            active->request_fingerprint_, active->window_);
+          return WriteWork{WriteWork::Phase::RESULT, disposition, std::move(bytes), {}, false};
         });
       }
       continue;
@@ -524,8 +627,11 @@ void DistributedNode::ReconcileActiveWrite() {
       const auto bytes =
           active->prepared_->bytes_.size() + LogCodec::FRAME_HEADER_BYTES + LogCodec::FRAME_BODY_FIXED_BYTES;
       if (bytes > maximum_bytes) {
-        FinishWrite(active, ClientResponseStatus::REJECTED,
-                    ErrorPayload("prepared command exceeds log batch capacity"));
+        if (active->window_)
+          reject("prepared command exceeds log batch capacity");
+        else
+          FinishWrite(active, ClientResponseStatus::REJECTED,
+                      ErrorPayload("prepared command exceeds log batch capacity"));
       } else if (ready.size() < maximum_entries && bytes <= maximum_bytes - batch_bytes) {
         ready.push_back(active);
         batch_bytes += bytes;
@@ -543,12 +649,10 @@ void DistributedNode::ReconcileActiveWrite() {
       // In particular INSERT after a queued CREATE must not bind a missing table.
       if (analysis_work_.lock()) continue;
       active->work_ = raft_node_->BusinessTasks().Submit(0, false, [state = state_machine_, active] {
-        const auto disposition =
-            state->ClassifyRequest(active->client_id_, active->request_id_, active->request_fingerprint_);
-        WriteWork result{WriteWork::Phase::ANALYZE, disposition, {}, {}, false};
-        if (disposition == RequestDisposition::RETRY_LAST)
-          result.bytes_ = *state->GetLastResponse(active->client_id_);
-        else if (disposition == RequestDisposition::NEW_REQUEST)
+        auto [disposition, bytes] = state->InspectRequest(active->client_id_, active->request_id_,
+                                                          active->request_fingerprint_, active->window_);
+        WriteWork result{WriteWork::Phase::ANALYZE, disposition, std::move(bytes), {}, false};
+        if (disposition == RequestDisposition::NEW_REQUEST)
           result.plan_ =
               state->AnalyzeSql(active->sql_, active->client_id_, active->request_id_, active->request_fingerprint_);
         return result;
@@ -561,9 +665,10 @@ void DistributedNode::ReconcileActiveWrite() {
                                            active->command_limit_);
             WriteWork result{WriteWork::Phase::PREPARE, RequestDisposition::NEW_REQUEST, {}, {}, !batch.has_value()};
             if (batch) {
+              if (active->window_) batch->format_version_ = 3;
               result.bytes_ = CommandBatchCodec::Encode(*batch);
               if (result.bytes_.size() > active->command_limit_)
-                throw std::runtime_error("prepared command exceeds request capacity");
+                throw SqlRequestError("prepared command exceeds request capacity");
             }
             return result;
           });
@@ -672,6 +777,8 @@ auto DistributedNode::HandleRequest(const ClientRequestV1 &request) -> ClientRes
         using T = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<T, ClientWriteRequestV1>) {
           return HandleWrite(value);
+        } else if constexpr (std::is_same_v<T, ClientSessionRequestV2>) {
+          return HandleSession(value);
         } else if constexpr (std::is_same_v<T, ClientReadRequestV1>) {
           return HandleRead(value);
         } else {
@@ -752,6 +859,10 @@ auto DistributedNode::HandleStatus(const ClientStatusRequestV1 &request) -> Clie
 }
 
 auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> ClientResponseV1 {
+  if (request.window_ && request.acknowledged_through_) {
+    auto ack = HandleSession({request.client_id_, request.request_id_, request.acknowledged_through_, false});
+    if (ack.status_ != ClientResponseStatus::OK) return ack;
+  }
   RequestFingerprintV1 fingerprint;
   try {
     fingerprint = ComputeWriteIntentFingerprintV1(request.sql_);
@@ -770,15 +881,23 @@ auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> Client
       ReconcileActiveWrite();
       MaybeCreateSnapshot();
       auto existing = clients_.find(request.client_id_);
+      bool can_add = true;
+      if (auto control = control_work_.lock();
+          control && control->client_id_ == request.client_id_ && control->control_->close_)
+        can_add = false;
       if (existing != clients_.end()) {
-        auto active = writes_.at(existing->second);
-        if (active->request_id_ == request.request_id_) {
-          if (!(active->request_fingerprint_ == fingerprint))
+        auto position = existing->second.find(request.request_id_);
+        if (position != existing->second.end()) {
+          auto active = writes_.at(position->second);
+          if (!(active->request_fingerprint_ == fingerprint) || active->window_ != request.window_)
             return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
                                 ErrorPayload("request payload does not match request identity"));
           mine = active;
         }
-      } else if (!mine && !snapshot_draining_ && writes_.size() < config_.max_write_requests_) {
+        can_add = can_add && request.window_ && writes_.at(existing->second.begin()->second)->window_ &&
+                  existing->second.size() < SessionTable::WINDOW_RESULTS;
+      }
+      if (!mine && can_add && !snapshot_draining_ && writes_.size() < config_.max_write_requests_) {
         const auto bytes = 4 * config_.max_write_command_bytes_ + request.sql_.size() * 4;
         if (bytes > config_.max_write_bytes_)
           return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
@@ -798,16 +917,56 @@ auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> Client
             mine->request_id_ = request.request_id_;
             mine->request_fingerprint_ = fingerprint;
             mine->sql_ = request.sql_;
+            mine->window_ = request.window_;
             mine->bytes_ = bytes;
             mine->command_limit_ = config_.max_write_command_bytes_;
             mine->charge_ = std::move(charge);
             mine->proposal_term_ = raft_node_->CurrentTerm();
-            clients_.emplace(request.client_id_, mine->sequence_);
+            clients_[request.client_id_].emplace(request.request_id_, mine->sequence_);
             writes_.emplace(mine->sequence_, mine);
             write_bytes_ += bytes;
             ReconcileActiveWrite();
           }
         }
+      }
+    } catch (...) {
+      fatal_error_ = std::current_exception();
+      state_changed_.notify_all();
+      return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+    }
+    if (mine && mine->response_) return *mine->response_;
+    if (state_changed_.wait_until(lock, deadline) == std::cv_status::timeout)
+      return MakeResponse(request.request_id_, ClientResponseStatus::TIMEOUT);
+  }
+}
+
+auto DistributedNode::HandleSession(const ClientSessionRequestV2 &request) -> ClientResponseV1 {
+  std::unique_lock lock(mutex_);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.client_timeout_ms_);
+  std::shared_ptr<ActiveWrite> mine;
+  for (;;) {
+    if (mine && mine->response_) return *mine->response_;
+    if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+    if (!raft_node_->LeaderReady()) return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
+    try {
+      ReconcileActiveWrite();
+      if (request.close_ && clients_.count(request.client_id_))
+        return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
+                            ErrorPayload("session still has in-flight writes"));
+      if (!mine && control_work_.expired() && write_memory_->Reserve(4096, true)) {
+        ResourceCharge charge(write_memory_, 4096, true);
+        mine = std::make_shared<ActiveWrite>();
+        mine->sequence_ = ++next_write_;
+        mine->client_id_ = request.client_id_;
+        mine->request_id_ = request.request_id_;
+        mine->control_ = request;
+        mine->window_ = true;
+        mine->request_fingerprint_ = ComputeWriteIntentFingerprintV1("session control");
+        mine->proposal_term_ = raft_node_->CurrentTerm();
+        mine->charge_ = std::move(charge);
+        writes_.emplace(mine->sequence_, mine);
+        control_work_ = mine;
+        ReconcileActiveWrite();
       }
     } catch (...) {
       fatal_error_ = std::current_exception();

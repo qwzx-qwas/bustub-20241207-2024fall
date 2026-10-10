@@ -995,7 +995,13 @@ auto BusTubRaftStateMachine::AnalyzeSql(const std::string &sql, uint64_t client,
   auto shared = visibility_.LockShared();
   ExecutorContext context(nullptr, state_->catalog_.get(), state_->buffer_pool_manager_.get(),
                           state_->transaction_manager_.get(), nullptr, false);
-  auto plan = SqlCommandPreparer(&context).Analyze(sql, client, request, fingerprint);
+  SqlWritePlan plan;
+  try {
+    plan = SqlCommandPreparer(&context).Analyze(sql, client, request, fingerprint);
+  } catch (const Exception &e) {
+    if (e.GetType() == ExceptionType::OUT_OF_MEMORY) throw;
+    throw SqlRequestError(e.what());
+  }
   plan.workspace_ = state_;
   return plan;
 }
@@ -1011,7 +1017,21 @@ auto BusTubRaftStateMachine::PrepareSql(const SqlWritePlan &plan, uint64_t clien
   ShortRead read{state_->transaction_manager_.get(), transaction};
   ExecutorContext context(transaction, state_->catalog_.get(), state_->buffer_pool_manager_.get(),
                           state_->transaction_manager_.get(), nullptr, false);
-  auto batch = SqlCommandPreparer(&context, command_bytes).Prepare(plan, client, request, fingerprint);
+  TransactionCommandBatch batch;
+  try {
+    batch = SqlCommandPreparer(&context, command_bytes).Prepare(plan, client, request, fingerprint);
+  } catch (const Exception &e) {
+    switch (e.GetType()) {
+      case ExceptionType::DIVIDE_BY_ZERO:
+      case ExceptionType::CONVERSION:
+      case ExceptionType::OUT_OF_RANGE:
+      case ExceptionType::MISMATCH_TYPE:
+      case ExceptionType::INCOMPATIBLE_TYPE:
+        throw SqlRequestError(e.what());
+      default:
+        throw;
+    }
+  }
   state_->transaction_manager_->EndRead(transaction);
   return batch;
 }
@@ -1033,11 +1053,11 @@ auto BusTubRaftStateMachine::PrepareSql(const std::string &sql, uint64_t client_
 }
 
 auto BusTubRaftStateMachine::ClassifyRequest(uint64_t client_id, uint64_t request_id,
-                                             const RequestFingerprintV1 &request_fingerprint) const
+                                             const RequestFingerprintV1 &request_fingerprint, bool window) const
     -> RequestDisposition {
   std::lock_guard lifecycle(lifecycle_mutex_);
   auto shared = visibility_.LockShared();
-  return state_->sessions_->Classify(client_id, request_id, request_fingerprint);
+  return state_->sessions_->Classify(client_id, request_id, request_fingerprint, window);
 }
 
 void BusTubRaftStateMachine::ValidateProposal(const TransactionCommandBatch &batch) const {
@@ -1049,6 +1069,22 @@ auto BusTubRaftStateMachine::GetRow(table_oid_t table_oid, const EncodedPrimaryK
     -> std::optional<std::pair<TupleMeta, Tuple>> {
   std::lock_guard lifecycle(lifecycle_mutex_);
   return fsm_->GetRow(table_oid, primary_key);
+}
+
+auto BusTubRaftStateMachine::InspectRequest(uint64_t client, uint64_t request, const RequestFingerprintV1 &fingerprint,
+                                            bool window) const
+    -> std::pair<RequestDisposition, std::vector<std::byte>> {
+  std::lock_guard lifecycle(lifecycle_mutex_);
+  auto shared = visibility_.LockShared();
+  const auto disposition = state_->sessions_->Classify(client, request, fingerprint, window);
+  return {disposition, disposition == RequestDisposition::RETRY_LAST ? *state_->sessions_->GetResponse(client, request)
+                                                                     : std::vector<std::byte>{}};
+}
+auto BusTubRaftStateMachine::InspectSessionControl(uint64_t client, uint64_t acknowledged, bool close) const
+    -> std::pair<bool, uint64_t> {
+  std::lock_guard lifecycle(lifecycle_mutex_);
+  auto shared = visibility_.LockShared();
+  return {state_->sessions_->ValidateControl(client, acknowledged, close), fsm_->PublishedAppliedIndex()};
 }
 
 auto BusTubRaftStateMachine::GetLastResponse(uint64_t client_id) const -> std::optional<std::vector<std::byte>> {

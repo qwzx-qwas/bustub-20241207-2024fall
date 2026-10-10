@@ -21,6 +21,12 @@
 
 namespace bustub {
 
+/** Deterministic SQL refusal, distinct from storage/executor failures. */
+class SqlRequestError : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
+
 // Dependency identity is logical (table/key), never a tuple version or physical RID.
 struct SqlWritePlan {
   enum class Scope { KEYS, TABLE, CATALOG };

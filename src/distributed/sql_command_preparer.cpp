@@ -71,12 +71,12 @@ auto EvaluatePrivateValuesPlan(const AbstractPlanNodeRef &plan) -> std::vector<T
     }
     return tuples;
   }
-  throw std::runtime_error("distributed V1 INSERT only supports a private VALUES source");
+  throw SqlRequestError("distributed V1 INSERT only supports a private VALUES source");
 }
 
 auto PrimaryIndex(const Catalog &catalog, const std::shared_ptr<TableInfo> &table) -> std::shared_ptr<IndexInfo> {
   if (table == nullptr || !table->replicated_primary_key_.has_value()) {
-    throw std::runtime_error("UNSUPPORTED_REPLICATED_PRIMARY_KEY");
+    throw SqlRequestError("UNSUPPORTED_REPLICATED_PRIMARY_KEY");
   }
   std::shared_ptr<IndexInfo> primary;
   for (const auto &index : catalog.GetTableIndexes(table->name_)) {
@@ -87,7 +87,7 @@ auto PrimaryIndex(const Catalog &catalog, const std::shared_ptr<TableInfo> &tabl
       }
       primary = index;
     } else if (index->constraint_kind_ != IndexConstraintKind::NON_UNIQUE_SECONDARY) {
-      throw std::runtime_error("UNSUPPORTED_DEFERRED_UNIQUE_CONSTRAINT");
+      throw SqlRequestError("UNSUPPORTED_DEFERRED_UNIQUE_CONSTRAINT");
     }
   }
   if (primary == nullptr) {
@@ -103,7 +103,7 @@ void RejectExistingKey(const std::shared_ptr<TableInfo> &table, const std::share
   primary->index_->ScanKey(key_tuple, &rids, nullptr);
   for (const auto rid : rids) {
     if (!table->table_->GetTupleMeta(rid).is_deleted_) {
-      throw std::runtime_error("proposal INSERT primary key already exists");
+      throw SqlRequestError("proposal INSERT primary key already exists");
     }
   }
 }
@@ -128,31 +128,41 @@ auto IndexTypeFromName(const std::string &raw_name) -> IndexType {
   if (name == "hnsw") {
     return IndexType::HNSWIndex;
   }
-  throw std::runtime_error("unsupported distributed V1 index type");
+  throw SqlRequestError("unsupported distributed V1 index type");
+}
+
+// This validator only examines the proposed definition, not stored pages.
+// Keep recovery/proposal validation strict; classify user DDL errors at this boundary.
+void ValidateRequestedIndex(const CatalogSnapshotIndex &index, const Schema &schema) {
+  try {
+    ValidateReplicatedIndexV1(index, schema);
+  } catch (const std::runtime_error &error) {
+    throw SqlRequestError(error.what());
+  }
 }
 
 auto PrepareCreateTable(const CreateStatement &statement, Catalog *catalog, uint64_t client_id, uint64_t request_id,
                         const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch)
     -> TransactionCommandBatch {
   if (catalog->GetTable(statement.table_) != nullptr) {
-    throw std::runtime_error("CREATE TABLE name already exists");
+    throw SqlRequestError("CREATE TABLE name already exists");
   }
   if (statement.primary_key_.size() != 1) {
-    throw std::runtime_error("UNSUPPORTED_REPLICATED_PRIMARY_KEY");
+    throw SqlRequestError("UNSUPPORTED_REPLICATED_PRIMARY_KEY");
   }
   const Schema schema(statement.columns_);
   const auto primary_column = schema.GetColIdx(statement.primary_key_[0]);
   const auto primary_type = schema.GetColumn(primary_column).GetType();
   if (!PrimaryKeyCodecV1::IsSupported(primary_type)) {
-    throw std::runtime_error("UNSUPPORTED_REPLICATED_PRIMARY_KEY");
+    throw SqlRequestError("UNSUPPORTED_REPLICATED_PRIMARY_KEY");
   }
-  ValidateReplicatedIndexV1({catalog->GetNextIndexOid(),
-                             catalog->GetNextTableOid(),
-                             "__candidate_primary",
-                             {primary_column},
-                             IndexType::BPlusTreeIndex,
-                             IndexConstraintKind::PRIMARY_KEY},
-                            schema);
+  ValidateRequestedIndex({catalog->GetNextIndexOid(),
+                          catalog->GetNextTableOid(),
+                          "__candidate_primary",
+                          {primary_column},
+                          IndexType::BPlusTreeIndex,
+                          IndexConstraintKind::PRIMARY_KEY},
+                         schema);
   std::vector<ReplicatedColumnDefinition> columns;
   columns.reserve(statement.columns_.size());
   for (uint32_t index = 0; index < statement.columns_.size(); index++) {
@@ -171,14 +181,14 @@ auto PrepareCreateIndex(const IndexStatement &statement, Catalog *catalog, uint6
                         const RequestFingerprintV1 &request_fingerprint, uint64_t schema_epoch)
     -> TransactionCommandBatch {
   if (statement.is_unique_) {
-    throw std::runtime_error("UNSUPPORTED_DEFERRED_UNIQUE_CONSTRAINT");
+    throw SqlRequestError("UNSUPPORTED_DEFERRED_UNIQUE_CONSTRAINT");
   }
   if (!statement.options_.empty()) {
-    throw std::runtime_error("distributed V1 index build options are not protocol fields");
+    throw SqlRequestError("distributed V1 index build options are not protocol fields");
   }
   const auto table = catalog->GetTable(statement.table_->oid_);
   if (table == nullptr || catalog->GetIndex(statement.index_name_, statement.table_->oid_) != nullptr) {
-    throw std::runtime_error("CREATE INDEX table is missing or name already exists");
+    throw SqlRequestError("CREATE INDEX table is missing or name already exists");
   }
   std::vector<uint32_t> columns;
   for (const auto &column : statement.cols_) {
@@ -190,9 +200,9 @@ auto PrepareCreateIndex(const IndexStatement &statement, Catalog *catalog, uint6
                              std::move(columns),
                              IndexTypeFromName(statement.index_type_),
                              IndexConstraintKind::NON_UNIQUE_SECONDARY};
-  ValidateReplicatedIndexV1({command.index_oid_, command.table_oid_, command.index_name_, command.key_columns_,
-                             command.index_type_, command.constraint_kind_},
-                            table->schema_);
+  ValidateRequestedIndex({command.index_oid_, command.table_oid_, command.index_name_, command.key_columns_,
+                          command.index_type_, command.constraint_kind_},
+                         table->schema_);
   return CommandBuilder::Build(client_id, request_id, request_fingerprint, schema_epoch, {std::move(command)});
 }
 
@@ -200,7 +210,7 @@ auto PrepareCreateIndex(const IndexStatement &statement, Catalog *catalog, uint6
 // second representation. Include each variant/identity, not only row payload.
 void ChargeRow(size_t *remaining, size_t bytes) {
   bytes += sizeof(ReplicatedCommand) + 64;
-  if (bytes > *remaining) throw std::runtime_error("prepared command exceeds request capacity");
+  if (bytes > *remaining) throw SqlRequestError("prepared command exceeds request capacity");
   *remaining -= bytes;
 }
 
@@ -224,11 +234,11 @@ auto PrepareInsert(const AbstractPlanNodeRef &plan, const std::vector<Tuple> &va
 
 auto MutationFilter(const AbstractPlanNodeRef &child) -> std::shared_ptr<const FilterPlanNode> {
   if (child->GetType() != PlanType::Filter) {
-    throw std::runtime_error("distributed V1 mutation requires a deterministic table filter");
+    throw SqlRequestError("distributed V1 mutation requires a deterministic table filter");
   }
   auto filter = std::dynamic_pointer_cast<const FilterPlanNode>(child);
   if (filter->GetChildPlan()->GetType() != PlanType::SeqScan) {
-    throw std::runtime_error("distributed V1 mutation only supports one base table");
+    throw SqlRequestError("distributed V1 mutation only supports one base table");
   }
   return filter;
 }
@@ -288,9 +298,9 @@ auto PrepareUpdate(const AbstractPlanNodeRef &plan, Catalog *catalog, ExecutorCo
     Tuple replacement(std::move(values), &table->schema_);
     const auto key =
         PrimaryKeyCodecV1::Encode(tuple.GetValue(&table->schema_, table->replicated_primary_key_->column_oid_));
-    if (!(PrimaryKeyCodecV1::Encode(
-              replacement.GetValue(&table->schema_, table->replicated_primary_key_->column_oid_)) == key)) {
-      throw std::runtime_error("distributed V1 UPDATE cannot modify the primary-key column");
+    const auto replacement_key = replacement.GetValue(&table->schema_, table->replicated_primary_key_->column_oid_);
+    if (replacement_key.IsNull() || !(PrimaryKeyCodecV1::Encode(replacement_key) == key)) {
+      throw SqlRequestError("distributed V1 UPDATE cannot modify the primary-key column");
     }
     auto old_body = TupleCodecV1::Encode(tuple, table->schema_);
     auto new_body = TupleCodecV1::Encode(replacement, table->schema_);
@@ -342,7 +352,7 @@ auto SqlCommandPreparer::Analyze(const std::string &sql, uint64_t client_id, uin
   Binder binder(*catalog_);
   binder.ParseAndSave(sql);
   if (binder.statement_nodes_.size() != 1)
-    throw std::runtime_error("distributed V1 accepts exactly one autocommit statement per request");
+    throw SqlRequestError("distributed V1 accepts exactly one autocommit statement per request");
   auto statement = binder.BindStatement(binder.statement_nodes_[0]);
   SqlWritePlan result;
   result.schema_epoch_ = catalog_->GetSchemaEpoch();
@@ -367,15 +377,18 @@ auto SqlCommandPreparer::Analyze(const std::string &sql, uint64_t client_id, uin
   } else if (auto deletion = dynamic_cast<const DeletePlanNode *>(result.plan_.get())) {
     result.table_ = deletion->GetTableOid();
   } else {
-    throw std::runtime_error("distributed SQL prepare only accepts write statements");
+    throw SqlRequestError("distributed SQL prepare only accepts write statements");
   }
   const auto table = catalog_->GetTable(result.table_);
   static_cast<void>(PrimaryIndex(*catalog_, table));
   const auto column = table->replicated_primary_key_->column_oid_;
   result.scope_ = SqlWritePlan::Scope::KEYS;
   if (result.plan_->GetType() == PlanType::Insert) {
-    for (const auto &tuple : result.insert_values_)
-      result.keys_.push_back(DependencyKey(tuple.GetValue(&table->schema_, column)));
+    for (const auto &tuple : result.insert_values_) {
+      const auto key = tuple.GetValue(&table->schema_, column);
+      if (key.IsNull()) throw SqlRequestError("INSERT primary key cannot be NULL");
+      result.keys_.push_back(DependencyKey(key));
+    }
   } else {
     auto keys = FiniteKeys(MutationFilter(result.plan_->GetChildAt(0))->GetPredicate(), column,
                            table->schema_.GetColumn(column).GetType());
@@ -385,6 +398,9 @@ auto SqlCommandPreparer::Analyze(const std::string &sql, uint64_t client_id, uin
       result.scope_ = SqlWritePlan::Scope::TABLE;
   }
   std::sort(result.keys_.begin(), result.keys_.end());
+  if (result.plan_->GetType() == PlanType::Insert &&
+      std::adjacent_find(result.keys_.begin(), result.keys_.end()) != result.keys_.end())
+    throw SqlRequestError("INSERT contains duplicate primary keys");
   result.keys_.erase(std::unique(result.keys_.begin(), result.keys_.end()), result.keys_.end());
   return result;
 }

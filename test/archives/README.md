@@ -1,6 +1,8 @@
 # 阶段测试源码归档
 
-2026-10-09（当前 F35 / S13.2b，追加复审）：唯一 [F35-raft-pipeline.tar.gz](F35-raft-pipeline.tar.gz) 已更新为9项组件＋4项真实TCP场景、唯一runner及15个可执行变异。本次生产代码未改，新增多键登记/Prepare失败释放场景和两个变异；13项阶段场景、5项节点变异重跑通过。44项原回归、10项组件变异与正式对象C1/C2/C3-kill/C5-short/低缓存P2核验源码和原始证据后沿用，未计为本次重跑。旧同模块包原位替换，不保留备份或展开源码；旧TCP变异入口已并入runner。见 [具体改动与审查](../../docs/storage_redesign/s132b_execution_20261009.md)、[当前证据](../../test-results/storage-s13-20261009/README.md)。以下F35记录为历史版本，不能据此推断当前包包含旧轮全部证据。
+2026-10-10（当前 F35 / S13.3 复审）：唯一 [F35-raft-pipeline.tar.gz](F35-raft-pipeline.tar.gz) 包含10组件、7真实TCP节点、22项隔离变异及原Direct窗口脚本。本次66项原回归、17项阶段、22变异通过；扩充现有输入错误场景，覆盖同条重复主键、INSERT/UPDATE NULL和无效索引定义。Direct/C1未重跑，旧证据保留原版本归属。旧同模块包原位替换，无备份及展开测试交付。见 [复审§6](../../docs/storage_redesign/s133_execution_20261009.md) 和 [当前证据](../../test-results/storage-s13-20261009/README.md)。以下为历史记录。
+
+2026-10-09（历史 F35 / S13.2b，追加复审）：唯一 [F35-raft-pipeline.tar.gz](F35-raft-pipeline.tar.gz) 已更新为9项组件＋4项真实TCP场景、唯一runner及15个可执行变异。本次生产代码未改，新增多键登记/Prepare失败释放场景和两个变异；13项阶段场景、5项节点变异重跑通过。44项原回归、10项组件变异与正式对象C1/C2/C3-kill/C5-short/低缓存P2核验源码和原始证据后沿用，未计为本次重跑。旧同模块包原位替换，不保留备份或展开源码；旧TCP变异入口已并入runner。见 [具体改动与审查](../../docs/storage_redesign/s132b_execution_20261009.md)、[当前证据](../../test-results/storage-s13-20261009/README.md)。以下F35记录为历史版本，不能据此推断当前包包含旧轮全部证据。
 
 2026-10-09（F35 类型复审）：唯一源码包仍保留6个阶段场景；run.py新增一个复用原BIGINT测试的类型变异，并核验实际运行XML。原SQL测试在既有文件中扩充负数、混合类型条件及快照恢复，没有新增同义用例。本次9项相关回归、6项阶段场景、7个run.py变异通过，TCP及共同C/P未重跑。包内另保留原TCP变异脚本，因此共有8个可执行变异、分版本报告实际运行。旧F35包原位替换，详见 [审查§12](../../docs/storage_redesign/s13_execution_20261009.md#12-再次逻辑审查等值键类型与测试实际执行)。
 

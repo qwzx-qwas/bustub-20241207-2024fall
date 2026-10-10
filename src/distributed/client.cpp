@@ -133,12 +133,16 @@ auto WriteExact(int socket_fd, const std::byte *data, size_t size) -> bool {
 void ValidateSuccessfulResponse(const ClientRequestV1 &request, const ClientResponseV1 &response, uint64_t request_id) {
   const auto is_write = std::holds_alternative<ClientWriteRequestV1>(request);
   const auto is_read = std::holds_alternative<ClientReadRequestV1>(request);
-  if (response.status_ == ClientResponseStatus::COMMITTED) {
+  if (response.status_ == ClientResponseStatus::COMMITTED ||
+      response.status_ == ClientResponseStatus::DURABLE_REJECTED) {
     if (!is_write) {
       throw std::runtime_error("distributed client received a committed response for a non-write request");
     }
     const auto committed = WriteResponseCodec::Decode(response.payload_);
-    if (committed.request_id_ != request_id) {
+    const auto &write = std::get<ClientWriteRequestV1>(request);
+    if ((write.window_ ? 2U : 1U) != committed.format_version_ ||
+        (committed.status_ == WriteStatus::REJECTED) != (response.status_ == ClientResponseStatus::DURABLE_REJECTED) ||
+        committed.commit_index_ > response.published_applied_index_ || committed.request_id_ != request_id) {
       throw std::runtime_error("distributed client committed response request ID does not match envelope");
     }
     return;
@@ -157,7 +161,9 @@ void ValidateSuccessfulResponse(const ClientRequestV1 &request, const ClientResp
     return;
   }
   if (response.read_timestamp_.has_value() ||
-      (!std::get<ClientStatusRequestV1>(request).storage_ && !response.payload_.empty())) {
+      (!std::holds_alternative<ClientStatusRequestV1>(request)
+           ? !response.payload_.empty()
+           : (!std::get<ClientStatusRequestV1>(request).storage_ && !response.payload_.empty()))) {
     throw std::runtime_error("distributed client status response contains read-result state");
   }
 }

@@ -545,10 +545,17 @@ auto TupleCodecV1::Decode(const std::vector<std::byte> &bytes, const Schema &sch
 }
 
 auto CommandBatchCodec::Encode(const TransactionCommandBatch &batch) -> std::vector<std::byte> {
-  if (batch.format_version_ != FORMAT_VERSION || batch.client_id_ == 0 || batch.request_id_ == 0 ||
-      batch.commands_.size() > MAX_COMMANDS) {
+  if ((batch.format_version_ != FORMAT_VERSION && batch.format_version_ != 3) || batch.client_id_ == 0 ||
+      batch.request_id_ == 0 || batch.commands_.size() > MAX_COMMANDS) {
     throw std::runtime_error("invalid TransactionCommandBatch");
   }
+  if ((batch.format_version_ == 2 && (batch.session_action_ != SessionAction::WRITE ||
+                                      batch.acknowledged_through_ != 0 || !batch.rejection_.empty())) ||
+      static_cast<uint32_t>(batch.session_action_) > 3 || batch.rejection_.size() > 512 ||
+      (batch.session_action_ != SessionAction::WRITE && !batch.commands_.empty()) ||
+      (batch.session_action_ != SessionAction::REJECT && !batch.rejection_.empty()) ||
+      (batch.session_action_ < SessionAction::ACK && batch.acknowledged_through_ != 0))
+    throw std::runtime_error("invalid session command");
   batch.request_fingerprint_.Validate();
   ValidateCanonicalCommandOrder(batch.commands_);
   ByteWriter payload;
@@ -562,20 +569,29 @@ auto CommandBatchCodec::Encode(const TransactionCommandBatch &batch) -> std::vec
     payload.PutU32(static_cast<uint32_t>(type));
     PutBlob(&payload, body);
   }
+  if (batch.format_version_ == 3) {
+    payload.PutU32(static_cast<uint32_t>(batch.session_action_));
+    payload.PutU64(batch.acknowledged_through_);
+    payload.PutString(batch.rejection_);
+  }
   if (payload.Data().size() > MAX_BATCH_BYTES) {
     throw std::runtime_error("TransactionCommandBatch exceeds V2 size limit");
   }
   return EncodeVersionedFrame(
-      {BATCH_MAGIC.data(), BATCH_MAGIC.size(), FORMAT_VERSION, MAX_BATCH_BYTES, "TransactionCommandBatch"},
+      {BATCH_MAGIC.data(), BATCH_MAGIC.size(), batch.format_version_, MAX_BATCH_BYTES, "TransactionCommandBatch"},
       payload.Data());
 }
 
 auto CommandBatchCodec::Decode(const std::vector<std::byte> &bytes) -> TransactionCommandBatch {
+  ByteReader header(bytes);
+  header.ReadBytes(8);
+  const auto version = header.ReadU32();
+  if (version != 2 && version != 3) throw std::runtime_error("unsupported command batch version");
   const auto payload = DecodeVersionedFrame(
-      {BATCH_MAGIC.data(), BATCH_MAGIC.size(), FORMAT_VERSION, MAX_BATCH_BYTES, "TransactionCommandBatch"}, bytes);
+      {BATCH_MAGIC.data(), BATCH_MAGIC.size(), version, MAX_BATCH_BYTES, "TransactionCommandBatch"}, bytes);
   ByteReader body(payload);
   TransactionCommandBatch batch;
-  batch.format_version_ = FORMAT_VERSION;
+  batch.format_version_ = version;
   batch.client_id_ = body.ReadU64();
   batch.request_id_ = body.ReadU64();
   batch.request_fingerprint_ = RequestFingerprintCodec::Decode(body.ReadBytes(RequestFingerprintCodec::ENCODED_BYTES));
@@ -588,6 +604,11 @@ auto CommandBatchCodec::Decode(const std::vector<std::byte> &bytes) -> Transacti
     const auto command_type = static_cast<CommandType>(body.ReadU32());
     const auto command_body = ReadBlob(&body);
     batch.commands_.push_back(DecodeCommand(command_type, command_body));
+  }
+  if (version == 3) {
+    batch.session_action_ = static_cast<SessionAction>(body.ReadU32());
+    batch.acknowledged_through_ = body.ReadU64();
+    batch.rejection_ = body.ReadString();
   }
   if (!body.Empty()) {
     throw std::runtime_error("TransactionCommandBatch has trailing bytes");

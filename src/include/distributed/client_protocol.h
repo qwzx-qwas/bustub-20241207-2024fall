@@ -25,6 +25,8 @@ struct ClientWriteRequestV1 {
   uint64_t client_id_{0};
   uint64_t request_id_{0};
   std::string sql_;
+  bool window_{false};
+  uint64_t acknowledged_through_{0};
 };
 
 struct ClientReadRequestV1 {
@@ -38,7 +40,12 @@ struct ClientStatusRequestV1 {
   bool storage_{false};  // Opt-in frame type 5; legacy STATUS and its empty payload stay unchanged.
 };
 
-using ClientRequestV1 = std::variant<ClientWriteRequestV1, ClientReadRequestV1, ClientStatusRequestV1>;
+struct ClientSessionRequestV2 {
+  uint64_t client_id_{0}, request_id_{0}, acknowledged_through_{0};
+  bool close_{false};
+};
+using ClientRequestV1 =
+    std::variant<ClientWriteRequestV1, ClientReadRequestV1, ClientStatusRequestV1, ClientSessionRequestV2>;
 
 enum class ClientResponseStatus : uint32_t {
   COMMITTED = 1,
@@ -47,6 +54,11 @@ enum class ClientResponseStatus : uint32_t {
   REJECTED = 4,
   TIMEOUT = 5,
   UNAVAILABLE = 6,
+  DURABLE_REJECTED = 7,
+  RESULT_EXPIRED = 8,
+  SESSION_CLOSED = 9,
+  WINDOW_FULL = 10,
+  GAP = 11,
 };
 
 struct ClientResponseV1 {

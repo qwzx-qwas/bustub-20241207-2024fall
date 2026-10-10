@@ -27,7 +27,15 @@ constexpr size_t MAX_LEADER_ADDRESS_BYTES = 1024;
 constexpr uint32_t MAX_RESULT_COLUMNS = 10000;
 constexpr uint32_t MAX_RESULT_ROWS = 1000000;
 
-enum class ClientFrameType : uint32_t { WRITE_REQUEST = 1, READ_REQUEST = 2, STATUS_REQUEST = 3, RESPONSE = 4, STORAGE_STATUS_REQUEST = 5 };
+enum class ClientFrameType : uint32_t {
+  WRITE_REQUEST = 1,
+  READ_REQUEST = 2,
+  STATUS_REQUEST = 3,
+  RESPONSE = 4,
+  STORAGE_STATUS_REQUEST = 5,
+  WINDOW_WRITE = 6,
+  SESSION_CONTROL = 7
+};
 
 void PutBool(ByteWriter *writer, bool value) { writer->PutU8(value ? 1 : 0); }
 
@@ -46,7 +54,7 @@ void ValidateSql(const std::string &sql) {
 }
 
 auto IsValidStatus(ClientResponseStatus status) -> bool {
-  return status >= ClientResponseStatus::COMMITTED && status <= ClientResponseStatus::UNAVAILABLE;
+  return status >= ClientResponseStatus::COMMITTED && status <= ClientResponseStatus::GAP;
 }
 
 auto Frame(ClientFrameType type, const std::vector<std::byte> &body) -> std::vector<std::byte> {
@@ -91,7 +99,10 @@ auto ClientProtocolCodec::EncodeRequest(const ClientRequestV1 &request) -> std::
           body.PutU64(value.client_id_);
           body.PutU64(value.request_id_);
           body.PutString(value.sql_);
-          return Frame(ClientFrameType::WRITE_REQUEST, body.Data());
+          if (!value.window_ && value.acknowledged_through_)
+            throw std::runtime_error("legacy write cannot acknowledge a window");
+          if (value.window_) body.PutU64(value.acknowledged_through_);
+          return Frame(value.window_ ? ClientFrameType::WINDOW_WRITE : ClientFrameType::WRITE_REQUEST, body.Data());
         } else if constexpr (std::is_same_v<T, ClientReadRequestV1>) {  // NOLINT(readability/braces)
           if (value.request_id_ == 0 || (value.consistency_ != ClientReadConsistency::LINEARIZABLE &&
                                          value.consistency_ != ClientReadConsistency::STALE)) {
@@ -102,12 +113,21 @@ auto ClientProtocolCodec::EncodeRequest(const ClientRequestV1 &request) -> std::
           body.PutU32(static_cast<uint32_t>(value.consistency_));
           body.PutString(value.sql_);
           return Frame(ClientFrameType::READ_REQUEST, body.Data());
+        } else if constexpr (std::is_same_v<T, ClientSessionRequestV2>) {
+          if (value.client_id_ == 0 || value.request_id_ == 0)
+            throw std::runtime_error("invalid session control identity");
+          body.PutU64(value.client_id_);
+          body.PutU64(value.request_id_);
+          body.PutU64(value.acknowledged_through_);
+          PutBool(&body, value.close_);
+          return Frame(ClientFrameType::SESSION_CONTROL, body.Data());
         } else {
           if (value.request_id_ == 0) {
             throw std::runtime_error("invalid client status request");
           }
           body.PutU64(value.request_id_);
-          return Frame(value.storage_ ? ClientFrameType::STORAGE_STATUS_REQUEST : ClientFrameType::STATUS_REQUEST, body.Data());
+          return Frame(value.storage_ ? ClientFrameType::STORAGE_STATUS_REQUEST : ClientFrameType::STATUS_REQUEST,
+                       body.Data());
         }
       },
       request);
@@ -120,6 +140,12 @@ auto ClientProtocolCodec::DecodeRequest(const std::vector<std::byte> &frame) -> 
   switch (type) {
     case ClientFrameType::WRITE_REQUEST:
       request = ClientWriteRequestV1{body.ReadU64(), body.ReadU64(), body.ReadString()};
+      break;
+    case ClientFrameType::WINDOW_WRITE:
+      request = ClientWriteRequestV1{body.ReadU64(), body.ReadU64(), body.ReadString(), true, body.ReadU64()};
+      break;
+    case ClientFrameType::SESSION_CONTROL:
+      request = ClientSessionRequestV2{body.ReadU64(), body.ReadU64(), body.ReadU64(), ReadBool(&body)};
       break;
     case ClientFrameType::READ_REQUEST:
       request =

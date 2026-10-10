@@ -106,6 +106,7 @@ class DistributedNode {
                    std::vector<std::byte> bytes = {});
 
   auto HandleWrite(const ClientWriteRequestV1 &request) -> ClientResponseV1;
+  auto HandleSession(const ClientSessionRequestV2 &request) -> ClientResponseV1;
   auto HandleRead(const ClientReadRequestV1 &request) -> ClientResponseV1;
   auto HandleStatus(const ClientStatusRequestV1 &request) -> ClientResponseV1;
   auto MakeResponse(uint64_t request_id, ClientResponseStatus status, std::vector<std::byte> payload = {}) const
@@ -129,6 +130,7 @@ class DistributedNode {
     std::vector<std::byte> bytes_;
     std::optional<SqlWritePlan> plan_;
     bool stale_{false};
+    uint64_t observed_index_{0};
   };
   std::weak_ptr<TaskExecutor::Result<WriteWork>> analysis_work_;
   struct ActiveWrite {
@@ -139,6 +141,8 @@ class DistributedNode {
     ResourceCharge charge_;
     uint64_t proposal_index_{0}, proposal_term_{0};
     bool claimed_{false};
+    bool window_{false};
+    std::optional<ClientSessionRequestV2> control_;
     uint64_t blocker_{0};
     std::set<uint64_t> waiters_;
     std::shared_ptr<const SqlWritePlan> plan_;
@@ -153,7 +157,8 @@ class DistributedNode {
     std::set<uint64_t> active_, wide_;
   };
   std::map<uint64_t, std::shared_ptr<ActiveWrite>> writes_;
-  std::unordered_map<uint64_t, uint64_t> clients_;
+  std::unordered_map<uint64_t, std::map<uint64_t, uint64_t>> clients_;
+  std::weak_ptr<ActiveWrite> control_work_;
   std::unordered_map<table_oid_t, TableWrites> table_writes_;
   std::set<uint64_t> catalog_writes_;
   uint64_t next_write_{0};

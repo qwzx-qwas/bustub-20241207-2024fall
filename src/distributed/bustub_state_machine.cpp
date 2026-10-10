@@ -36,13 +36,20 @@ void BusTubStateMachine::ValidateProposal(const TransactionCommandBatch &batch) 
   if (stopped_) {
     throw std::runtime_error("BusTub state machine is fail-stopped");
   }
-  const auto disposition = sessions_->Classify(batch.client_id_, batch.request_id_, batch.request_fingerprint_);
+  if (batch.session_action_ >= SessionAction::ACK) {
+    sessions_->ValidateControl(batch.client_id_, batch.acknowledged_through_,
+                               batch.session_action_ == SessionAction::CLOSE);
+    return;
+  }
+  const auto disposition =
+      sessions_->Classify(batch.client_id_, batch.request_id_, batch.request_fingerprint_, batch.format_version_ == 3);
   if (disposition == RequestDisposition::PAYLOAD_MISMATCH) {
     throw std::runtime_error("proposal payload does not match request identity");
   }
   if (disposition != RequestDisposition::NEW_REQUEST) {
     throw std::runtime_error("proposal session request is not the next new request");
   }
+  if (batch.session_action_ == SessionAction::REJECT) return;
   if (catalog_->GetSchemaEpoch() != batch.expected_start_schema_epoch_) {
     throw std::runtime_error("proposal schema epoch mismatch");
   }
@@ -139,7 +146,13 @@ void BusTubStateMachine::Apply(const ReplicatedLogEntry &entry) {
 }
 
 void BusTubStateMachine::ApplyBatch(const ReplicatedLogEntry &entry, const TransactionCommandBatch &batch) {
-  const auto disposition = sessions_->Classify(batch.client_id_, batch.request_id_, batch.request_fingerprint_);
+  if (batch.session_action_ >= SessionAction::ACK) {
+    sessions_->ApplyControl(batch.client_id_, batch.acknowledged_through_,
+                            batch.session_action_ == SessionAction::CLOSE, entry.index_, entry.term_);
+    return;
+  }
+  const auto disposition =
+      sessions_->Classify(batch.client_id_, batch.request_id_, batch.request_fingerprint_, batch.format_version_ == 3);
   if (disposition == RequestDisposition::RETRY_LAST) {
     return;
   }
@@ -149,7 +162,8 @@ void BusTubStateMachine::ApplyBatch(const ReplicatedLogEntry &entry, const Trans
   if (disposition != RequestDisposition::NEW_REQUEST) {
     throw std::runtime_error("committed SessionTable request is old or contains a sequence gap");
   }
-  if (catalog_->GetSchemaEpoch() != batch.expected_start_schema_epoch_) {
+  if (batch.session_action_ == SessionAction::WRITE &&
+      catalog_->GetSchemaEpoch() != batch.expected_start_schema_epoch_) {
     throw std::runtime_error("committed batch schema epoch mismatch");
   }
   for (const auto &command : batch.commands_) {
@@ -170,9 +184,12 @@ void BusTubStateMachine::ApplyBatch(const ReplicatedLogEntry &entry, const Trans
         },
         command);
   }
-  const auto response =
-      WriteResponseCodec::Encode({1, WriteStatus::COMMITTED, batch.request_id_, entry.term_, entry.index_});
-  sessions_->RecordCommitted(batch.client_id_, batch.request_id_, batch.request_fingerprint_, response);
+  const auto response = WriteResponseCodec::Encode(
+      {batch.format_version_ == 3 ? 2U : 1U,
+       batch.session_action_ == SessionAction::REJECT ? WriteStatus::REJECTED : WriteStatus::COMMITTED,
+       batch.request_id_, entry.term_, entry.index_, batch.rejection_});
+  sessions_->RecordCommitted(batch.client_id_, batch.request_id_, batch.request_fingerprint_, response,
+                             batch.format_version_ == 3);
 }
 
 void BusTubStateMachine::ApplyCommand(const ReplicatedLogEntry &entry, const ReplicatedCommand &command) {

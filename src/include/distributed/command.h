@@ -127,6 +127,8 @@ struct DeleteRowCommand {
 using ReplicatedCommand =
     std::variant<CreateTableCommand, CreateIndexCommand, InsertRowCommand, UpdateRowCommand, DeleteRowCommand>;
 
+enum class SessionAction : uint32_t { WRITE = 0, REJECT = 1, ACK = 2, CLOSE = 3 };
+
 struct TransactionCommandBatch {
   uint32_t format_version_{2};
   uint64_t client_id_{0};
@@ -134,11 +136,16 @@ struct TransactionCommandBatch {
   RequestFingerprintV1 request_fingerprint_{};
   uint64_t expected_start_schema_epoch_{0};
   std::vector<ReplicatedCommand> commands_;
+  SessionAction session_action_{SessionAction::WRITE};
+  uint64_t acknowledged_through_{0};
+  std::string rejection_;
 
   friend auto operator==(const TransactionCommandBatch &lhs, const TransactionCommandBatch &rhs) -> bool {
     return lhs.format_version_ == rhs.format_version_ && lhs.client_id_ == rhs.client_id_ &&
            lhs.request_id_ == rhs.request_id_ && lhs.request_fingerprint_ == rhs.request_fingerprint_ &&
-           lhs.expected_start_schema_epoch_ == rhs.expected_start_schema_epoch_ && lhs.commands_ == rhs.commands_;
+           lhs.expected_start_schema_epoch_ == rhs.expected_start_schema_epoch_ && lhs.commands_ == rhs.commands_ &&
+           lhs.session_action_ == rhs.session_action_ && lhs.acknowledged_through_ == rhs.acknowledged_through_ &&
+           lhs.rejection_ == rhs.rejection_;
   }
 };
 
