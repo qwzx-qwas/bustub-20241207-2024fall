@@ -49,8 +49,11 @@ class LogStore {
   ~LogStore();
   static auto OpenObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t effective_commit_index,
                           uint64_t snapshot_index, uint64_t snapshot_term) -> std::unique_ptr<LogStore>;
-  static auto ProbeObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t recovery,
-                           uint64_t latest) -> LogStoreRecoveryProbe;
+  // Fully validated, read-only candidate; no maintenance attachment or base rewrite yet.
+  static auto ProbeObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit) -> std::unique_ptr<LogStore>;
+  auto RecoveryProbe(uint64_t recovery, uint64_t latest) const -> LogStoreRecoveryProbe;
+  static auto OpenObjects(std::unique_ptr<LogStore> candidate, uint64_t snapshot_index, uint64_t snapshot_term)
+      -> std::unique_ptr<LogStore>;
   static auto RebuildObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t index, uint64_t term)
       -> std::unique_ptr<LogStore>;
   /** Parse and validate the committed journal without cleaning or rewriting any file. */

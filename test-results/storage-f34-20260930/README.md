@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # F34/F33 本地生命周期验证（2026-09-30）
 
 [实现与八项审查](../../docs/storage_redesign/f34_execution_20260930.md) · [当轮方案](../../docs/storage_redesign/modules/node-lifecycle.md#11-2026-09-30-当轮执行协议已授权) · [测试源码包](../../test/archives/F34-node-lifecycle.tar.gz)

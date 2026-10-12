@@ -1,0 +1,2059 @@
+{
+  "date": "2026-10-12T19:39:52.128973+08:00",
+  "status": "completed",
+  "authorization": "User requested removal of obsolete test intermediates and commit of restored baseline",
+  "files": [
+    {
+      "path": "test-results/storage-final-20261010/C4/C4-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/P3-diagnostic/P3-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/C1/C1-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2-c8-r1/P2-c8-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P1/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P1/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P1/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P1/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2-c8-r3/P2-c8-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c2-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c1-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c2-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c2-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2/P2-c1-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2-c4-r3-resumed/P2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/C5/C5-long-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/C5/C5-short-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2-c8-r2/P2-c8-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/C3/C3-isolate-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/C3/C3-drop-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/C3/C3-kill-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C4/C4-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C1/C1-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C5/C5-long-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C5/C5-short-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C3/C3-isolate-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C3/C3-drop-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C3/C3-kill-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C2/C2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593518,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C2/C2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/C2/C2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593495,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pressure-fixed/P3/P3-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/P2-low-cache/P2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C4/C4-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C1/C1-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/P4/P4-c6-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C5/C5-long-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C5/C5-short-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C3/C3-isolate-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C3/C3-drop-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C3/C3-kill-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C2/C2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593518,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C2/C2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/C2/C2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593495,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/reclaim-fixed/P3/P3-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/C2/C2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593518,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/C2/C2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/C2/C2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593495,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/P3/P3-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-20261010/pre-budget-fix/C1/C1-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-final-20261010/pre-budget-fix/C2/C2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-diagnostic-20261011-130707-P3-zIkp5Q/P3/P3-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-222152-5VsJ2v/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1311788,
+      "allocated_bytes": 1314816
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-215635-0NyfHR/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1310572,
+      "allocated_bytes": 1310720
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-223107-VXc14I/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1312560,
+      "allocated_bytes": 1314816
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-223107-VXc14I/check/capture-2/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1304196,
+      "allocated_bytes": 1306624
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C4/C4-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C1/C1-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P4/P4-c6-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c2-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c1-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c2-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c8-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c8-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c2-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c8-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c1-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C5/C5-long-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C5/C5-short-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C3/C3-isolate-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C3/C3-drop-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C3/C3-kill-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C2/C2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593518,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C2/C2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/C2/C2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593495,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-fixed-20261011-160420-920SjI/P3/P3-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-214753-1IvKEa/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 34752,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": "test-results/storage-diagnostic-20261011-150331-P2-c8-t8xXEv/P2/P2-c8-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-diagnostic-20261011-144551-P1-uniform-m4NuFc/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-214122-kVoU4R/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 34584,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P1/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P1/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P1/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P1/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c2-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c1-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c2-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c8-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c8-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c2-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c8-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-final-manual-20261010-191137-AgDn4n/P2/P2-c1-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-230528-238KhN/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1786868,
+      "allocated_bytes": 1789952
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-230528-238KhN/check/capture-2/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1755748,
+      "allocated_bytes": 1757184
+    },
+    {
+      "path": "test-results/storage-profile-20261011-223127-fEDnq2/storage-diagnostic-20261011-223131-P1-uniform-8IKnuF/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-20261011-223127-fEDnq2/storage-diagnostic-20261011-223131-P1-uniform-8IKnuF/P1/P1-uniform-c4-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 43534324,
+      "allocated_bytes": 43536384
+    },
+    {
+      "path": "test-results/storage-profile-20261011-223127-fEDnq2/storage-diagnostic-20261011-223131-P1-uniform-8IKnuF/P1/P1-uniform-c4-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 85465301,
+      "allocated_bytes": 85467136
+    },
+    {
+      "path": "test-results/storage-profile-20261011-223127-fEDnq2/storage-diagnostic-20261011-223131-P1-uniform-8IKnuF/profile/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 28014576,
+      "allocated_bytes": 28016640
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-225459-XQ17S7/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1744304,
+      "allocated_bytes": 1744896
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-225459-XQ17S7/check/capture-2/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 1770908,
+      "allocated_bytes": 1773568
+    },
+    {
+      "path": "test-results/storage-diagnostic-20261011-142022-P4-Ydu5w4/P4/P4-c6-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C4/C4-c1-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1208520,
+      "allocated_bytes": 1212416
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C4/C4-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C4/C4-c1-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 7892992
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C4/C4-c1-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 8568832
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C4/C4-c1-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 7979008
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C1/C1-c1-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 2205204,
+      "allocated_bytes": 2207744
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C1/C1-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C1/C1-c1-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 22843392
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C1/C1-c1-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 27635712
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C1/C1-c1-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 23175168
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 37971493,
+      "allocated_bytes": 37974016
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 61206921,
+      "allocated_bytes": 61214720
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 138966316,
+      "allocated_bytes": 138973184
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 38319636,
+      "allocated_bytes": 38326272
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 61687398,
+      "allocated_bytes": 61693952
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 141751492,
+      "allocated_bytes": 141758464
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 38429921,
+      "allocated_bytes": 38432768
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 61888234,
+      "allocated_bytes": 61890560
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 142205337,
+      "allocated_bytes": 142213120
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 38398895,
+      "allocated_bytes": 38400000
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 61833268,
+      "allocated_bytes": 61841408
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 142061423,
+      "allocated_bytes": 142061568
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 37754250,
+      "allocated_bytes": 37756928
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 61161339,
+      "allocated_bytes": 61161472
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 138221705,
+      "allocated_bytes": 138227712
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 38085644,
+      "allocated_bytes": 38088704
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 61387098,
+      "allocated_bytes": 61390848
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 139629773,
+      "allocated_bytes": 139636736
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40284160
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47644672
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40337408
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40390656
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47599616
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40476672
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40235008
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47681536
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40398848
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40370176
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47722496
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40349696
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40308736
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47792128
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40361984
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40349696
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47710208
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40321024
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4/P4-c6-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 12819680,
+      "allocated_bytes": 12820480
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4/P4-c6-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4/P4-c6-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 68177920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4/P4-c6-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 84987904
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4/P4-c6-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 98398208
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 14231653,
+      "allocated_bytes": 14233600
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 18334586,
+      "allocated_bytes": 18337792
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 51211766,
+      "allocated_bytes": 51212288
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r2/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 13818037,
+      "allocated_bytes": 13819904
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r2/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 17491736,
+      "allocated_bytes": 17494016
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r2/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 50556808,
+      "allocated_bytes": 50556928
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r2/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 14203737,
+      "allocated_bytes": 14204928
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r2/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 18276483,
+      "allocated_bytes": 18280448
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r2/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 51170025,
+      "allocated_bytes": 51171328
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 13823527,
+      "allocated_bytes": 13824000
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 17457193,
+      "allocated_bytes": 17461248
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 50653458,
+      "allocated_bytes": 50655232
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 14257233,
+      "allocated_bytes": 14258176
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 18291077,
+      "allocated_bytes": 18292736
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 51406225,
+      "allocated_bytes": 51412992
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 14644700,
+      "allocated_bytes": 14647296
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 19168350,
+      "allocated_bytes": 19169280
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 51895855,
+      "allocated_bytes": 51900416
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r3/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 14115228,
+      "allocated_bytes": 14118912
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r3/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 18095875,
+      "allocated_bytes": 18096128
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r3/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 51031344,
+      "allocated_bytes": 51036160
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 14044566,
+      "allocated_bytes": 14045184
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 17864478,
+      "allocated_bytes": 17866752
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 51066647,
+      "allocated_bytes": 51073024
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 13766853,
+      "allocated_bytes": 13770752
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 17304848,
+      "allocated_bytes": 17305600
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 50618397,
+      "allocated_bytes": 50622464
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 13814072,
+      "allocated_bytes": 13815808
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 17485381,
+      "allocated_bytes": 17485824
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 50548000,
+      "allocated_bytes": 50548736
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 13761462,
+      "allocated_bytes": 13762560
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 17312076,
+      "allocated_bytes": 17313792
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 50582631,
+      "allocated_bytes": 50589696
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r3/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 13821260,
+      "allocated_bytes": 13824000
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r3/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 17499902,
+      "allocated_bytes": 17502208
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r3/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 50559458,
+      "allocated_bytes": 50561024
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149147648
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149520384
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149143552
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r2/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148054016
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r2/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148385792
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r2/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148049920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r2/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149020672
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r2/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149426176
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r2/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149041152
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150138880
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150556672
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150126592
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150446080
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150855680
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150446080
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152756224
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153182208
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152756224
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r3/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148914176
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r3/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149299200
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c2-r3/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148930560
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150773760
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 151175168
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 150773760
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149114880
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149516288
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149147648
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148062208
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148389888
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148062208
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149209088
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149598208
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 149200896
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r3/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148078592
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r3/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148402176
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c1-r3/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 148074496
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-long-c1-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1276268,
+      "allocated_bytes": 1277952
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-long-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-short-c1-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1168596,
+      "allocated_bytes": 1171456
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-short-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-long-c1-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 25579520
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-long-c1-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 25751552
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-long-c1-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 6139904
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-short-c1-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2228224
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-short-c1-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2588672
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C5/C5-short-c1-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2134016
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-isolate-c4-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1170773,
+      "allocated_bytes": 1171456
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-isolate-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-drop-c1-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1155584,
+      "allocated_bytes": 1159168
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-drop-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-kill-c4-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1172575,
+      "allocated_bytes": 1175552
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-kill-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-isolate-c4-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2428928
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-isolate-c4-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2289664
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-isolate-c4-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2424832
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-drop-c1-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 1921024
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-drop-c1-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2211840
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-drop-c1-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 1957888
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-kill-c4-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2461696
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-kill-c4-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2285568
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C3/C3-kill-c4-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2437120
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4-local-checkpoint/P4-c6-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 12844380,
+      "allocated_bytes": 12845056
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4-local-checkpoint/P4-c6-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4-local-checkpoint/P4-c6-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 145203200
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4-local-checkpoint/P4-c6-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 145854464
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P4-local-checkpoint/P4-c6-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 105783296
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r3/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1162472,
+      "allocated_bytes": 1163264
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r3/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593518,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1162520,
+      "allocated_bytes": 1163264
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593542,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r2/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 1163239,
+      "allocated_bytes": 1163264
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r2/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 593495,
+      "allocated_bytes": 593920
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r3/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2367488
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r3/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2560000
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r3/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2383872
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2392064
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2605056
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2347008
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r2/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2355200
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r2/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2613248
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/C2/C2-c4-r2/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 2375680
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P3/P3-c1-r1/inputs.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 51000961,
+      "allocated_bytes": 51007488
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P3/P3-c1-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P3/P3-c1-r1/provision/node-3.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 189382656
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P3/P3-c1-r1/provision/node-1.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 189177856
+    },
+    {
+      "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P3/P3-c1-r1/provision/node-2.device",
+      "reason": "completed test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 189034496
+    },
+    {
+      "path": "test-results/storage-diagnostic-20261011-145704-P2-c4-LaLvBq/P2/P2-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-20261011-225518-q2qjJB/storage-diagnostic-20261011-225520-P1-uniform-vriHe6/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-20261011-225518-q2qjJB/storage-diagnostic-20261011-225520-P1-uniform-vriHe6/P1/P1-uniform-c4-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 62813032,
+      "allocated_bytes": 62816256
+    },
+    {
+      "path": "test-results/storage-profile-20261011-225518-q2qjJB/storage-diagnostic-20261011-225520-P1-uniform-vriHe6/P1/P1-uniform-c4-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 128198866,
+      "allocated_bytes": 128204800
+    },
+    {
+      "path": "test-results/storage-profile-20261011-225518-q2qjJB/storage-diagnostic-20261011-225520-P1-uniform-vriHe6/profile/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 23708904,
+      "allocated_bytes": 23711744
+    },
+    {
+      "path": "test-results/storage-profile-20261011-230553-xE114u/storage-diagnostic-20261011-231038-P1-hotspot-HbbZn4/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-20261011-230553-xE114u/storage-diagnostic-20261011-231038-P1-hotspot-HbbZn4/P1/P1-hotspot-c4-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 94028986,
+      "allocated_bytes": 94031872
+    },
+    {
+      "path": "test-results/storage-profile-20261011-230553-xE114u/storage-diagnostic-20261011-231038-P1-hotspot-HbbZn4/P1/P1-hotspot-c4-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 210612903,
+      "allocated_bytes": 210620416
+    },
+    {
+      "path": "test-results/storage-profile-20261011-230553-xE114u/storage-diagnostic-20261011-230555-P1-uniform-a1cYK6/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-20261011-230553-xE114u/storage-diagnostic-20261011-230555-P1-uniform-a1cYK6/P1/P1-uniform-c4-r1/logical_history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 107170948,
+      "allocated_bytes": 107171840
+    },
+    {
+      "path": "test-results/storage-profile-20261011-230553-xE114u/storage-diagnostic-20261011-230555-P1-uniform-a1cYK6/P1/P1-uniform-c4-r1/history.jsonl",
+      "reason": "P1/P2 per-request intermediate; result and diagnostics retained",
+      "bytes": 241920929,
+      "allocated_bytes": 241926144
+    },
+    {
+      "path": "test-results/storage-profile-20261011-230553-xE114u/storage-diagnostic-20261011-231522-P4-m2qRsr/P4/P4-c6-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-212648-BHWfvl/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 34544,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": "test-results/storage-profile-tools-20261011-213429-svc9J9/check/capture-1/perf.data",
+      "reason": "obsolete observer selfcheck/failed capture binary; logs and text reports retained",
+      "bytes": 34688,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": "test-results/storage-diagnostic-20261011-145126-P1-hotspot-azOxzU/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "generated workload input; config and frozen generator retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test/storage_acceptance/__pycache__/report.cpython-312.pyc",
+      "reason": "Python bytecode cache",
+      "bytes": 31729,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": "test/storage_acceptance/__pycache__/test_diagnostic_tools.cpython-312.pyc",
+      "reason": "Python bytecode cache",
+      "bytes": 14534,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": "test/storage_acceptance/__pycache__/content.cpython-312.pyc",
+      "reason": "Python bytecode cache",
+      "bytes": 18869,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": "test/storage_acceptance/__pycache__/runtime.cpython-312.pyc",
+      "reason": "Python bytecode cache",
+      "bytes": 35832,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": "test/storage_acceptance/__pycache__/capture_diagnostics.cpython-312.pyc",
+      "reason": "Python bytecode cache",
+      "bytes": 15393,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": "test/storage_acceptance/__pycache__/diagnostic_tools.cpython-312.pyc",
+      "reason": "Python bytecode cache",
+      "bytes": 41116,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": "test/storage_acceptance/__pycache__/adapter.cpython-312.pyc",
+      "reason": "Python bytecode cache",
+      "bytes": 14435,
+      "allocated_bytes": 16384
+    }
+  ],
+  "directories": [
+    {
+      "path": ".cache/rollback-previous-20261012-191457/candidate",
+      "reason": "reconstructible temporary build/reconstruction cache",
+      "files": 801,
+      "bytes": 7219497,
+      "allocated_bytes": 9023488
+    },
+    {
+      "path": ".cache/final-acceptance/go-build",
+      "reason": "reconstructible temporary build/reconstruction cache",
+      "files": 468,
+      "bytes": 38733046,
+      "allocated_bytes": 40337408
+    },
+    {
+      "path": ".cache/final-acceptance/tool-review",
+      "reason": "reconstructible temporary build/reconstruction cache",
+      "files": 17,
+      "bytes": 2449025,
+      "allocated_bytes": 2490368
+    }
+  ],
+  "preserved": [
+    "all result/config/freeze/source manifests and comparison JSON",
+    "P3 raw failure histories and resource traces",
+    "P4 recovery histories",
+    "latest complete P1/P4 perf captures",
+    "four original C/P baseline archives (only historical raw originals)",
+    "active Release build, GCC/Go toolchains and dependency cache",
+    "rollback originals, source.diff and version probe"
+  ],
+  "limitations": "Deleted devices cannot be reopened; removed P1/P2 request histories cannot be reaggregated. Existing reports retain original outcomes; no new workload was run.",
+  "removed_allocated_bytes": 11775332352,
+  "removed_logical_bytes": 104052376245,
+  "verified_absent": true
+}

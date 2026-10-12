@@ -32,6 +32,8 @@ class ObjectReferenceError : public std::runtime_error {
   ObjectReferenceErrorCode code_;
 };
 struct ObjectReadProtection;
+struct ObjectOverwriteProtection;
+struct ObjectChange;
 /** A copy keeps the SAME range protection alive. Carry a copy in the IO owner
  * (or existing F02 external-buffer release callback) until actual completion.
  * Spans describe the entire requested read, clipped at EOF; holes return zero.
@@ -52,26 +54,45 @@ struct ObjectReclaimResult {
   std::optional<JournalResult> commit_;
   uint64_t released_bytes_{0};  // Nonzero only after Durable.
   uint64_t pinned_bytes_{0};    // Eligible whole units blocked by existing readers.
+  bool scanning_{false};      // Continue this candidate on a later maintenance turn.
+};
+struct ObjectReclaimScan;
+/** One caller-owned, non-concurrent discovery cursor. No second retirement
+ * authority: it groups a bounded batch of allocations and rechecks records at
+ * commit. Destroying the cursor abandons discovery without changing storage. */
+class ObjectReclaimCursor {
+ public:
+  ObjectReclaimCursor() = default;
+  ObjectReclaimCursor(ObjectReclaimCursor &&) noexcept = default;
+  auto operator=(ObjectReclaimCursor &&) noexcept -> ObjectReclaimCursor & = default;
+ private:
+  friend class ObjectReferenceManager;
+  std::shared_ptr<ObjectReclaimScan> scan_;
 };
 /** One lifecycle-owned manager per opened v2 ObjectMappingStore. The store, B
  * and allocator outlive this manager and its calls. Old v1 remains usable by
  * F13 but cannot enable F14; no automatic migration. No private worker/queue.
  *
- * Reclaim consumes F13's irreversible S6 retirement facts. S11 persistent
- * shared versions must extend that predicate before they are enabled. Protect
+ * Reclaim consumes F13's irreversible retirement facts and persistent shared
+ * unit references. The same range gates authorize bounded S10 overwrite. Protect
  * checks current ownership, so a metadata snapshot alone cannot resurrect a
  * freed location. Reclaim skips pinned units and never waits for readers/IO
  * while holding the range mutex. Callers schedule subsequent bounded work.
  */
 class ObjectReferenceManager {
  public:
-  ObjectReferenceManager(ObjectMappingStore &mapping, ObjectReferenceOptions options);
+  ObjectReferenceManager(ObjectMappingStore &mapping, ObjectReferenceOptions options,
+                         std::shared_ptr<ResourceBudget> memory = {});
   ~ObjectReferenceManager();
   ObjectReferenceManager(const ObjectReferenceManager &) = delete;
   auto operator=(const ObjectReferenceManager &) -> ObjectReferenceManager & = delete;
   auto ProtectRead(const ObjectMappingSnapshot &view, ObjectKey object, uint64_t offset, uint64_t length)
       -> ObjectReadLease;
-  auto Reclaim(const ObjectMappingSnapshot &base, ObjectKey object, uint64_t allocation) -> ObjectReclaimResult;
+  // One object scan serves this bounded candidate batch. Used by F22's existing cursor.
+  void BeginReclaim(const ObjectMappingSnapshot &base, ObjectKey object, const std::vector<uint64_t> &allocations,
+                    ObjectReclaimCursor *cursor);
+  auto Reclaim(const ObjectMappingSnapshot &base, ObjectKey object, uint64_t allocation,
+               ObjectReclaimCursor *cursor = nullptr) -> ObjectReclaimResult;
   /** Stop admission, drain entered calls. Retained leases remain attached to
    * the old RAM context. The lifecycle owner must drain actual Data IO before
    * reopening B/allocator/store; closing this manager is not an IO barrier.
@@ -80,6 +101,9 @@ class ObjectReferenceManager {
 
  private:
   friend class ObjectIO;
+  // Empty means a live reader or another owner prevents reuse: choose COW.
+  auto TryOverwrite(const ObjectMappingSnapshot &base, const ObjectChange &change)
+      -> std::shared_ptr<ObjectOverwriteProtection>;
   auto ProtectOwned(ObjectKey owner, const ObjectSpan &span) -> ObjectReadLease;
   struct Impl;
   std::unique_ptr<Impl> impl_;

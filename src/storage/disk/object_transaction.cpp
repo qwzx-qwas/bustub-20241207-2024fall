@@ -294,12 +294,16 @@ struct ObjectTransactionPipeline::Impl {
           if (info.mode_ == ObjectSizeMode::Fixed && end > info.size_) {
             throw std::invalid_argument("write exceeds fixed object size");
           }
-          // F01 reports direct-IO alignment, not a power-failure isolation
-          // unit. An allocation's small tail therefore stays COW until a real
-          // device contract can authorize independent writes within that unit.
+          const auto target = change.offset_;
           change.offset_ -= change.offset_ % unit_;
           const auto stop = std::max(end, std::min(End(end, unit_ - 1) / unit_ * unit_, info.size_));
           change.length_ = stop - change.offset_;
+          if (!op.common_only_ && options_.deferred_max_bytes_ != 0) {
+            // Whole-allocation redo protects preserved bytes as well as the
+            // patch. Bound extra assembly by the already-admitted two units.
+            ObjectMappingAccess::PlanReuse(*task.view_, op.object_, target, op.Size(),
+                                           std::min(options_.deferred_max_bytes_, End(op.Size(), 2 * unit_)), &change);
+          }
           if (change.length_ > options_.max_request_bytes_ + 2 * unit_) {
             throw std::invalid_argument("object assembly exceeds request budget");
           }
@@ -566,6 +570,8 @@ struct ObjectTransactionPipeline::Impl {
               }
               std::unique_lock lock(state_->mutex_);
               if (state_->error_) std::rethrow_exception(state_->error_);
+              if (!state_->accepting_)
+                throw MetadataError(MetadataErrorCode::NotReady, "object transaction closed before metadata admission");
               state_->changed_.wait_for(lock, options_.retry_interval_);
             }
           }
@@ -684,7 +690,8 @@ struct ObjectTransactionPipeline::Impl {
     size_t metadata_rounds = 0;
     MetadataKey cursor{0, 0, 0};
     ObjectGCPage page{cursor, {}};
-    size_t next = 0;
+    size_t next = 0, group_end = 0;
+    ObjectReclaimCursor reclaim;
     for (;;) {
       {
         std::unique_lock<std::mutex> lock(state_->mutex_);
@@ -715,11 +722,24 @@ struct ObjectTransactionPipeline::Impl {
         if (next == page.candidates_.size()) {
           page = ObjectMappingAccess::Garbage(mapping_.Read(), cursor);
           cursor = page.next_;
-          next = 0;
+          next = group_end = 0;
         }
         if (next == page.candidates_.size()) continue;
-        const auto candidate = page.candidates_[next++];
-        const auto result = references_.Reclaim(mapping_.Read(), candidate.first, candidate.second);
+        const auto candidate = page.candidates_[next];
+        if (next == group_end) {
+          std::vector<uint64_t> allocations;
+          auto end = next;
+          while (end < page.candidates_.size() && allocations.size() < 16) {
+            const auto &item = page.candidates_[end];
+            if (item.first.space_ != candidate.first.space_ || item.first.number_ != candidate.first.number_) break;
+            allocations.push_back(item.second);
+            ++end;
+          }
+          references_.BeginReclaim(mapping_.Read(), candidate.first, allocations, &reclaim);
+          group_end = end;  // Advance only after the bounded discovery storage was admitted.
+        }
+        const auto result = references_.Reclaim(mapping_.Read(), candidate.first, candidate.second, &reclaim);
+        if (!result.scanning_) ++next;
         if (result.commit_ && result.commit_->outcome_ != JournalOutcome::Durable)
           std::rethrow_exception(result.commit_->error_);
       } catch (const MetadataCommitBusy &) {

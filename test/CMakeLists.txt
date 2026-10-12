@@ -87,6 +87,10 @@ foreach (bustub_test_source ${BUSTUB_TEST_SOURCES})
         target_sources(${bustub_test_name} PRIVATE "${PROJECT_SOURCE_DIR}/src/storage/disk/disk_scheduler.cpp")
     endif ()
 
+    if (bustub_test_name STREQUAL "final_performance_test")
+        target_sources(${bustub_test_name} PRIVATE "${PROJECT_SOURCE_DIR}/tools/bustub-node/storage_config.cpp")
+    endif ()
+
     target_link_libraries(${bustub_test_name} bustub gtest gmock_main)
 
     # Set test target properties and dependencies.

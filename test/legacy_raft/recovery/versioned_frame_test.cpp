@@ -33,6 +33,31 @@ TEST(VersionedFrameTest, Crc32cMatchesStandardKnownAnswer) {
   EXPECT_EQ(Crc32c(input), 0xe3069283U);
 }
 
+// Independent legacy bitwise oracle: catches polynomial, inversion, alignment,
+// tail and Extend/Combine compatibility mistakes without calling production CRC.
+TEST(VersionedFrameTest, NonemptyUnalignedCrcMatchesLegacyAndComposition) {
+  std::vector<std::byte> input(8193);
+  for (size_t i = 0; i < input.size(); ++i) input[i] = static_cast<std::byte>((i * 73 + i / 11 + 29) & 255);
+  const auto legacy = [](const std::byte *data, size_t count) {
+    uint32_t crc = 0xffffffffU;
+    for (size_t i = 0; i < count; ++i) {
+      crc ^= static_cast<uint8_t>(data[i]);
+      for (int bit = 0; bit < 8; ++bit) crc = (crc >> 1U) ^ ((crc & 1U) ? 0x82f63b78U : 0U);
+    }
+    return ~crc;
+  };
+  for (const size_t start : {0, 1, 3, 7}) {
+    for (const size_t size : {9, 31, 512, 4096, 8179}) {
+      const auto *data = input.data() + start;
+      const auto expected = legacy(data, size);
+      const size_t split = size / 3;
+      EXPECT_EQ(Crc32c(data, size), expected);
+      EXPECT_EQ(Crc32cExtend(Crc32c(data, split), data + split, size - split), expected);
+      EXPECT_EQ(Crc32cCombine(Crc32c(data, split), Crc32c(data + split, size - split), size - split), expected);
+    }
+  }
+}
+
 TEST(VersionedFrameTest, MatchesGoldenAndRejectsEveryOuterBoundary) {
   constexpr std::array<std::byte, 4> magic{std::byte{'T'}, std::byte{'E'}, std::byte{'S'}, std::byte{'T'}};
   const VersionedFrameSpec spec{magic.data(), magic.size(), 7, 16, "test frame"};

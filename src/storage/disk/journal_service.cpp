@@ -867,13 +867,17 @@ struct JournalService::Impl {
     if (maintenance && !completion && units.size() != 1) {
       throw std::invalid_argument("checkpoint must fit its reserved Journal unit");
     }
-    if ((format_ == 1 &&
-         (units.size() + (maintenance ? (completion ? 1 : 0) : 1 + std::max(completion_reserve_, extra_reserve))) *
-                 options_.unit_bytes_ >
-             capacity_ - cursor_) ||
-        (format_ == 2 &&
-         units.size() + (maintenance ? (completion ? 1 : 0) : 1 + std::max(completion_reserve_, extra_reserve)) >
-             AvailableUnits())) {
+    const auto available = format_ == 1 ? (capacity_ - cursor_) / options_.unit_bytes_ : AvailableUnits();
+    const auto reserve = maintenance ? (completion ? 1 : 0) : 1 + std::max(completion_reserve_, extra_reserve);
+    if (units.size() + reserve > available) {
+      // Existing Deferred work temporarily owns its completion allowance. A
+      // request that fits with only its own added allowance waits for that work,
+      // just like occupied IO credits. Do not disguise physical exhaustion or
+      // an individually oversized reservation as retryable contention.
+      const auto added = extra_reserve > completion_reserve_ ? extra_reserve - completion_reserve_ : 0;
+      if (!maintenance && completion_reserve_ != 0 && units.size() + 1 + added <= available) {
+        return {JournalAdmission::Full, {}};
+      }
       return {JournalAdmission::NoSpace, {}};
     }
     const auto plan = Layout(units.size());

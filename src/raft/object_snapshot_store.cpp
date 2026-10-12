@@ -151,7 +151,7 @@ void ObjectSnapshotStore::RetainOnlyLatest() {
   previous_.reset();
   plan_cache_.reset();
 }
-auto ObjectSnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot {
+void ObjectSnapshotStore::CheckCapture(uint64_t index, uint64_t term) {
   if ((index == 0 && term != 0) || (latest_ && index <= latest_->info_.last_included_index_)) {
     throw std::invalid_argument("invalid capture boundary");
   }
@@ -165,6 +165,46 @@ auto ObjectSnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachin
   }
   if (transfer_base_) check.push_back(storage_->Own(transfer_base_->object_, 2, 2));
   storage_->Check(check);
+}
+auto ObjectSnapshotStore::PrepareCapture(uint64_t index, uint64_t term, RaftStateMachine &machine)
+    -> std::shared_ptr<SnapshotCapture> {
+  CheckCapture(index, term);
+  auto writer = machine.CaptureSharedSnapshot(*storage_->storage_, index, term);
+  if (!writer) return {};
+  auto body = std::make_shared<Body>(Body{{1, 0, "", index, term, 0, 0}, 0});
+  auto candidate = std::make_shared<SnapshotCapture>();
+  candidate->index_ = index;
+  candidate->term_ = term;
+  candidate->build_ = [storage = storage_, body, writer = std::move(writer)]() mutable {
+    const auto result = writer(*storage->storage_, storage->Key(body->object_), storage->options_.max_snapshot_bytes_);
+    body->info_.payload_size_ = result.size_;
+    body->info_.payload_checksum_ = result.checksum_;
+    body->info_.snapshot_id_ = std::to_string(body->info_.last_included_index_) + "-" +
+                              std::to_string(body->info_.last_included_term_) + "-" + std::to_string(result.checksum_);
+    writer = {};  // Release dirty copies and old working-state ownership after construction.
+  };
+  candidate->publish_ = [this, body] { return Publish(*body, true); };
+  candidate->cancel_ = [storage = storage_, body] {
+    storage->Commit({{}, {storage->Own(body->object_, 2, 2)}});
+  };
+  // Candidate ownership is persisted before handing the work to an executor.
+  body->object_ = storage_->Candidate(2);
+  return candidate;
+}
+auto ObjectSnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot {
+  if (auto candidate = PrepareCapture(index, term, machine)) {
+    try {
+      candidate->build_();
+      return candidate->publish_();
+    } catch (...) {
+      const auto error = std::current_exception();
+      try { candidate->cancel_(); } catch (...) {}
+      std::rethrow_exception(error);
+    }
+  }
+  Body body{{1, latest_ ? latest_->info_.generation_ + 1 : 1,
+             std::to_string(index) + "-" + std::to_string(term) + "-" + std::to_string(UINT32_MAX), index, term, 0, 0},
+            0};
   body.object_ = storage_->Candidate(2);
   try {
     const auto shared = machine.WriteSharedSnapshot(*storage_->storage_, storage_->Key(body.object_), index, term,

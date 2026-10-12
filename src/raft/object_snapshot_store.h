@@ -10,6 +10,7 @@ class ObjectSnapshotStore {
   auto Oldest() const -> std::optional<RaftSnapshot>;
   void RetainOnlyLatest();
   auto Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot;
+  auto PrepareCapture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> std::shared_ptr<SnapshotCapture>;
   auto Input(const RaftSnapshot &snapshot) -> SnapshotInput;
   auto OfferDelta(const RaftSnapshot &target) -> std::optional<SnapshotDeltaOffer>;
   auto BeginDelta(const RaftSnapshot &target, const RaftSnapshot &base, uint64_t session) -> bool;
@@ -40,6 +41,7 @@ class ObjectSnapshotStore {
     std::optional<DeltaReceive> delta_{std::nullopt};
     uint32_t checksum_{0};
   };
+  void CheckCapture(uint64_t index, uint64_t term);
   auto StageDelta(const SnapshotChunk &chunk) -> SnapshotStageResult;
   void FinishDelta();
   auto Source(const Body &body) -> SnapshotInput;

@@ -868,7 +868,8 @@ auto MetadataCache::LoadLocked(const std::shared_ptr<PageState> &page) -> std::s
   image->kind_ = stamp.kind_;
   image->generation_ = stamp.generation_;
   DecodeBody(body, max_value_, image.get());
-  Seal(image.get(), page->id_, stamp.lsn_, body);
+  image->lsn_ = stamp.lsn_;
+  std::memcpy(image->data_.data() + BODY, bytes + BODY, TRAILER);
   {
     std::lock_guard lock(mutex_);
     page->body_ = image;
@@ -1438,7 +1439,8 @@ struct MetadataEngine::Impl {
       page->generation_ = stamp.generation_;
       const auto page_lsn = stamp.lsn_;
       DecodeBody(body, options_.max_value_bytes_, page.get());
-      Seal(page.get(), static_cast<page_id_t>(id), page_lsn, body);
+      page->lsn_ = page_lsn;
+      std::memcpy(page->data_.data() + BODY, bytes + BODY, TRAILER);
       page_writer_.Recovered(id, page->generation_, page_lsn);
       next->pages_[id] = cache_->Describe(static_cast<page_id_t>(id), std::move(page));
       cache_->Durable(next->pages_[id]);

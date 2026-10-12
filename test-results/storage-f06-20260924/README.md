@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # F06/S2 / Journal 段范围后端运行证据
 
 2026-09-24。[方案](../../docs/storage_redesign/modules/journal-backend.md) · [执行与八项审查](../../docs/storage_redesign/f06_execution_20260924.md) · [源码包](../../test/archives/F06-journal-backend.tar.gz)。

@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # S0 测试提交前复审证据
 
 [逐条复审与范围](../../docs/storage_redesign/s0_test_review_20260921.md) · [首轮记录](../../docs/storage_redesign/s0_execution_20260921.md)

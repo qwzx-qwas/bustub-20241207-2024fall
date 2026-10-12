@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # S5 Journal 基础回收结果（2026-09-30）
 
 [实现与八项审查](../../docs/storage_redesign/s5_execution_20260930.md) · [协议](../../docs/storage_redesign/s5_journal_recycling.md) · [测试源码包](../../test/archives/S5-journal-recycling.tar.gz)

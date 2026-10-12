@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # F12 分配器验证（2026-09-30）
 
 [方案](../../docs/storage_redesign/modules/allocator.md) · [执行与八项审查](../../docs/storage_redesign/f12_execution_20260930.md) · [最终测试源](../../test/archives/F12-data-allocator.tar.gz)

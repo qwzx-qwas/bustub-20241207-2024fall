@@ -122,8 +122,8 @@ struct ObjectSpaceCreation {
  * are explicit and serialized by the owner. B/allocator outlive all store calls.
  * Ordinary calls may overlap; B rejects stale bases, with no hidden retry.
  *
- * Publication is bound privately to ObjectIO/S7: a genuine reservation, initialized
- * durable bytes (or a Journal payload), and their original-unit checksums.
+ * Publication is bound privately to ObjectIO/S7: a genuine reservation or F14 overwrite permission,
+ * initialized durable bytes (or a Journal payload), and original-unit checksums.
  * This module publishes mapping facts, not a complete WritePlanner/StorageAPI.
  * Removed ranges are persisted here; F14 owns safe physical release. No data-cache, second
  * WAL or data IO are implied. NodeStorage owns the protected sharing entry.

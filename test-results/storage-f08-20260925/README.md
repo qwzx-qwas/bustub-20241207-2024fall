@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # F08 / S4 MetadataEngine B 复审结果（2026-09-26）
 
 [方案](../../docs/storage_redesign/modules/metadata-engine.md) · [执行及八项审查](../../docs/storage_redesign/f08_execution_20260925.md#10-再次复审范围扫描的漏检2026-09-26) · [测试源码包](../../test/archives/F08-metadata-engine.tar.gz)

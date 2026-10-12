@@ -1,3 +1,4 @@
+# 2026-10-11: phase archives removed by user request; hashes below are historical only.
 a59c71854d041859d93909429dc5abc40cc850e19db2db1b143f5ae87bde3ef5  F00-storage-contracts.tar.gz
 3533e26c9a2287bd4ae9557459f0b064986499cac87fedd0e2073149649c8804  F01-block-device.tar.gz
 0ace3be5d0c90bc79ff8443649e0d701d5c325cd0fccf72c9cf3f2975f6bd5fa  F02-object-io.tar.gz
@@ -15,7 +16,7 @@ e39e0c82aa5b2b52b3fff6d27d4e5189f11e2d751e7c7878b0d14a07f7bb8128  F14-object-ref
 1a9dcc200a2433ff9751a705f7a0e93f557b120d1d53af652a3acb6a59c8d5f3  F19-common-pipeline.tar.gz
 feb1a2faefc5cd9b092229dc80b1cadcbdd765da87c9df24fef15b1880f2e7cd  F25-shared-snapshot.tar.gz
 c9a56c934a6e1a4ab5463658cee70cee7a203ac9934bc1cb7a658ee1399e1e78  F26-array-buffer-pool.tar.gz
-30f2c6110a4d4b6cd599f93793fe3dbd8d1135a69b3fa44ae5dec42c2566e736  F27-deferred.tar.gz
+3becab5bb2483987d5a49e6e8949b8ea75312c365bad844c4fc8324a55e4620f  F27-deferred.tar.gz
 c84090fc7716132d6ec81dc009569c79f4446702e69e4cfcca14eeee82d068c4  F28-business-checkpoint.tar.gz
 f93408980531141fec528d0f7c027d76f14571cabe9503a8bbafa18cd2a7d59f  F29-log-cleaning.tar.gz
 76e614ca51bad48ee70d96aaf2367debf67f6ee62ed9c4eb55a1d370e2adcc85  F30-integrity-scanning.tar.gz

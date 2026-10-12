@@ -36,19 +36,25 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
   const auto effective_commit = std::max(stable_store->State().commit_index_, latest_index);
   const auto local = state_machine->LocalRecoveryPoint();
   const bool use_local = local && local->index_ >= latest_index;
+  if (use_local && (local->index_ != state_machine->LastApplied() || local->index_ > effective_commit)) {
+    throw std::runtime_error("local checkpoint does not match committed Raft history");
+  }
   auto validate_local = [&](std::optional<uint64_t> term) {
-    if (use_local && (local->index_ != state_machine->LastApplied() || local->index_ > effective_commit ||
-                      term != std::optional<uint64_t>{local->term_})) {
+    if (use_local && term != std::optional<uint64_t>{local->term_}) {
       throw std::runtime_error("local checkpoint does not match committed Raft history");
     }
   };
 
   std::optional<LogStoreRecoveryProbe> probe;
+  std::unique_ptr<LogStore> object_candidate;
   try {
     const auto boundary = use_local && !latest_snapshot ? local->index_ : latest_index;
-    probe = objects ? LogStore::ProbeObjects(objects, effective_commit, recovery_index, boundary)
-                    : LogStore::ProbeRecovery(raft_directory / "log", storage, effective_commit, recovery_index,
-                                              boundary);
+    if (objects) {
+      object_candidate = LogStore::ProbeObjects(objects, effective_commit);
+      probe = object_candidate->RecoveryProbe(recovery_index, boundary);
+    } else {
+      probe = LogStore::ProbeRecovery(raft_directory / "log", storage, effective_commit, recovery_index, boundary);
+    }
   } catch (...) {
     if (!latest_snapshot.has_value() || effective_commit != latest_index) {
       throw;
@@ -78,7 +84,7 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
       throw std::runtime_error("Raft log has no matching state-machine recovery base");
     }
     validate_local(probe->latest_boundary_term_);
-    auto log = objects ? LogStore::OpenObjects(objects, effective_commit, 0, 0)
+    auto log = objects ? LogStore::OpenObjects(std::move(object_candidate), 0, 0)
                        : LogStore::Open(raft_directory / "log", storage, effective_commit);
     return {std::move(stable_store), std::move(log), std::move(snapshot_store)};
   }
@@ -107,7 +113,7 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
       // portable snapshots. Read the third boundary before Open can rewrite the
       // log base, HardState can advance, or an old snapshot can be retired.
       const auto local_probe =
-          objects ? LogStore::ProbeObjects(objects, effective_commit, recovery_index, local->index_)
+          objects ? object_candidate->RecoveryProbe(recovery_index, local->index_)
                   : LogStore::ProbeRecovery(raft_directory / "log", storage, effective_commit, recovery_index,
                                             local->index_);
       validate_local(local_probe.latest_boundary_term_);
@@ -138,7 +144,7 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
       selected_recovery_term = latest_snapshot->last_included_term_;
     }
     log_store = objects
-                    ? LogStore::OpenObjects(objects, effective_commit, selected_recovery_index, selected_recovery_term)
+                    ? LogStore::OpenObjects(std::move(object_candidate), selected_recovery_index, selected_recovery_term)
                     : LogStore::Open(raft_directory / "log", storage, effective_commit, selected_recovery_index,
                                      selected_recovery_term);
     if (retire_previous) {

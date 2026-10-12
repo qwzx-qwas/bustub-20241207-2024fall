@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <limits>
 #include <set>
+#include <tuple>
 #include <utility>
 
 #include "object_change_internal.h"   // NOLINT(build/include_subdir): private sibling component.
@@ -411,6 +412,55 @@ auto ObjectMappingSnapshot::Controls(ObjectKey owner, uint64_t from, size_t limi
   return result;
 }
 auto ObjectMappingAccess::Unit(ObjectMappingStore &store) -> uint64_t { return store.impl_->context_->unit_; }
+auto ObjectMappingAccess::PlanReuse(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
+                                    uint64_t budget, ObjectChange *change) -> bool {
+  if (base.context_->format_ < 5 || length == 0) return false;
+  const auto info = base.Describe(key);
+  if (info.size_ == 0 || offset > info.size_) return false;
+  const auto upper = Key(Mapping, key, offset == info.size_ ? offset - 1 : offset);
+  const auto entry = base.base_.GetFloor(upper);
+  if (!entry || !SamePrefix(entry->key_, upper)) return false;
+  const auto span = ReadSpan(*entry);
+  if (span.data_->owner_ || End(span.offset_, span.size_) < offset) return false;
+  const auto allocation = base.base_.Get(Key(Allocation, key, span.data_->allocation_));
+  Require(allocation.has_value(), "reuse mapping has no allocation");
+  const auto f = Decode(*allocation, 4);
+  const auto stop = std::max(End(offset, length), End(span.offset_, span.size_));
+  if (span.data_->offset_ != f[0] || span.size_ != f[3] || stop - span.offset_ > f[1] || stop - span.offset_ > budget)
+    return false;
+  // Do not extend into a later mapping or re-expose a truncated/retired tail.
+  if (stop > End(span.offset_, span.size_) && End(span.offset_, span.size_) != info.size_) return false;
+  auto candidate = *change;
+  candidate.offset_ = span.offset_;
+  candidate.length_ = stop - span.offset_;
+  candidate.reuse_ = ObjectReuseTarget{span.data_->allocation_, f[0], f[1]};
+  if (!CanReuse(base, candidate)) return false;
+  *change = std::move(candidate);
+  return true;
+}
+auto ObjectMappingAccess::CanReuse(const ObjectMappingSnapshot &base, const ObjectChange &change) -> bool {
+  if (!change.reuse_ || base.context_->format_ < 5) return false;
+  const auto &r = *change.reuse_;
+  const auto key = change.object_;
+  const auto d = ReadDescription(base.base_, key);
+  if (d.info_.version_ != change.version_ || base.base_.Get(Key(Deferred, key, r.allocation_))) return false;
+  const auto value = base.base_.Get(Key(Allocation, key, r.allocation_));
+  if (!value) return false;
+  const auto f = Decode(*value, 4);
+  if (f[0] != r.offset_ || f[1] != r.capacity_ || change.length_ < f[3] || change.length_ > f[1]) return false;
+  const auto mapping = base.base_.Get(Key(Mapping, key, change.offset_));
+  if (!mapping) return false;
+  const auto span = ReadSpan({Key(Mapping, key, change.offset_), *mapping});
+  if (span.data_->owner_ || span.data_->offset_ != r.offset_ || span.data_->allocation_ != r.allocation_ ||
+      span.size_ != f[3])
+    return false;
+  const auto owned = base.base_.Get(Key(OwnedRange, key, r.offset_));
+  if (!owned || *owned != Encode({r.capacity_, r.allocation_})) return false;
+  const auto unit = base.context_->unit_;
+  return base.base_
+      .Scan(Key(SharedUnit, key, r.offset_ / unit), Key(SharedUnit, key, End(r.offset_, r.capacity_) / unit), 1)
+      .empty();
+}
 auto ObjectMappingAccess::Prepare(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
                                   const std::vector<ObjectChange> &operations, DataReservation *reservation,
                                   const std::vector<ObjectControlMutation> &controls,
@@ -425,6 +475,11 @@ auto ObjectMappingAccess::Prepare(ObjectMappingStore &store, const ObjectMapping
   size_t extent = 0;
   uint64_t used = 0;
   for (const auto &op : operations) {
+    if (op.reuse_) {
+      if (!op.deferred_ || !CanReuse(base, op))
+        throw MetadataError(MetadataErrorCode::Conflict, "overwrite ownership changed before publication");
+      continue;
+    }
     for (const auto &range : op.extents_) {
       if (reservation == nullptr || extent == reservation->Extents().size()) {
         throw std::invalid_argument("object transaction lacks its allocation");
@@ -465,7 +520,29 @@ auto ObjectMappingAccess::Prepare(ObjectMappingStore &store, const ObjectMapping
     d.info_.version_ = Advance(d.info_.version_);
     if (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append) {
       const auto first_allocation = d.next_allocation_;
-      ReplaceChanges(base.base_, key, op.offset_, op.length_, op.extents_, *s.context_, d, changes, op.checksums_);
+      if (op.reuse_) {
+        // Transfer the whole live allocation to a fresh content identity. There
+        // is no free interval and no F12 bitmap transition between owners.
+        const auto &r = *op.reuse_;
+        Require(op.extents_.size() == 1 && op.extents_[0].Offset() == r.offset_ && op.extents_[0].Size() == r.capacity_,
+                "overwrite target differs from its protected allocation");
+        Require(op.checksums_.size() == r.capacity_ / s.context_->unit_, "overwrite lacks complete unit checksums");
+        changes.Put(Key(Allocation, key, r.allocation_), std::nullopt);
+        changes.Put(Key(Allocation, key, first_allocation),
+                    Encode({r.offset_, r.capacity_, d.info_.version_, op.length_}));
+        changes.Put(Key(OwnedRange, key, r.offset_), Encode({r.capacity_, first_allocation}));
+        changes.Map(key, {op.offset_, op.length_, ObjectDataLocation{r.offset_, first_allocation}});
+        for (size_t i = 0; i < op.checksums_.size(); ++i) {
+          ByteWriter w;
+          w.PutU64(first_allocation);
+          w.PutU32(op.checksums_[i]);
+          changes.Put(Key(Checksum, key, r.offset_ / s.context_->unit_ + i), w.Take());
+        }
+        d.next_allocation_ = Advance(first_allocation);
+        d.info_.size_ = std::max(d.info_.size_, End(op.offset_, op.length_));
+      } else {
+        ReplaceChanges(base.base_, key, op.offset_, op.length_, op.extents_, *s.context_, d, changes, op.checksums_);
+      }
       if (op.deferred_) {
         if (s.context_->format_ < 3 ||
             (!preflight && (payload_index >= payloads.size() || payloads[payload_index].size() != op.length_))) {
@@ -526,7 +603,7 @@ auto ObjectMappingAccess::Apply(ObjectMappingStore &store, const ObjectMappingSn
   auto plan = Prepare(store, base, operations, reservation, controls, payloads, false);
   auto &s = *store.impl_;
   return reservation ? s.allocator_.Commit(base.base_, *reservation, plan.mutations_, plan.payloads_)
-                     : s.metadata_.Commit(base.base_, plan.mutations_);
+                     : s.metadata_.Commit(base.base_, plan.mutations_, plan.payloads_);
 }
 void ObjectMappingAccess::Preflight(ObjectMappingStore &store, const ObjectMappingSnapshot &base,
                                     const std::vector<ObjectChange> &operations, DataReservation *reservation,
@@ -649,11 +726,13 @@ auto ObjectMappingAccess::Garbage(const ObjectMappingSnapshot &base, MetadataKey
     cursor = {category, 0, 0};
   }
   ObjectGCPage result{cursor, {}};
+  std::set<std::tuple<uint64_t, uint64_t, uint64_t>> seen;
   const auto entries = base.base_.Scan(cursor, {uint64_t{OwnedRange} << 56, 0, 0},
                                      base.context_->options_.max_query_spans_);
   for (const auto &entry : entries) {
     const auto f = Decode(entry.value_, 5);
-    result.candidates_.push_back({{entry.key_.category_ & SPACE_LIMIT, entry.key_.owner_}, f[4]});
+    if (seen.emplace(entry.key_.category_, entry.key_.owner_, f[4]).second)
+      result.candidates_.push_back({{entry.key_.category_ & SPACE_LIMIT, entry.key_.owner_}, f[4]});
     result.next_ = {entry.key_.category_, entry.key_.owner_, Advance(entry.key_.item_)};
   }
   if (entries.size() < base.context_->options_.max_query_spans_) {

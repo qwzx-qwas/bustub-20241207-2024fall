@@ -322,9 +322,21 @@ def summarize_logical(root, measurement):
     success, failure, censored = array("Q"), array("Q"), array("Q")
     completed = tail = retries = deadline_misses = missing = 0
     pending = {}
-    start = measurement["python_start_ns"] if measurement else 0
-    end = measurement["python_end_ns"] if measurement else 0
-    phase = measurement.get("phase", "measure") if measurement else None
+    windows = {}
+    seconds = None
+    if measurement:
+        windows[measurement.get("phase", "measure")] = (measurement["python_start_ns"], measurement["python_end_ns"])
+        seconds = (measurement["python_end_ns"] - measurement["python_start_ns"]) / 1e9
+    elif (root / "measurement_windows.json").exists():
+        # P3 records separate turnover rounds. Verification/reconcile is outside
+        # these windows; a later confirmation must not erase an earlier timeout.
+        windows = {item["phase"]: (item["python_start_ns"], item["python_end_ns"])
+                   for item in json.loads((root / "measurement_windows.json").read_text())}
+        progress = root / "turnover_progress.json"
+        if progress.exists():
+            # Include inter-round verification and post-timeout idle observation,
+            # rather than reporting only the faster, actively issuing intervals.
+            seconds = json.loads(progress.read_text())["observed_seconds"]
     for item in records(root / "logical_history.jsonl"):
         if item["event"] == "start":
             pending[item["logical_id"]] = item
@@ -332,8 +344,10 @@ def summarize_logical(root, measurement):
         if pending.pop(item["logical_id"], None) is None:
             raise ValueError("logical result has no unique start")
         phase_counts[f"{item['phase']}/{item['outcome']}"] += 1
-        if item["phase"] != phase or not start <= item["started_python_ns"] < end:
+        window = windows.get(item["phase"])
+        if window is None or not window[0] <= item["started_python_ns"] < window[1]:
             continue
+        end = window[1]
         outcome = item["outcome"]
         outcomes[outcome] += 1
         retries += max(0, item["attempts"] - 1)
@@ -348,11 +362,11 @@ def summarize_logical(root, measurement):
             failure.append(item["elapsed_ns"])
     for item in pending.values():
         phase_counts[f"{item['phase']}/INCOMPLETE"] += 1
-        if item["phase"] == phase and start <= item["started_python_ns"] < end:
+        window = windows.get(item["phase"])
+        if window is not None and window[0] <= item["started_python_ns"] < window[1]:
             outcomes["INCOMPLETE"] += 1
             missing += 1
     total = sum(outcomes.values())
-    seconds = (end - start) / 1e9 if measurement else None
     return {"phase_outcomes": dict(phase_counts), "outcomes": dict(outcomes),
             "window_seconds": seconds, "window_successes": completed, "tail_successes": tail,
             "success_ops_per_second": completed / seconds if seconds and seconds > 0 else None,

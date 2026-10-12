@@ -1,5 +1,7 @@
 # S11 / F25：固定业务页的共享快照
 
+> **2026-10-11 捕获与构造接续：** 当前执行契约以[收尾修正 §3](final_performance_fixes_20261011.md#3-f28f25f35-捕获与后台构造分离)为准；已编码、已编译，运行验收由用户执行。下方 2026-10-06/07 完成标记仅指对应历史范围。
+
 > **2026-10-07 增量接续已授权、实施中**：[当前增量协议与 prompt](s11_incremental_snapshot.md)。沿用 CRC 身份；只比较固定映射，不比较新旧正文。共享/全量部分已有完成标记仅指原轮范围，压缩仍待后续。
 
 ## 1. 本轮范围与依据
@@ -8,7 +10,7 @@
 
 [RocksDB checkpoint](https://rocksdb.org/blog/2015/11/10/use-checkpoints-for-efficient-snapshots.html) 共享不可变 SST，清单负责确定完整数据库状态。本项目内化为：已固定的表页范围直接共享到 F25 已有候选对象；对象拥有独立持久引用，不依赖 F28 当前根一直保留。不是 POSIX hardlink，也不对活动 BufferPool 帧直接共享。
 
-[Raft §7](https://raft.github.io/raft.pdf) 用 lastIncludedIndex/Term 确定快照与日志后缀的连接点。本轮坚持请求的准确边界：先等待已有 F28 任务，必要时请求该边界的 checkpoint；读取根后核对 index/term，不能把较旧内容标成较新位置。复制出的清单已经冻结；之后业务 Apply 可以继续，checkpoint 发布/退役与取得共享引用串行协调。当前 Capture 同步入口可能等待 checkpoint；不宣称整个过程无阻塞。
+[Raft §7](https://raft.github.io/raft.pdf) 用 lastIncludedIndex/Term 确定快照与日志后缀的连接点。当前在准确的已发布 Apply 边界调用 F28 捕获，固定 Catalog、Session、脏页副本和持久范围；不能把较旧内容标成较新位置。F25 持久登记候选，既有 SnapshotTasks 确认接纳后，F35 才解除业务收束。后台复用 F28 构造并保留内容，不再等待另一个完整 checkpoint 后重新捕获。构造完成交回协议所有者发布 F25 Manifest、推进日志保留；已安装更高快照则取消候选。兼容的同步 Capture 包装仍调用相同构造路径；不支持固定捕获的旧状态机保留原路径。捕获和小入口发布仍有协调/IO 成本，不承诺全程无阻塞。
 
 ## 2. 表示及生命周期
 

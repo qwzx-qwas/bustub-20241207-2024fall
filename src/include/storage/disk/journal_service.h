@@ -158,6 +158,8 @@ class JournalService {
                 const std::function<void(uint64_t, const JournalRecords &)> &replay);
   /** Copies nonempty records into reserved F02 buffers before returning.
    * Full/NoSpace/Stopped/Faulted do no IO; invalid input throws.
+   * Full also covers completion allowance held by existing Deferred work,
+   * when this batch and its own added allowance fit the available space.
    * Data plus the separate Flush must fit the work class's total IO capacity;
    * otherwise RequestTooLarge is thrown, rather than returning transient Full.
    */

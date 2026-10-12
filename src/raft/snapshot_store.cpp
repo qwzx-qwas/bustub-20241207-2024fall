@@ -378,6 +378,10 @@ auto SnapshotStore::PublishStaged(std::string_view id, bool retain) -> RaftSnaps
   }
   return PublishFile(info->last_included_index_, info->last_included_term_, file->path_, retain);
 }
+auto SnapshotStore::PrepareCapture(uint64_t index, uint64_t term, RaftStateMachine &machine)
+    -> std::shared_ptr<SnapshotCapture> {
+  return object_ ? object_->PrepareCapture(index, term, machine) : nullptr;
+}
 auto SnapshotStore::Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot {
   if (object_) {
     return object_->Capture(index, term, machine);

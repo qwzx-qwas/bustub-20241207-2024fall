@@ -1,0 +1,136 @@
+{
+  "target": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-fixed-20261011-160420-920SjI",
+  "head": "50154cd182298f830c082e0914cf1395ffc26a19",
+  "matched_frozen_files": 534,
+  "restore": [
+    "docs/storage_redesign/README.md",
+    "docs/storage_redesign/modules/business-checkpoint.md",
+    "docs/storage_redesign/modules/gc-service.md",
+    "docs/storage_redesign/modules/journal-service.md",
+    "docs/storage_redesign/modules/node-lifecycle.md",
+    "docs/storage_redesign/modules/object-io.md",
+    "docs/storage_redesign/modules/raft-pipeline.md",
+    "docs/storage_redesign/s11_business_checkpoint.md",
+    "docs/storage_redesign/s11_shared_snapshot.md",
+    "docs/storage_redesign/s13_protocol_execution.md",
+    "docs/storage_redesign/testing_plan.md",
+    "src/buffer/page_storage.cpp",
+    "src/distributed/client.cpp",
+    "src/distributed/node.cpp",
+    "src/distributed/raft_state_machine.cpp",
+    "src/include/buffer/page_storage.h",
+    "src/include/distributed/client_protocol.h",
+    "src/include/distributed/node.h",
+    "src/include/distributed/raft_state_machine.h",
+    "src/include/raft/log_store.h",
+    "src/include/raft/persistent_state.h",
+    "src/include/raft/raft_node.h",
+    "src/include/raft/tcp_transport.h",
+    "src/raft/log_store.cpp",
+    "src/raft/object_log_store.cpp",
+    "src/raft/object_log_store.h",
+    "src/raft/persistent_state.cpp",
+    "src/raft/raft_node.cpp",
+    "src/raft/tcp_transport.cpp",
+    "src/storage/disk/io_executor.cpp",
+    "src/storage/disk/journal_service.cpp",
+    "test/legacy_raft/distributed/distributed_node_test.cpp",
+    "test/legacy_raft/raft/tcp_transport_test.cpp",
+    "test/storage/final_performance_test.cpp",
+    "test/storage_acceptance/README.md",
+    "test/storage_acceptance/capture_diagnostics.py",
+    "test/storage_acceptance/cluster.sh",
+    "test/storage_acceptance/run.py",
+    "test/storage_acceptance/run_diagnostic.sh",
+    "test/storage_acceptance/run_final_fixes.sh",
+    "test/storage_acceptance/runtime.py",
+    "test/support/raft_message_proxy.py",
+    "test/support/raft_process_harness.sh",
+    "tools/bustub-node/bustub-node.cpp"
+  ],
+  "remove_after_backup": [
+    "docs/storage_redesign/final_runtime_fixes_20261012.md",
+    "src/include/common/framed_socket.h",
+    "test/storage_acceptance/diagnostic_tools.py",
+    "test/storage_acceptance/test_diagnostic_tools.py",
+    "test/storage_acceptance/test_proxy_stream.py"
+  ],
+  "preserve_untracked_documents_not_in_freeze": [
+    "docs/storage_redesign/final_acceptance_20261010.md",
+    "docs/storage_redesign/final_performance_fixes_20261011.md",
+    "docs/storage_redesign/s10_reuse_execution_20261010.md"
+  ],
+  "backup": "/home/qwzx/projects/bustub-20241207-2024fall/.cache/rollback-previous-20261012-191457/before",
+  "source_verification": "all 534 frozen source/config/test hashes and all 28 saved script hashes match",
+  "historical_results_preserved": true,
+  "git_head_unchanged": "50154cd182298f830c082e0914cf1395ffc26a19",
+  "validation": {
+    "build": "passed; nodes, client, driver and component targets rebuilt",
+    "component_tests": {
+      "crc": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "disabled": 0
+      },
+      "contracts": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "disabled": 0
+      },
+      "report_contracts": {
+        "tests": 2,
+        "failures": 0,
+        "log": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-fixed-20261012-191949-nd7dWr/report-contracts.log"
+      }
+    },
+    "formal_performance": "not rerun",
+    "initial_incremental_build": {
+      "result": "failed",
+      "reason": "restoring historical mtimes left newer cached page_storage object in use; refreshed changed source/header mtimes before rebuilding",
+      "log": "test-results/storage-fixed-20261012-191822-9tlX35/build.log"
+    },
+    "result_directory": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-fixed-20261012-191949-nd7dWr",
+    "source_files_verified": 534,
+    "historical_binary_matches": [
+      {
+        "path": ".cache/final-acceptance/build/bin/bustub-client",
+        "sha256": "c38ef977aa1a5c86516162494123fb637da73226b13652c6a79b45b1753f2cca",
+        "identical_to_previous": true
+      },
+      {
+        "path": ".cache/final-acceptance/build/bin/bustub-node",
+        "sha256": "af448eadd7e062f3241c959ae312020688df3d997c4646f0d5622965f4b383d2",
+        "identical_to_previous": true
+      },
+      {
+        "path": ".cache/final-acceptance/build/test/final_performance_test",
+        "sha256": "db0d5be39172e0a4fd49b57b295b610664d30fa227628168322c1abc6a32ba5b",
+        "identical_to_previous": true
+      },
+      {
+        "path": ".cache/final-acceptance/build/test/storage-e2e-driver",
+        "sha256": "a38c60ae2f613c6eebc754e5b6d98dba202bf8b121bf3e33a30d732ec1486e98",
+        "identical_to_previous": true
+      },
+      {
+        "path": ".cache/final-acceptance/build/test/versioned_frame_test",
+        "sha256": "22394f0cce438d28764b938471956fbe8e30f125ec6c6a5047ba6639f6cf751e",
+        "identical_to_previous": true
+      }
+    ],
+    "additional_cached_test_targets": "tcp_transport_test, distributed_node_test and raft_node_test rebuilt against restored sources; not executed",
+    "diff_check": "passed",
+    "bash_syntax": "passed",
+    "python_syntax": "14 files passed"
+  },
+  "stale_diagnostic_markers_archived": [
+    ".cache/final-acceptance/profile-ready",
+    ".cache/final-acceptance/profile-run-root"
+  ],
+  "restored_tracked_production_build_inputs": 503,
+  "target_source_diff_sha256": "102e8ebfe146d56b4e42a6c8395d7832d42b96eba1787e83987f7c33ec727abc",
+  "reconstruction_package": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/restored-baseline-20261012",
+  "reconstruction_recipe": "Use the historical HEAD plus source.diff, overlay test-source and untracked-source; historical SHA256SUMS verifies code (exclude old binary/cache entries). Preserve current test-results and archive cleanup."
+}

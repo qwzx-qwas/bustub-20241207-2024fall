@@ -244,6 +244,13 @@ auto ReadBusinessCheckpoint(NodeStorage &storage, uint64_t space) -> BusinessChe
 }
 }  // namespace
 
+struct BusTubRaftStateMachine::CapturedCheckpoint {
+  std::shared_ptr<WorkingState> state_;
+  BusinessCheckpoint record_;
+  std::optional<PageCapture> pages_;
+  std::optional<ObjectPageCapture> capture_;
+};
+
 BusTubRaftStateMachine::~BusTubRaftStateMachine() {
   if (checkpoint_) {
     std::unique_lock lock(checkpoint_->mutex_);
@@ -330,18 +337,29 @@ void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint
     std::lock_guard lock(lifecycle_mutex_);
     state = state_;
   }
-  // WiredTiger-style preflush: this worker waits, the protocol/caller does not.
   state->buffer_pool_manager_->FlushDirtyPages(state->object_pages_->MaxBatchPages());
-  BusinessCheckpoint record;
-  std::optional<PageCapture> pages;
-  std::optional<ObjectPageCapture> capture;
+  auto captured = CaptureCheckpoint(requested_index, requested_term, false);
+  auto candidate = BuildCheckpoint(*captured);
+  // A newer installed state/checkpoint may have superseded this local candidate.
+  if (CheckpointSpace(*page_deployment_->storage_, page_deployment_->pages_.registry_) != candidate->Space())
+    candidate->Retire();
+}
+auto BusTubRaftStateMachine::CaptureCheckpoint(uint64_t requested_index, uint64_t requested_term, bool exact)
+    -> std::shared_ptr<CapturedCheckpoint> {
+  auto result = std::make_shared<CapturedCheckpoint>();
+  auto &state = result->state_;
+  auto &record = result->record_;
+  auto &pages = result->pages_;
+  auto &capture = result->capture_;
   {
     std::lock_guard lock(lifecycle_mutex_);
-    if (state != state_) return;  // An installed snapshot superseded this candidate.
+    state = state_;
     auto exclusive = visibility_.LockExclusive();
     const auto index = fsm_->LastApplied();
     const auto term = index == requested_index ? requested_term : applied_term_;
     if (index < requested_index || term == 0) throw std::runtime_error("checkpoint request lacks its applied term");
+    if (exact && (index != requested_index || term != requested_term))
+      throw std::runtime_error("snapshot capture lost its applied boundary");
     record.point_ = {index, term};
     state->sessions_->ValidateSnapshotBoundary(index);
     record.catalog_ = CatalogSnapshotCodec::Encode(CatalogSnapshotCodec::Capture(*state->catalog_));
@@ -356,6 +374,12 @@ void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint
     pages.emplace(state->buffer_pool_manager_->CapturePages(selected, page_deployment_->cache_.arena_bytes_));
     capture.emplace(state->object_pages_->Capture(pages->next_page_, std::move(selected)));
   }
+  return result;
+}
+auto BusTubRaftStateMachine::BuildCheckpoint(CapturedCheckpoint &captured) -> std::shared_ptr<ObjectPageStorage> {
+  auto &record = captured.record_;
+  auto &pages = captured.pages_;
+  auto &capture = captured.capture_;
   auto &deployment = *page_deployment_;
   auto candidate = ObjectPageStorage::Clone(deployment.storage_, *capture);
   capture.reset();  // Durable sharing now owns all captured persistent content.
@@ -401,43 +425,47 @@ void BusTubRaftStateMachine::BuildLocalCheckpoint(uint64_t requested_index, uint
     SubmitCheckpoint(*deployment.storage_, tx);
     cursor += take;
   }
-  const auto previous = CheckpointSpace(*deployment.storage_, deployment.pages_.registry_);
-  ByteWriter root;
-  root.PutU64(candidate->Space());
-  tx = {{}, {{deployment.pages_.registry_, 0, root.Take()}}};
-  SubmitCheckpoint(*deployment.storage_, tx);
+  uint64_t previous = 0;
   {
-    std::lock_guard lock(checkpoint_->mutex_);
-    checkpoint_->published_ = record.point_.index_;
-  }
-  if (previous != 0) ObjectPageStorage::Open(deployment.storage_, previous, deployment.pages_)->Retire();
-}
-
-auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index,
-                                                 uint64_t term, uint64_t limit) -> std::optional<SharedSnapshotResult> {
-  if (index == 0 || !page_deployment_ || page_deployment_->storage_.get() != &storage || !checkpoint_)
-    return std::nullopt;
-  {
-    std::lock_guard lock(lifecycle_mutex_);
-    if (index > fsm_->LastApplied() || (index == fsm_->LastApplied() && applied_term_ != 0 && term != applied_term_)) {
-      throw std::runtime_error("shared snapshot request does not match applied history");
+    // Serialize the small recovery-root publication with state installation.
+    // Clone, page IO and checksum work above never hold this lifecycle lock.
+    std::lock_guard lifecycle(lifecycle_mutex_);
+    if (captured.state_ == state_ && record.point_.index_ > PollCheckpoint()) {
+      previous = CheckpointSpace(*deployment.storage_, deployment.pages_.registry_);
+      ByteWriter root;
+      root.PutU64(candidate->Space());
+      tx = {{}, {{deployment.pages_.registry_, 0, root.Take()}}};
+      SubmitCheckpoint(*deployment.storage_, tx);
+      std::lock_guard lock(checkpoint_->mutex_);
+      checkpoint_->published_ = record.point_.index_;
     }
   }
-  DrainCheckpoint();
-  if (PollCheckpoint() < index) {
-    RequestCheckpoint(index, term);
-    DrainCheckpoint();
-  }
-  // Keep the chosen checkpoint registered until its references have been
-  // copied. This gate is never taken by business Apply or ordinary page IO.
+  if (previous != 0) ObjectPageStorage::Open(deployment.storage_, previous, deployment.pages_)->Retire();
+  return candidate;
+}
+
+auto BusTubRaftStateMachine::CaptureSharedSnapshot(NodeStorage &storage, uint64_t index, uint64_t term)
+    -> SharedSnapshotWriter {
+  if (index == 0 || !page_deployment_ || page_deployment_->storage_.get() != &storage || !checkpoint_) return {};
+  auto captured = CaptureCheckpoint(index, term, true);
+  return [this, captured = std::move(captured)](NodeStorage &storage, const ObjectKey &destination, uint64_t limit) {
+    return WriteCapturedSnapshot(*captured, storage, destination, limit);
+  };
+}
+auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index,
+                                                 uint64_t term, uint64_t limit) -> std::optional<SharedSnapshotResult> {
+  auto writer = CaptureSharedSnapshot(storage, index, term);
+  if (!writer) return std::nullopt;
+  return writer(storage, destination, limit);
+}
+auto BusTubRaftStateMachine::WriteCapturedSnapshot(CapturedCheckpoint &captured, NodeStorage &storage,
+                                                   const ObjectKey &destination, uint64_t limit) -> SharedSnapshotResult {
   std::lock_guard checkpoint_lock(checkpoint_build_mutex_);
   const auto &options = page_deployment_->pages_;
-  const auto space = CheckpointSpace(storage, options.registry_);
-  const auto record = ReadBusinessCheckpoint(storage, space);
-  if (record.point_.index_ != index || record.point_.term_ != term) {
-    throw std::runtime_error("shared snapshot does not match the requested Raft boundary");
-  }
-  auto frozen = ObjectPageStorage::Open(page_deployment_->storage_, space, options);
+  auto frozen = BuildCheckpoint(captured);
+  const auto space = frozen->Space();
+  const auto &record = captured.record_;
+  const auto index = record.point_.index_;
   const auto highwater = frozen->SealedPageCount();
   // This lease is temporary; every successful Share below establishes an
   // independent durable reference owned by F25's existing candidate object.
@@ -529,6 +557,7 @@ auto BusTubRaftStateMachine::WriteSharedSnapshot(NodeStorage &storage, const Obj
                                     header_size + i * BUSTUB_PAGE_SIZE);
     i = end;
   }
+  if (CheckpointSpace(storage, options.registry_) != space) frozen->Retire();
   return SharedSnapshotResult{size, Crc32cCombine(Crc32c(bytes), crc, uint64_t{pages.size()} * BUSTUB_PAGE_SIZE)};
 }
 

@@ -8,7 +8,7 @@
 namespace bustub {
 
 SnapshotTasks::SnapshotTasks(std::shared_ptr<ResourceBudget> memory)
-    : memory_(ResourceAccount::Create(memory)), tasks_(2, 4, std::move(memory), {}) {}
+    : memory_(ResourceAccount::Create(memory)), tasks_(2, 5, std::move(memory), {}, 1) {}
 auto SnapshotTasks::Reserve() -> std::shared_ptr<ResourceCharge> {
   // The wire protocol caps one block at 64 KiB. Own the original/read block,
   // LZ4's worst-case output, and one protocol handoff copy. This reservation

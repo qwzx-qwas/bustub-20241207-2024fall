@@ -583,14 +583,26 @@ auto ObjectIO::WriteCommon(const ObjectMappingSnapshot &base, std::vector<Object
   auto activity = std::make_shared<Activity>(state_);
   const auto unit = ObjectMappingAccess::Unit(mapping_);
   uint64_t allocation_size = 0;
-  for (const auto &op : *changes) {
-    if (op.length_ != 0 && (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append)) {
-      const auto rounded = (op.length_ + unit - 1) / unit * unit;
-      if (rounded > max_write_bytes_ - allocation_size) {
-        throw MetadataError(MetadataErrorCode::ResourceUnavailable, "Common allocation exceeds data budget");
-      }
-      allocation_size += rounded;
+  uint64_t write_size = 0;
+  for (auto &op : *changes) {
+    const auto rounded = (op.operation_ == ObjectOperation::Write || op.operation_ == ObjectOperation::Append)
+                             ? (op.length_ + unit - 1) / unit * unit
+                             : 0;
+    // Reusing ownership saves allocation, not the eventual Data write. Check
+    // its budget before Journal publication can make that write mandatory.
+    if (rounded > max_write_bytes_ - write_size) {
+      throw MetadataError(MetadataErrorCode::ResourceUnavailable, "object transaction exceeds data write budget");
     }
+    write_size += rounded;
+    if (op.reuse_) {
+      auto gate = op.deferred_ ? references_.TryOverwrite(base, op) : nullptr;
+      if (gate) {
+        data.overwrites_.push_back(std::move(gate));
+        continue;
+      }
+      op.reuse_.reset();  // Never wait for an old reader to enable this optimization.
+    }
+    allocation_size += rounded;
   }
   if (allocation_size != 0) {
     data.reservation_.emplace(allocator_.Reserve(allocation_size));
@@ -612,6 +624,10 @@ auto ObjectIO::WriteCommon(const ObjectMappingSnapshot &base, std::vector<Object
     op.checksums_.clear();
     if (ObjectMappingAccess::Checksummed(mapping_))
       op.checksums_ = UnitChecksums(bytes[i].Data(), bytes[i].Size(), unit);
+    if (op.reuse_) {
+      op.extents_.push_back(*StorageByteRange::Create(op.reuse_->offset_, op.reuse_->capacity_));
+      continue;  // Only the post-commit Deferred worker may write this location.
+    }
     uint64_t remaining = (op.length_ + unit - 1) / unit * unit;
     size_t cursor = 0;
     while (remaining != 0) {

@@ -21,6 +21,7 @@ struct CommonInput {
   auto Data() const -> const void * { return source_ ? source_->data_ : owned_.data(); }
 };
 struct CommonDataWrite {
+  std::vector<std::shared_ptr<ObjectOverwriteProtection>> overwrites_;
   std::optional<DataReservation> reservation_;
   std::optional<IOBatch> batch_;
   bool durable_{false};

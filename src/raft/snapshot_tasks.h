@@ -3,6 +3,7 @@
 #include "common/task_executor.h"
 
 #include "raft/raft_types.h"
+#include "raft/snapshot_store.h"
 #include "storage/disk/resource_budget.h"
 
 namespace bustub {
@@ -17,6 +18,9 @@ class SnapshotTasks {
   using Future = std::shared_ptr<TaskExecutor::Result<Result>>;
   auto Submit(std::function<InstallSnapshotRequest()> work) -> Future;
   auto Decode(const InstallSnapshotRequest &request) -> Future;
+  auto Build(const std::shared_ptr<SnapshotCapture> &capture) -> std::shared_ptr<TaskExecutor::Result<bool>> {
+    return tasks_.Submit(sizeof(SnapshotCapture), true, [capture] { capture->build_(); return true; });
+  }
 
  private:
   auto Reserve() -> std::shared_ptr<ResourceCharge>;

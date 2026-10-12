@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # F14 范围引用与细粒度回收验证（2026-10-02）
 
 [方案](../../docs/storage_redesign/modules/reference-manager.md) · [执行与八项审查](../../docs/storage_redesign/f14_execution_20261002.md) · [最终测试源码](../../test/archives/F14-object-references.tar.gz)

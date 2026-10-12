@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -31,6 +32,9 @@ struct SharedSnapshotResult {
   uint64_t size_;
   uint32_t checksum_;
 };
+// Owns immutable business content, including dirty-page copies and range leases.
+// Invoked only after the existing background executor accepts that ownership.
+using SharedSnapshotWriter = std::function<SharedSnapshotResult(NodeStorage &, const ObjectKey &, uint64_t)>;
 /** Owns a fully built, verified candidate until publication succeeds. Dropping
  * it cancels preparation without touching the active state. Install is called
  * once by the same serialized Raft owner, after durable publication. */
@@ -53,6 +57,9 @@ class RaftStateMachine {
   /** Optional local sharing into an empty, unpublished F25-owned object.
    * nullopt means unsupported, before changing the destination. Errors after
    * admission propagate; they must not trigger a canonical fallback. */
+  virtual auto CaptureSharedSnapshot(NodeStorage &storage, uint64_t index, uint64_t term) -> SharedSnapshotWriter {
+    return {};
+  }
   virtual auto WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index, uint64_t term,
                                    uint64_t limit) -> std::optional<SharedSnapshotResult> {
     return std::nullopt;

@@ -80,6 +80,8 @@ class RaftNode {
   auto TakeProposalError(uint64_t index) -> std::exception_ptr;
   auto CreateSnapshot() -> bool;
   auto Busy() const -> bool;
+  auto SnapshotInProgress() const -> bool { return snapshot_building_; }
+  auto SnapshotCaptured() const -> bool { return snapshot_build_ != nullptr; }
   void Poll();
   void Drain();
   auto BusinessTasks() -> TaskExecutor & { return *business_tasks_; }
@@ -115,6 +117,8 @@ class RaftNode {
   auto RunTick() -> Operation;
   auto RunProposal(std::vector<ReplicatedLogEntry> entries) -> Operation;
   auto RunSnapshot() -> Operation;
+  auto FinishSnapshotCapture() -> Operation;
+  auto FinishSnapshotPublication() -> Operation;
 
   auto StartElection() -> Operation;
   auto BecomeLeader() -> Operation;
@@ -220,6 +224,9 @@ class RaftNode {
   std::optional<IncomingDecode> incoming_decode_;
   // Destroyed explicitly before stores and input leases. Workers never access this node.
   std::unique_ptr<SnapshotTasks> snapshot_tasks_;
+  bool snapshot_building_{false};
+  std::shared_ptr<SnapshotCapture> snapshot_capture_;
+  std::shared_ptr<TaskExecutor::Result<bool>> snapshot_build_;
   // Highest snapshot request observed in this term. Keep it after cancellation
   // so a delayed Offer/full chunk cannot restart an older receive session.
   uint64_t snapshot_request_floor_{0};

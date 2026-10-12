@@ -175,7 +175,7 @@ auto OpenObjects(BootstrapStore &bootstrap, IOExecutor &executor, MetadataEngine
     context->mapping_ = std::make_unique<ObjectMappingStore>(*context->allocator_, options.mapping_);
     RequireDurable(context->mapping_->Create());
   }
-  context->references_ = std::make_unique<ObjectReferenceManager>(*context->mapping_, options.references_);
+  context->references_ = std::make_unique<ObjectReferenceManager>(*context->mapping_, options.references_, io_limits.memory_budget_);
   context->io_ = std::make_unique<ObjectIO>(*context->regions_, executor, *context->allocator_, *context->mapping_,
                                             *context->references_, options.max_read_bytes_, options.max_write_bytes_,
                                             io_limits, external_bytes);

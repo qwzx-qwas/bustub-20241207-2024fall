@@ -254,8 +254,20 @@ auto LogStore::DecodeMutation(const std::vector<std::byte> &bytes, size_t offset
 LogStore::~LogStore() = default;
 auto LogStore::OpenObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t snapshot_index,
                            uint64_t snapshot_term) -> std::unique_ptr<LogStore> {
+  return OpenObjects(ProbeObjects(std::move(storage), commit), snapshot_index, snapshot_term);
+}
+auto LogStore::ProbeObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit)
+    -> std::unique_ptr<LogStore> {
   auto out = std::unique_ptr<LogStore>(new LogStore({}, nullptr, commit, {}));
-  out->object_ = std::make_shared<ObjectLogStore>(storage, commit, out->mutex_);
+  out->object_ = std::make_shared<ObjectLogStore>(std::move(storage), commit, out->mutex_);
+  return out;
+}
+auto LogStore::RecoveryProbe(uint64_t recovery, uint64_t latest) const -> LogStoreRecoveryProbe {
+  std::lock_guard lock(*mutex_);
+  return {object_->base_, object_->base_term_, object_->Last(), object_->Term(recovery), object_->Term(latest)};
+}
+auto LogStore::OpenObjects(std::unique_ptr<LogStore> out, uint64_t snapshot_index, uint64_t snapshot_term)
+    -> std::unique_ptr<LogStore> {
   if (out->object_->base_ > snapshot_index ||
       (out->object_->base_ == snapshot_index && out->object_->base_term_ != snapshot_term)) {
     throw std::runtime_error("object log base disagrees with recovery snapshot");
@@ -264,13 +276,8 @@ auto LogStore::OpenObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t 
     const bool retain = out->object_->Term(snapshot_index) == std::optional<uint64_t>(snapshot_term);
     out->object_->Base(snapshot_index, snapshot_term, retain);
   }
-  storage->AttachLog(out->object_);
+  out->object_->storage_->AttachLog(out->object_);
   return out;
-}
-auto LogStore::ProbeObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t recovery,
-                            uint64_t latest) -> LogStoreRecoveryProbe {
-  ObjectLogStore log(std::move(storage), commit, std::make_shared<std::mutex>());
-  return {log.base_, log.base_term_, log.Last(), log.Term(recovery), log.Term(latest)};
 }
 auto LogStore::RebuildObjects(std::shared_ptr<RaftObjectStorage> storage, uint64_t commit, uint64_t index,
                               uint64_t term) -> std::unique_ptr<LogStore> {

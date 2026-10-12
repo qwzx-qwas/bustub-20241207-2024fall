@@ -1,5 +1,37 @@
 # Storage correctness and performance acceptance (T0-A/B/C)
 
+<a id="final-fixes-2026-10-11"></a>
+## 2026-10-11 收尾修正：由用户执行
+
+本轮代理只清理、审查、编码和编译，**没有代用户运行以下测试**。用户首次执行已通过 CRC 四项、恢复和快照两项；GC 测试因漏调 Bootstrap Open 在初始化时失败，已修正测试装配、等待复跑，C/P 尚未启动。原 C/P 业务输入、缓存、种子、时限与判据不变；此次不附加 perf/gdb，不与带采样的诊断数字混算。具体改动、测试设计和限制见[修正记录](../../docs/storage_redesign/final_performance_fixes_20261011.md)。
+
+按顺序执行，每阶段成功后进入下一阶段。脚本自行定位仓库、配置 GCC 16 库路径、查询 WSL 所在 Windows 卷空闲空间；不依赖之前 Bash 的变量。`prepare` 建立全新结果目录并冻结源码、配置、程序指纹，后续阶段核对指纹。第一次准备输出保存在 `.cache/final-acceptance/fixes-run-root`；重新打开 Bash 也能继续读取它。
+
+```bash
+cd /home/qwzx/projects/bustub-20241207-2024fall
+bash test/storage_acceptance/run_final_fixes.sh prepare &&
+bash test/storage_acceptance/run_final_fixes.sh verify &&
+bash test/storage_acceptance/run_final_fixes.sh correctness &&
+bash test/storage_acceptance/run_final_fixes.sh performance
+```
+
+- `prepare`：构建正式节点、客户端、驱动及两个定向测试程序，冻结指纹；没有启动负载。
+- `verify`：CRC 旧值兼容/组合、恢复候选、捕获后更新与 GC 分组/pin 四项新增契约，复用已有 codec 样例及报告器检查。此处定向 IO 禁用周期维护，避免测试依赖后台扫描时机；背景协作由后面的原 C/P 验证。
+- `correctness`：C1、C2 三种种子、C3 三种故障、C4、C5 两种追赶，共 10 点；C2/C3 复用现有 Porcupine 检查器。任一场景未通过就停止，性能阶段要求本阶段通过标记。
+- `performance`：P3 原一小时观察、P4 固定 1 次/秒形成落后并恢复、P1 六点、P2 十二点。准备和核对仍受原阶段预算；P3 未覆盖或单场景失败时保留结果，继续其他独立场景，最后返回非零，绝不重复直到通过。
+
+查看本次保存位置：
+
+```bash
+cat /home/qwzx/projects/bustub-20241207-2024fall/.cache/final-acceptance/fixes-run-root
+```
+
+该目录下 `build.log`、`crc.log`、`contracts.log`、`report-contracts.log`、`C1.log`…`P2.log` 保存阶段输出；各场景子目录保留 `result.json`、`history.jsonl` 等原证据。脚本在每项开始/成功时打印状态；失败直接显示退出码、日志末尾 40 行和完整路径。缺少前置通过标记会明确说明哪个阶段尚未通过。失败后先分析；修正代码/脚本后重新 `prepare` 建立新目录和指纹，旧失败目录保留。上面的 `&&` 链会在首次失败时停止。脚本不会清理本次新失败设备或旧基线。
+
+2026-10-11 已按用户要求删除过期开发期源码/结果压缩包，并清理旧设备与无用中间产物。下文较早的阶段压缩归档说明仅是历史记录；原共同 C/P 对比基线仍保留，本轮不重新制造开发期压缩包。
+
+## Historical protocol and general runner reference
+
 Performance protocol **t0-c-2** is defined in [the approved bounded-observation plan](../../docs/storage_redesign/testing_performance_observation.md). Service errors are recorded; they no longer require production optimization before measurement. Logical deadlines are censored observations, not successful samples. Stage budgets replace the old shared 600-second performance ceiling.
 
 **Historical file-backend status:** prior C1–C5 evidence is retained. The v2 runs have finished: P1/P2/P4 completed measurement and business validation; P3 completed a one-hour observation and business validation but did not cover full turnover. Historical runs recorded 25 passing harness checks; the later design audit found self-check gaps, retained in the [module archive](../archives/README.md). Those passes do not establish complete oracle coverage. See [the v2 execution record](../../docs/storage_redesign/testing_execution_20260921.md) and [the v2 plan/review](../../docs/storage_redesign/testing_performance_observation.md).
@@ -257,3 +289,63 @@ Use a compiler/library supporting the repository's C++23 zero-page lifetime
 check (the old clang-14 build example above describes the historical baseline).
 
 本轮代理观察同时识别原文、增量和压缩快照请求；逻辑进度按原始/复用长度计算，仍要求匹配 type 6 的非 stale 完成响应，随后验证目标数据。C5 业务与故障判据不变；只识别旧 type 5 会漏判已经发生的压缩安装。
+
+## External diagnostics (2026-10-11)
+
+用户运行，agent 本轮没有启动用例。先审查现有调用链、报告和观察字段，再新增必要测试器验证；本节不改变业务内容、原期限、缓存或成功判据，也不新增生产 hook/API。
+
+### 1. 报告器自检（只读人工小型时间线，无集群）
+
+```bash
+cd /home/qwzx/projects/bustub-20241207-2024fall
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s test/storage_acceptance -p test_report_contracts.py -v
+```
+
+两项覆盖 P3 多轮统计及单窗口尾部规则。已完成逻辑/语法审查，未运行；详见[八项设计审查](../../docs/storage_redesign/final_acceptance_20261010.md#7-报告修正原则与八项审查)。已有 P3 历史仅离线重算，原 `result.json`、二进制和原始事件均保留。
+
+### 2. 单点负载与外部采样
+
+每条命令在新 Bash 中可独立执行。脚本按 `WSL_DISTRO_NAME` 从 Windows 注册表找到当前发行版的虚拟磁盘目录，再查询所在卷的空闲 GiB；不再要求手填。2026-10-11 已只读核对 Ubuntu-24.04 位于 C 盘，当时空闲约 35 GiB，每轮仍重新查询。第二个参数可显式传入另行查询的真实值；guest `df` 不能替代这个证据。新目录由 mktemp 创建，不覆盖旧结果。不同时执行多项。
+
+```bash
+cd /home/qwzx/projects/bustub-20241207-2024fall
+bash test/storage_acceptance/run_diagnostic.sh P3
+```
+
+其余点将最后一个参数替换为 `P1-uniform`、`P1-hotspot`、`P2-c4`、`P2-c8` 或 `P4`。这些是原 `run.py` 的单个 qualification 点，不是新负载；每个 P1/P2 仍测 180 秒，不是三次正式矩阵。P3 仍观察 3600 秒，P4 仍固定 1 请求/秒及 256 次落后写。运行目录独立标注 `DIAGNOSTIC_ONLY.txt`，有 profiler/ptrace 开销，不能覆盖或混入正式性能成绩。
+
+推荐顺序是报告器两项自检 → P3 → P4 → P1-uniform → P1-hotspot → P2-c4 → P2-c8，分别定位多轮报告、长停顿、启动恢复、两种读取分布及并发平台期；无需重复旧正确性全矩阵、P2-c1/c2 或三次性能重复。每个命令结束再运行下一个。报告器失败先停；`observer_exit` 非零先检查 `capture.log`，不反复重跑业务。P3 的 `test_exit=1` 可能仍是原一小时目标未完成，应保留其原结果。
+
+2026-10-11 用户要求收尾清理：旧阶段源码/结果压缩包及已结束测试的设备文件已删除，现有 Release 程序、工具链、共同 C/P 基线和全部 JSON/JSONL 证据保留。清单见 [cleanup-final-20261011.json](../../test-results/cleanup-final-20261011.json)。无需为此次诊断重编译或重新展开阶段包。
+
+| 点 | 触发 | 本轮采集 |
+| --- | --- | --- |
+| P3 | 某个 turnover 请求 10 秒仍未结束 | 最多三个不同请求，各 60 秒 perf/pidstat；每次附加三个节点的线程栈 |
+| P1/P2 | 原 measure 阶段开始 | 一次 60 秒 perf/pidstat |
+| P4 | 既有 restart_acknowledged | 一次 60 秒 perf/pidstat，覆盖新 Follower 与其余节点 |
+
+`capture_diagnostics.py` 只读取原 `faults.jsonl`、`stages.jsonl`、`logical_history.jsonl` 来选择时间/PID，不复制业务、Oracle、B 计数或资源监测逻辑。附加前核对 PID 的命令行仍属于该运行目录。保留原 1Hz 的 resources.jsonl，不额外向节点发状态请求。10 秒仅为诊断触发器，不把原 60 秒业务期限改为 10 秒；未触发记 `not_triggered`，不当作无性能问题。
+
+依赖已静态核对：原 `.cache/final-acceptance/build` 三个可执行文件、GCC16.2 动态库、Python3、pidstat、GDB。`/usr/bin/perf` 在当前 WSL 上是失效的内核版本包装器，脚本使用实际 `/usr/lib/linux-tools/6.8.0-142-generic/perf`（6.8.12，DWARF/unwind 已编入）；可通过 `DIAG_PERF` 显式覆盖。没有在本轮尝试内核采样。
+
+脚本在开始负载前执行 `sudo perf stat -e cpu-clock:u -- true` 检查事件支持。若内核不支持，先停止，不静默丢掉证据。此时可显式使用 `bash ... P3 <实际空闲GiB> --no-perf` 收集 pidstat 和 GDB；这不能给出 CPU 热点比例。
+
+sudo 只用于外部观察进程和归还新诊断文件所有权，测试节点仍为普通用户；不更改全局 ptrace/perf 设置。观察者启动时取得权限，避免等待 P3 后期时凭据过期。GDB 会短暂停止节点，可能影响选举/延迟；这是带干扰的定位证据，必须结合采样前已有慢请求判断。CPU 样本只代表运行时间，阻塞等待不能直接从 CPU 火焰图比例计算。
+
+### 3. 读取证据
+
+脚本打印唯一结果目录。其下 `P*/.../` 是原负载产物，`profile/capture-N/` 包含 `capture.json`（PID、触发请求、单调时钟、实际命令和退出码）、`pidstat.log`、`perf.data`/`perf.log`，P3 还有 `stack-1.log` 等。`capture.log` 与 `profile/summary.json` 区分成功、工具失败和未触发。原测试退出 1 可能是 P3 仍未完成，而非采样脚本坏了。
+
+```bash
+# 将路径换成脚本打印的实际目录；只分析已有 perf.data，不重跑负载。
+/usr/lib/linux-tools/6.8.0-142-generic/perf report --stdio \
+  -i /实际结果目录/profile/capture-1/perf.data --sort comm,dso,symbol \
+  > /实际结果目录/profile/capture-1/perf-report.txt
+```
+
+P3 关联慢请求/应用边界、B loads/evictions 增量、CPU 栈及等待栈；观察 Capture/Clone、Reclaim、MetadataCache、Commit 等路径。P1/P2 关联取页/读取校验/元数据查询、CPU 与设备读取、线程等待；当前没有所有业务阶段的精确队列等待指标，不能仅靠一次 CPU 样本宣称测出了排队时长。
+
+P4 针对当前生产恢复链拆解：NodeStorage 恢复 B/Journal 与对象组件 → Raft Store 的目录/日志打开 → A 本地 checkpoint 或空工作空间 → Raft 构造阶段逐条 Apply 已提交日志 → 开放监听并补远端后缀。入口在 `DistributedNode::Initialize/Start`、`NodeStorage::Begin`、`OpenLocalCheckpoint`、`RecoverRaftPersistentState`、`RaftNode` 构造函数。采样帮助定位热点，不自动产生每个阶段精确耗时；约 28 秒“首次状态”包含轮询间隙。没有在未确认根因前修改恢复顺序或把业务服务提前开放。
+
+代码上已确认的定位候选：`LogStore::ProbeObjects()` 与随后的 `OpenObjects()` 都构造 `ObjectLogStore`，构造过程扫描片段、读取/校验正文并重建位置索引；这是重复工作候选，需测量其占比及复用条件，不能删掉恢复边界验证。`RaftNode` 构造时按 `(LastApplied, commit_index]` 同步重放；本次 P4 停机边界约 321，而 A checkpoint 触发阈值为 10000，需特别观察空工作空间重放建表/加载日志的成本。已有 Data 页面不能绕过一致恢复入口直接作为完整业务状态使用。这里记录代码事实与待测假设，未据此修改生产。

@@ -690,16 +690,18 @@ void DistributedNode::ReconcileActiveWrite() {
 void DistributedNode::MaybeCreateSnapshot() {
   const auto latest = raft_node_->LatestSnapshot();
   const auto boundary = latest ? latest->last_included_index_ : 0;
-  snapshot_draining_ = raft_node_->LeaderReady() && raft_node_->PublishedAppliedIndex() > boundary &&
+  snapshot_draining_ = !raft_node_->SnapshotCaptured() && raft_node_->LeaderReady() &&
+                       raft_node_->PublishedAppliedIndex() > boundary &&
                        raft_node_->PublishedAppliedIndex() - boundary >= config_.snapshot_threshold_entries_;
-  if (raft_node_->Busy()) return;
+  if (raft_node_->Busy() || raft_node_->SnapshotInProgress()) return;
   const auto commit = raft_node_->CommitIndex();
   const auto applied = raft_node_->LastApplied();
   const auto published = raft_node_->PublishedAppliedIndex();
   const auto latest_snapshot = raft_node_->LatestSnapshot();
   const auto snapshot_index = latest_snapshot.has_value() ? latest_snapshot->last_included_index_ : 0;
   const auto checkpoint_index = state_machine_->PollCheckpoint();
-  if (published > checkpoint_index && published - checkpoint_index >= config_.snapshot_threshold_entries_) {
+  if (published - snapshot_index < config_.snapshot_threshold_entries_ &&
+      published > checkpoint_index && published - checkpoint_index >= config_.snapshot_threshold_entries_) {
     if (published == raft_node_->LastLogIndex())
       state_machine_->RequestCheckpoint(published, raft_node_->LastLogTerm());
   }

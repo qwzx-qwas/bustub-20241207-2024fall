@@ -40,7 +40,13 @@ class SynchronousTestNode : public RaftNode {
   }
   auto CreateSnapshot() -> RaftSnapshot {
     if (!RaftNode::CreateSnapshot()) throw std::runtime_error("snapshot admission unexpectedly full");
-    AwaitIdle();
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    do {
+      AwaitIdle();
+      Poll();
+      if (std::chrono::steady_clock::now() >= end) throw std::runtime_error("snapshot work did not complete");
+      if (SnapshotInProgress()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (SnapshotInProgress() || Busy());
     return *LatestSnapshot();
   }
 };

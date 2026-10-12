@@ -1,3 +1,5 @@
+> 2026-10-11 收尾清理：用户要求删除开发阶段压缩包；本目录旧结果包已退出，以下是历史执行记录，解压命令不再适用。共同 C/P 基线和 JSON/日志保持，详见 [清理清单](../cleanup-final-20261011.json)。
+
 # F01 / BlockDevice 运行证据
 
 2026-09-22。[方案及八项审查](../../docs/storage_redesign/f01_execution_20260922.md) · [阶段测试源码](../../test/archives/README.md)。

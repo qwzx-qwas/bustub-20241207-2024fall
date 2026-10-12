@@ -160,6 +160,9 @@ void RaftNode::Poll() {
       throw;
     }
   }
+  if (!operation_ && snapshot_build_ && snapshot_build_->Ready()) {
+    Start(FinishSnapshotCapture());
+  }
   if (operation_ || role_ == RaftRole::STOPPED) return;
   if (observed_term_ > hard_state_.current_term_) {
     Start(ObserveHigherTerm(observed_term_));
@@ -174,9 +177,9 @@ void RaftNode::Poll() {
 void RaftNode::Drain() {
   draining_ = true;
   pending_messages_.clear();
-  while (operation_) {
+  while (operation_ || snapshot_build_) {
     Poll();
-    if (operation_) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (operation_ || snapshot_build_) std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   business_tasks_->Drain();
   storage_tasks_->Drain();
@@ -1095,7 +1098,8 @@ void RaftNode::CancelReadIndex(uint64_t context) {
 }
 
 auto RaftNode::CreateSnapshot() -> bool {
-  if (Busy()) return false;
+  if (Busy() || snapshot_building_) return false;
+  snapshot_building_ = true;
   Start(RunSnapshot());
   return true;
 }
@@ -1115,9 +1119,31 @@ auto RaftNode::RunSnapshot() -> Operation {
     if (existing->last_included_index_ != index) {
       throw std::runtime_error("Raft state is behind its latest published snapshot");
     }
+    snapshot_building_ = false;
     co_return;
   }
   try {
+    snapshot_capture_ = co_await Slow([&] { return snapshot_store_->PrepareCapture(index, *term, *state_machine_); }, true);
+    if (snapshot_capture_) {
+      struct Admission {
+        RaftNode *node_;
+        auto await_ready() -> bool {
+          node_->snapshot_build_ = node_->snapshot_tasks_->Build(node_->snapshot_capture_);
+          return node_->snapshot_build_ != nullptr;
+        }
+        void await_suspend(std::coroutine_handle<> next) {
+          node_->poll_work_ = [node = node_, next] {
+            node->snapshot_build_ = node->snapshot_tasks_->Build(node->snapshot_capture_);
+            if (!node->snapshot_build_) return false;
+            next.resume();
+            return true;
+          };
+        }
+        void await_resume() {}
+      };
+      co_await Admission{this};
+      co_return;  // The executor owns immutable input; the protocol can proceed.
+    }
     co_await Slow(
         [&] {
           try {
@@ -1132,29 +1158,57 @@ auto RaftNode::RunSnapshot() -> Operation {
           }
         },
         true);
-    const auto recovery_base = co_await Slow([&] { return snapshot_store_->OldestRetained(); });
-    if (!recovery_base.has_value()) {
-      throw std::runtime_error("published Raft snapshot has no recovery base");
-    }
-    if (recovery_base->last_included_index_ > durable_base_) {
-      // A session keeps its target across publication, but may not pin an
-      // unbounded log tail. Cancel only when the normal recovery floor actually
-      // crosses that target; the next attempt selects the current latest.
-      for (auto it = snapshot_transfers_.begin(); it != snapshot_transfers_.end();) {
-        if (it->second.snapshot_.last_included_index_ < recovery_base->last_included_index_)
-          it = snapshot_transfers_.erase(it);
-        else
-          ++it;
-      }
-      co_await InstallLogSnapshotBaseDurably(recovery_base->last_included_index_, recovery_base->last_included_term_,
-                                             true);
-    }
-    co_await UpdateLogTip();
-    co_return;
+    co_await FinishSnapshotPublication();
+    snapshot_building_ = false;
   } catch (...) {
+    snapshot_building_ = false;
     FailStop();
     throw;
   }
+}
+auto RaftNode::FinishSnapshotCapture() -> Operation {
+  auto capture = std::move(snapshot_capture_);
+  auto work = std::move(snapshot_build_);
+  std::exception_ptr error;
+  try { static_cast<void>(work->Take()); } catch (...) { error = std::current_exception(); }
+  if (error) {
+    co_await Slow([&] { try { capture->cancel_(); } catch (...) {} return true; });
+    snapshot_building_ = false;
+    std::rethrow_exception(error);
+  }
+  // The captured boundary is committed and survives term changes. A newer
+  // installed snapshot supersedes it; never publish the old image over that.
+  if (draining_ || role_ == RaftRole::STOPPED ||
+      (latest_snapshot_ && latest_snapshot_->last_included_index_ >= capture->index_)) {
+    co_await Slow([&] { capture->cancel_(); return true; });
+  } else {
+    const auto term = co_await Slow([&] { return log_store_->TermAt(capture->index_); });
+    if (term != std::optional<uint64_t>{capture->term_} || capture->index_ > hard_state_.commit_index_)
+      throw std::runtime_error("captured snapshot no longer matches committed history");
+    co_await Slow([&] { return capture->publish_(); });
+    co_await FinishSnapshotPublication();
+  }
+  snapshot_building_ = false;
+}
+auto RaftNode::FinishSnapshotPublication() -> Operation {
+  const auto recovery_base = co_await Slow([&] { return snapshot_store_->OldestRetained(); });
+  if (!recovery_base.has_value()) {
+    throw std::runtime_error("published Raft snapshot has no recovery base");
+  }
+  if (recovery_base->last_included_index_ > durable_base_) {
+    // A session keeps its target across publication, but may not pin an
+    // unbounded log tail. Cancel only when the normal recovery floor actually
+    // crosses that target; the next attempt selects the current latest.
+    for (auto it = snapshot_transfers_.begin(); it != snapshot_transfers_.end();) {
+      if (it->second.snapshot_.last_included_index_ < recovery_base->last_included_index_)
+        it = snapshot_transfers_.erase(it);
+      else
+        ++it;
+    }
+    co_await InstallLogSnapshotBaseDurably(recovery_base->last_included_index_, recovery_base->last_included_term_, true);
+  }
+  co_await UpdateLogTip();
+  co_return;
 }
 
 auto RaftNode::LatestSnapshot() const -> std::optional<RaftSnapshot> { return latest_snapshot_; }

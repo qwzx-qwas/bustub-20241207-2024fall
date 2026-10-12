@@ -100,6 +100,7 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   auto PollCheckpoint() -> uint64_t;
   void DrainCheckpoint();
   void WriteSnapshot(const SnapshotAppend &append) const override;
+  auto CaptureSharedSnapshot(NodeStorage &storage, uint64_t index, uint64_t term) -> SharedSnapshotWriter override;
   auto WriteSharedSnapshot(NodeStorage &storage, const ObjectKey &destination, uint64_t index, uint64_t term,
                            uint64_t limit) -> std::optional<SharedSnapshotResult> override;
   auto PrepareSnapshot(const SnapshotInput &payload, uint64_t index) -> std::unique_ptr<PreparedSnapshot> override;
@@ -134,12 +135,17 @@ class BusTubRaftStateMachine : public RaftStateMachine {
   struct WorkingState;
   struct Prepared;
   struct CheckpointWorker;
+  struct CapturedCheckpoint;
 
   BusTubRaftStateMachine(NodeDirectory *node_directory, std::shared_ptr<DurableStorage> storage,
                          size_t buffer_pool_size);
   void InitializeEmpty();
   void OpenLocalCheckpoint();
   void BuildLocalCheckpoint(uint64_t index, uint64_t term);
+  auto CaptureCheckpoint(uint64_t index, uint64_t term, bool exact) -> std::shared_ptr<CapturedCheckpoint>;
+  auto BuildCheckpoint(CapturedCheckpoint &captured) -> std::shared_ptr<ObjectPageStorage>;
+  auto WriteCapturedSnapshot(CapturedCheckpoint &captured, NodeStorage &storage, const ObjectKey &destination,
+                             uint64_t limit) -> SharedSnapshotResult;
   auto BuildSnapshotState(const SnapshotInput &payload, uint64_t index, const std::filesystem::path &directory)
       -> std::unique_ptr<WorkingState>;
   auto FinishWorkingState(std::unique_ptr<WorkingState> state, uint64_t index, const std::vector<std::byte> &catalog,

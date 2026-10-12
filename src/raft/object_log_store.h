@@ -22,6 +22,7 @@ class ObjectLogStore {
   uint64_t base_{0}, base_term_{0}, commit_{0};
 
  private:
+  friend class LogStore;  // Recovery candidate is attached only after LogStore validates its base.
   struct Segment {
     uint64_t object_, begin_, end_;
   };

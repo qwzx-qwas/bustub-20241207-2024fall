@@ -14,6 +14,10 @@
 #include <stdexcept>
 #include <string>
 
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#include <nmmintrin.h>
+#endif
+
 namespace bustub {
 
 void ByteWriter::PutU8(uint8_t value) { data_.push_back(static_cast<std::byte>(value)); }
@@ -123,16 +127,50 @@ auto Crc32cCombine(uint32_t prefix, uint32_t suffix, uint64_t suffix_size) -> ui
   return prefix ^ suffix;
 }
 
-auto Crc32cExtend(uint32_t previous_crc, const std::byte *data, size_t size) -> uint32_t {
-  uint32_t crc = ~previous_crc;
-  for (size_t i = 0; i < size; i++) {
-    crc ^= static_cast<uint8_t>(data[i]);
-    for (int bit = 0; bit < 8; bit++) {
-      const uint32_t mask = 0U - (crc & 1U);
-      crc = (crc >> 1U) ^ (0x82f63b78U & mask);
-    }
+namespace {
+constexpr auto CrcTable() {
+  std::array<uint32_t, 256> table{};
+  for (uint32_t i = 0; i < table.size(); ++i) {
+    auto crc = i;
+    for (int bit = 0; bit < 8; ++bit) crc = (crc >> 1U) ^ ((crc & 1U) ? 0x82f63b78U : 0U);
+    table[i] = crc;
   }
+  return table;
+}
+constexpr auto CRC_TABLE = CrcTable();
+auto ExtendPortable(uint32_t previous, const std::byte *data, size_t size) -> uint32_t {
+  auto crc = ~previous;
+  for (size_t i = 0; i < size; ++i)
+    crc = CRC_TABLE[(crc ^ static_cast<uint8_t>(data[i])) & 0xffU] ^ (crc >> 8U);
   return ~crc;
+}
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+__attribute__((target("sse4.2")))
+auto ExtendHardware(uint32_t previous, const std::byte *data, size_t size) -> uint32_t {
+  uint64_t crc = ~previous;
+  while (size >= sizeof(uint64_t)) {
+    uint64_t word;
+    std::memcpy(&word, data, sizeof(word));  // Unaligned input is part of the public codec contract.
+    crc = _mm_crc32_u64(crc, word);
+    data += sizeof(word);
+    size -= sizeof(word);
+  }
+  for (size_t i = 0; i < size; ++i) crc = _mm_crc32_u8(crc, static_cast<uint8_t>(data[i]));
+  return ~static_cast<uint32_t>(crc);
+}
+#endif
+using ExtendFunction = uint32_t (*)(uint32_t, const std::byte *, size_t);
+auto SelectExtend() -> ExtendFunction {
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+  if (__builtin_cpu_supports("sse4.2")) return ExtendHardware;
+#endif
+  return ExtendPortable;
+}
+}  // namespace
+
+auto Crc32cExtend(uint32_t previous_crc, const std::byte *data, size_t size) -> uint32_t {
+  static const auto extend = SelectExtend();
+  return extend(previous_crc, data, size);
 }
 
 auto Crc32c(const std::byte *data, size_t size) -> uint32_t { return Crc32cExtend(0, data, size); }

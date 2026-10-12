@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,6 +35,15 @@ struct RaftSnapshot {
   uint64_t last_included_term_{0};
   uint64_t payload_size_{0};
   uint32_t payload_checksum_{0};
+};
+
+/** F25 unpublished candidate. Build owns frozen inputs and runs off-protocol;
+ * Publish/Cancel are called by the serialized owner only after Build finishes. */
+struct SnapshotCapture {
+  uint64_t index_, term_;
+  std::function<void()> build_;
+  std::function<RaftSnapshot()> publish_;
+  std::function<void()> cancel_;
 };
 
 struct SnapshotReuse {
@@ -87,6 +97,7 @@ class SnapshotStore {
 
   static auto OpenObjects(std::shared_ptr<RaftObjectStorage> storage) -> std::unique_ptr<SnapshotStore>;
   auto Capture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> RaftSnapshot;
+  auto PrepareCapture(uint64_t index, uint64_t term, RaftStateMachine &machine) -> std::shared_ptr<SnapshotCapture>;
   auto Input(const RaftSnapshot &snapshot) -> SnapshotInput;
   auto StagedInput(std::string_view id) -> std::optional<SnapshotInput>;
   auto PublishStaged(std::string_view id, bool retain) -> RaftSnapshot;

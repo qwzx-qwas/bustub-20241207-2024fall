@@ -6,6 +6,9 @@
 #include "storage/disk/object_transaction.h"
 
 namespace bustub {
+struct ObjectReuseTarget {
+  uint64_t allocation_, offset_, capacity_;
+};
 struct ObjectChange {
   ObjectOperation operation_;
   ObjectKey object_;
@@ -16,6 +19,7 @@ struct ObjectChange {
   std::vector<StorageByteRange> extents_;
   bool deferred_{false};
   std::vector<uint32_t> checksums_{};
+  std::optional<ObjectReuseTarget> reuse_{};
 };
 struct DeferredTarget {
   ObjectKey object_;
@@ -44,6 +48,10 @@ struct PreparedObjectChange {
 };
 /** Private production bridge, not a public metadata/schema escape hatch. */
 struct ObjectMappingAccess {
+  // One intact, unshared allocation only. Planning is not overwrite permission.
+  static auto PlanReuse(const ObjectMappingSnapshot &base, ObjectKey key, uint64_t offset, uint64_t length,
+                        uint64_t budget, ObjectChange *change) -> bool;
+  static auto CanReuse(const ObjectMappingSnapshot &base, const ObjectChange &change) -> bool;
   static void MaintainMetadata(ObjectMappingStore &store, size_t pages, bool checkpoint);
   static auto ScrubMetadata(ObjectMappingStore &store) -> bool;
   static auto Unit(ObjectMappingStore &store) -> uint64_t;

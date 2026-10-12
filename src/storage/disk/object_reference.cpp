@@ -8,7 +8,9 @@
 #include <map>
 #include <mutex>  // NOLINT(build/c++11)
 #include <utility>
+#include <unordered_map>
 
+#include "object_change_internal.h"   // NOLINT(build/include_subdir): private mutation protocol.
 #include "object_mapping_internal.h"  // NOLINT(build/include_subdir): private sibling schema.
 
 namespace bustub {
@@ -114,6 +116,26 @@ struct ObjectReadProtection {
   uint64_t id_{0};
   std::vector<ObjectSpan> spans_;
 };
+struct ObjectOverwriteProtection {
+  explicit ObjectOverwriteProtection(std::shared_ptr<ObjectReferenceState> state) : state_(std::move(state)) {}
+  ~ObjectOverwriteProtection() {
+    if (id_ != 0) {
+      std::lock_guard<std::mutex> lock(state_->mutex_);
+      state_->gates_.erase(id_);
+    }
+  }
+  std::shared_ptr<ObjectReferenceState> state_;
+  uint64_t id_{0};
+};
+struct ObjectReclaimScan {
+  ResourceCharge memory_;
+  std::shared_ptr<ObjectMappingContext> context_;
+  ObjectKey object_;
+  std::optional<MetadataSnapshot> view_;
+  uint64_t next_{0};
+  size_t examined_{0};
+  std::unordered_map<uint64_t, std::vector<MetadataEntry>> matches_;
+};
 namespace {
 struct Call {
   explicit Call(ObjectReferenceState &state) : state_(state) {
@@ -174,8 +196,9 @@ void CheckOwnership(const MetadataSnapshot &base, const ProtectedRange &p, uint6
 }  // namespace
 
 struct ObjectReferenceManager::Impl {
-  Impl(std::shared_ptr<ObjectMappingContext> context, ObjectReferenceOptions options)
-      : context_(std::move(context)), state_(std::make_shared<ObjectReferenceState>(options)) {
+  Impl(std::shared_ptr<ObjectMappingContext> context, ObjectReferenceOptions options, std::shared_ptr<ResourceBudget> memory)
+      : context_(std::move(context)), state_(std::make_shared<ObjectReferenceState>(options)),
+        memory_(ResourceAccount::Create(std::move(memory))) {
     if (context_->format_ < 2) {
       ReferenceFail(ObjectReferenceErrorCode::UnsupportedFormat,
                     "F14 requires v2; v1 remains usable without reclamation");
@@ -260,7 +283,8 @@ struct ObjectReferenceManager::Impl {
     }
     return protection;
   }
-  auto Reclaim(const MetadataSnapshot &base, ObjectKey object, uint64_t allocation_id) -> ObjectReclaimResult {
+  auto Reclaim(const MetadataSnapshot &base, ObjectKey object, uint64_t allocation_id,
+               const std::vector<MetadataEntry> *discovered = nullptr) -> ObjectReclaimResult {
     Call call(*state_);
     context_->metadata_.Read();  // Do not continue through an isolated B, even on a no-op.
     auto d = ReadDescription(base, object, true);
@@ -298,11 +322,22 @@ struct ObjectReferenceManager::Impl {
     std::vector<std::pair<MetadataKey, RetiredObjectRange>> pending;
     std::vector<Interval> dead{{allocation.range_.begin_ + allocation.initialized_, allocation.range_.end_}};
     size_t pending_count = 0;
-    for (const auto &entry : base.Scan(pending_lower, PrefixEnd(pending_lower), limit + 1)) {
+    const auto scanned = discovered ? std::vector<MetadataEntry>{}
+                                    : base.Scan(pending_lower, PrefixEnd(pending_lower), limit + 1);
+    const auto &entries = discovered ? *discovered : scanned;
+    for (const auto &saved : entries) {
       if (++examined > limit) {
         Fail(ObjectMappingErrorCode::ResourceUnavailable, "retirement reclaim scan exceeds budget");
       }
       ++pending_count;
+      // Discovery may span several F22 turns. Other reclamation can trim or
+      // remove a retirement meanwhile; use its current remaining range only.
+      auto entry = saved;
+      if (discovered) {
+        auto current = base.Get(entry.key_);
+        if (!current) continue;
+        entry.value_ = std::move(*current);
+      }
       const auto f = Decode(entry.value_, 5);
       if (f[4] != allocation_id) {
         continue;
@@ -313,7 +348,7 @@ struct ObjectReferenceManager::Impl {
       pending.push_back({entry.key_, {entry.key_.item_, f[0], {f[1], f[2], ObjectDataLocation{f[3], f[4]}}}});
       dead.push_back({f[3], f[3] + f[2]});
     }
-    Require(pending_count == d.pending_, "retirement count disagrees with object descriptor");
+    if (!discovered) Require(pending_count == d.pending_, "retirement count disagrees with object descriptor");
     dead = Merge(std::move(dead));
     std::vector<Interval> candidates;
     for (const auto &o : owned) {
@@ -463,13 +498,15 @@ struct ObjectReferenceManager::Impl {
   }
   std::shared_ptr<ObjectMappingContext> context_;
   std::shared_ptr<ObjectReferenceState> state_;
+  std::shared_ptr<ResourceAccount> memory_;
 };
 
 ObjectReadLease::ObjectReadLease(std::shared_ptr<ObjectReadProtection> protection)
     : protection_(std::move(protection)) {}
 auto ObjectReadLease::Spans() const -> const std::vector<ObjectSpan> & { return protection_->spans_; }
-ObjectReferenceManager::ObjectReferenceManager(ObjectMappingStore &mapping, ObjectReferenceOptions options)
-    : impl_(std::make_unique<Impl>(mapping.ReferenceContext(), options)) {}
+ObjectReferenceManager::ObjectReferenceManager(ObjectMappingStore &mapping, ObjectReferenceOptions options,
+                                               std::shared_ptr<ResourceBudget> memory)
+    : impl_(std::make_unique<Impl>(mapping.ReferenceContext(), options, std::move(memory))) {}
 ObjectReferenceManager::~ObjectReferenceManager() { Close(); }
 auto ObjectReferenceManager::ProtectRead(const ObjectMappingSnapshot &view, ObjectKey object, uint64_t offset,
                                          uint64_t length) -> ObjectReadLease {
@@ -481,12 +518,83 @@ auto ObjectReferenceManager::ProtectRead(const ObjectMappingSnapshot &view, Obje
 auto ObjectReferenceManager::ProtectOwned(ObjectKey owner, const ObjectSpan &span) -> ObjectReadLease {
   return ObjectReadLease(impl_->ProtectOwned(owner, span));
 }
-auto ObjectReferenceManager::Reclaim(const ObjectMappingSnapshot &base, ObjectKey object, uint64_t allocation)
-    -> ObjectReclaimResult {
-  if (base.context_ != impl_->context_) {
-    throw MetadataError(MetadataErrorCode::Conflict, "foreign object mapping view");
+auto ObjectReferenceManager::TryOverwrite(const ObjectMappingSnapshot &base, const ObjectChange &change)
+    -> std::shared_ptr<ObjectOverwriteProtection> {
+  Call call(*impl_->state_);
+  if (base.context_ != impl_->context_) throw std::invalid_argument("foreign overwrite view");
+  auto protection = std::make_shared<ObjectOverwriteProtection>(impl_->state_);
+  const auto &r = *change.reuse_;
+  const ProtectedRange target{change.object_, r.allocation_, {r.offset_, End(r.offset_, r.capacity_)}};
+  {
+    std::lock_guard<std::mutex> lock(impl_->state_->mutex_);
+    if (impl_->state_->gates_.size() >= impl_->state_->options_.max_leases_) return {};
+    for (const auto *entries : {&impl_->state_->pins_, &impl_->state_->gates_})
+      for (const auto &[id, ranges] : *entries)
+        for (const auto &range : ranges)
+          if (Conflicts(range, target)) return {};
+    const auto id = impl_->state_->next_id_;
+    impl_->state_->next_id_ = Advance(id);
+    impl_->state_->gates_.emplace(id, std::vector<ProtectedRange>{target});
+    protection->id_ = id;
   }
-  return impl_->Reclaim(base.base_, object, allocation);
+  // A sharing caller must own a read lease through commit. Closing this gate
+  // before reading current facts prevents a new shared version racing reuse.
+  const ObjectMappingSnapshot current(impl_->context_->metadata_.Read(), impl_->context_);
+  if (!ObjectMappingAccess::CanReuse(current, change)) return {};
+  return protection;
+}
+void ObjectReferenceManager::BeginReclaim(const ObjectMappingSnapshot &base, ObjectKey object,
+                                          const std::vector<uint64_t> &allocations, ObjectReclaimCursor *cursor) {
+  if (base.context_ != impl_->context_) throw MetadataError(MetadataErrorCode::Conflict, "foreign reclaim view");
+  if (allocations.empty() || allocations.size() > 16 || cursor->scan_)
+    throw std::invalid_argument("invalid reclaim candidate batch");
+  // Charge the bounded discovery storage before taking an old B view. Values
+  // contain exactly five u64 fields; reserve vector slots once, without growth.
+  const auto limit = impl_->state_->options_.max_scan_entries_;
+  const auto bytes = allocations.size() * (limit * (sizeof(MetadataEntry) + 40) + 128);
+  if (!impl_->memory_->Reserve(bytes, true)) ReferenceFail(ObjectReferenceErrorCode::Busy, "reclaim discovery budget held");
+  ResourceCharge charge(impl_->memory_, bytes, true);
+  auto scan = std::make_shared<ObjectReclaimScan>();
+  scan->context_ = impl_->context_;
+  scan->object_ = object;
+  scan->view_ = base.base_;
+  scan->memory_ = std::move(charge);
+  for (const auto id : allocations) scan->matches_[id].reserve(limit);
+  cursor->scan_ = std::move(scan);
+}
+auto ObjectReferenceManager::Reclaim(const ObjectMappingSnapshot &base, ObjectKey object, uint64_t allocation,
+                                     ObjectReclaimCursor *cursor) -> ObjectReclaimResult {
+  if (base.context_ != impl_->context_) throw MetadataError(MetadataErrorCode::Conflict, "foreign object mapping view");
+  if (!cursor) return impl_->Reclaim(base.base_, object, allocation);
+  if (!cursor->scan_) BeginReclaim(base, object, {allocation}, cursor);
+  auto &scan = *cursor->scan_;
+  if (scan.context_ != impl_->context_ || !SameObject(scan.object_, object) || !scan.matches_.count(allocation))
+    throw std::invalid_argument("reclaim cursor belongs to another candidate batch");
+  if (scan.view_) {
+    Call call(*impl_->state_);
+    const auto limit = impl_->state_->options_.max_scan_entries_;
+    const auto lower = Key(PendingRange, object, scan.next_);
+    const auto entries = scan.view_->Scan(lower, PrefixEnd(lower), limit);
+    for (const auto &entry : entries) {
+      ++scan.examined_;
+      const auto group = scan.matches_.find(Decode(entry.value_, 5)[4]);
+      if (group != scan.matches_.end()) {
+        if (group->second.size() == limit)
+          Fail(ObjectMappingErrorCode::ResourceUnavailable, "one allocation exceeds reclaim record budget");
+        group->second.push_back(entry);
+      }
+      scan.next_ = Advance(entry.key_.item_);
+    }
+    if (entries.size() == limit) return {{}, 0, 0, true};
+    Require(scan.examined_ == ReadDescription(*scan.view_, object, true).pending_,
+            "retirement count disagrees with object descriptor");
+    scan.view_.reset();
+    return {{}, 0, 0, true};
+  }
+  auto result = impl_->Reclaim(base.base_, object, allocation, &scan.matches_.at(allocation));
+  scan.matches_.erase(allocation);
+  if (scan.matches_.empty()) cursor->scan_.reset();
+  return result;
 }
 void ObjectReferenceManager::Close() { impl_->Close(); }
 }  // namespace bustub

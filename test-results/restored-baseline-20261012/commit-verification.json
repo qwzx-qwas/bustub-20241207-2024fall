@@ -1,0 +1,61 @@
+{
+  "checked_at": "2026-10-12T19:41:40.986973+08:00",
+  "baseline": "test-results/storage-fixed-20261011-160420-920SjI",
+  "historical_manifest_sha256": "5cd7af36a01be510138d58396295838924c9965ae4f2bc85dba71f3ef33f7dba",
+  "source_matches": 534,
+  "mismatches": [],
+  "binary_matches": [
+    {
+      "path": ".cache/final-acceptance/build/bin/bustub-client",
+      "sha256": "c38ef977aa1a5c86516162494123fb637da73226b13652c6a79b45b1753f2cca"
+    },
+    {
+      "path": ".cache/final-acceptance/build/bin/bustub-node",
+      "sha256": "af448eadd7e062f3241c959ae312020688df3d997c4646f0d5622965f4b383d2"
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/final_performance_test",
+      "sha256": "db0d5be39172e0a4fd49b57b295b610664d30fa227628168322c1abc6a32ba5b"
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/storage-e2e-driver",
+      "sha256": "a38c60ae2f613c6eebc754e5b6d98dba202bf8b121bf3e33a30d732ec1486e98"
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/versioned_frame_test",
+      "sha256": "22394f0cce438d28764b938471956fbe8e30f125ec6c6a5047ba6639f6cf751e"
+    }
+  ],
+  "auxiliary_matches": [
+    ".cache/final-acceptance/build/CMakeCache.txt",
+    ".cache/final-acceptance/check-history"
+  ],
+  "xml_evidence": {
+    "crc.xml": {
+      "tests": "4",
+      "failures": "0",
+      "disabled": "0",
+      "errors": "0",
+      "time": "0.001",
+      "timestamp": "2026-10-12T19:23:34.711",
+      "name": "AllTests"
+    },
+    "contracts.xml": {
+      "tests": "3",
+      "failures": "0",
+      "disabled": "0",
+      "errors": "0",
+      "time": "19.798",
+      "timestamp": "2026-10-12T19:23:34.717",
+      "name": "AllTests"
+    }
+  },
+  "python_report_checks": {
+    "passed": 2,
+    "log": "test-results/storage-fixed-20261012-191949-nd7dWr/report-contracts.log"
+  },
+  "real_tcp_probe": "passed in preceding turn: OLD_VERSION_CONFIRMED; not rerun for cleanup",
+  "cleanup_record": "test-results/cleanup-restored-baseline-20261012.json",
+  "formal_workload": "not rerun",
+  "known_unresolved": "Historical P3 stall/turnover target remains unresolved; rollback is not full acceptance"
+}
