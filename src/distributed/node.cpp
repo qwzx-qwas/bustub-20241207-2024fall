@@ -245,6 +245,7 @@ void DistributedNode::Start() {
       try {
         raft_node_->Receive(envelope.from_, envelope.message_);
         ReconcileActiveWrite();
+        CompleteReadRounds();
       } catch (...) {
         fatal_error_ = std::current_exception();
       }
@@ -325,6 +326,8 @@ void DistributedNode::TickLoop() {
         }
         raft_node_->Tick(logical_now_ms_);
         ReconcileActiveWrite();
+        CompleteReadRounds();
+        StartReadRound();
         MaybeCreateSnapshot();
       } catch (...) {
         fatal_error_ = std::current_exception();
@@ -725,6 +728,7 @@ void DistributedNode::ClientLoop() {
       static_cast<void>(read(client_wake_fd_, &count, sizeof(count)));
     }
     size_t position = 2;
+    bool advance_reads = false;
     for (auto it = connections.begin(); it != connections.end();) {
       auto &connection = *it;
       const auto events = descriptors[position++].revents;
@@ -743,6 +747,7 @@ void DistributedNode::ClientLoop() {
           } else if (connection.socket_.Partial() && std::chrono::steady_clock::now() - connection.socket_.Started() >
                      std::chrono::milliseconds(config_.client_timeout_ms_)) closed = true;
         }
+        advance_reads |= connection.request_ && std::holds_alternative<ClientReadRequestV1>(*connection.request_);
         if (!closed && connection.request_ && !connection.response_ && !connection.socket_.HasOutput())
           connection.response_ = StepRequest(*connection.request_, *connection.state_);
         if (!closed && connection.response_) {
@@ -770,13 +775,13 @@ void DistributedNode::ClientLoop() {
         std::clog << "CLIENT_CONNECTION_ERROR " << error.what() << '\n';
         closed = true;
       }
-      if (closed) {
-        if (connection.state_) {
-          std::lock_guard lock(mutex_);
-          raft_node_->CancelReadIndex(connection.state_->read_context_);
-        }
-        it = connections.erase(it);
-      } else ++it;
+      if (closed) it = connections.erase(it); else ++it;
+    }
+    // Collect the reads observed in this poll turn before closing the round.
+    // A write-only turn adds no read-maintenance lock acquisition.
+    if (advance_reads) {
+      std::lock_guard lock(mutex_);
+      try { StartReadRound(); } catch (...) { fatal_error_ = std::current_exception(); }
     }
     if (descriptors[0].revents & POLLIN) {
       const auto fd = accept(client_listen_fd_, nullptr, nullptr);
@@ -786,9 +791,10 @@ void DistributedNode::ClientLoop() {
       }
     }
   }
+  connections.clear();
   std::lock_guard lock(mutex_);
-  for (auto &connection : connections)
-    if (connection.state_) raft_node_->CancelReadIndex(connection.state_->read_context_);
+  CompleteReadRounds();
+  StartReadRound();
 }
 
 auto DistributedNode::HandleRequest(const ClientRequestV1 &request) -> ClientResponseV1 {
@@ -796,6 +802,7 @@ auto DistributedNode::HandleRequest(const ClientRequestV1 &request) -> ClientRes
   for (;;) {
     if (auto response = StepRequest(request, state)) return std::move(*response);
     std::unique_lock lock(mutex_);
+    if (std::holds_alternative<ClientReadRequestV1>(request)) StartReadRound();
     state_changed_.wait_for(lock, std::chrono::milliseconds(config_.tick_interval_ms_));
   }
 }
@@ -815,10 +822,8 @@ auto DistributedNode::StepRequest(const ClientRequestV1 &request, RequestState &
   const auto id = std::visit([](const auto &value) { return value.request_id_; }, request);
   if (!response && us >= static_cast<int64_t>(config_.client_timeout_ms_ * 1000))
     response = MakeResponse(id, ClientResponseStatus::TIMEOUT);
-  if (response && state.read_context_) {
-    raft_node_->CancelReadIndex(state.read_context_);
-    state.read_context_ = 0;
-  }
+  // Releasing one request must not cancel a confirmation needed by its peers.
+  if (response) state.round_.reset();
   return response;
 }
 
@@ -1007,32 +1012,65 @@ auto DistributedNode::StepSession(const ClientSessionRequestV2 &request, std::sh
   return std::nullopt;
 }
 
-auto DistributedNode::StepRead(const ClientReadRequestV1 &request, RequestState &state)
-    -> std::optional<ClientResponseV1> {
-  const bool linear = request.consistency_ == ClientReadConsistency::LINEARIZABLE;
-  if (!state.read_started_) {
-    state.read_started_ = true;
-    state.read_term_ = raft_node_->CurrentTerm();
-    state.read_context_ = ++next_read_context_;
-    state.read_barrier_ = !linear;
+void DistributedNode::CompleteReadRounds() {
+  // Receive/Tick already hold mutex_ and notify clients after making progress.
+  // Publish confirmations before that notification so StepRead can submit SQL
+  // on its first wake, rather than transferring the index at the loop's end.
+  for (auto it = read_rounds_.begin(); it != read_rounds_.end();) {
+    auto round = it->second.lock();
+    if (!round || !running_ || fatal_error_ || !raft_node_->LeaderReady() || round->term_ != raft_node_->CurrentTerm()) {
+      if (round) round->obsolete_ = true;
+      raft_node_->CancelReadIndex(it->first);
+      it = read_rounds_.erase(it);
+    } else if (auto index = raft_node_->TakeReadIndex(it->first)) {
+      round->index_ = *index;
+      it = read_rounds_.erase(it);
+    } else ++it;
   }
-  if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
-  if (linear && (!raft_node_->LeaderReady() || raft_node_->CurrentTerm() != state.read_term_))
-    return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
-  if (!state.read_barrier_) {
-    if (!state.read_probe_ && !raft_node_->Busy())
-      state.read_probe_ = raft_node_->StartReadIndex(state.read_context_);
-    if (state.read_probe_) {
-      if (auto index = raft_node_->TakeReadIndex(state.read_context_)) {
-        state.read_index_ = *index;
-        state.read_barrier_ = true;
-      }
+}
+
+void DistributedNode::StartReadRound() {
+  if (!open_read_round_) return;
+  if (open_read_round_.use_count() == 1 || !running_ || fatal_error_ || !raft_node_->LeaderReady() ||
+      open_read_round_->term_ != raft_node_->CurrentTerm()) {
+    open_read_round_->obsolete_ = true;
+    open_read_round_.reset();
+    return;
+  }
+  if (!raft_node_->Busy()) {
+    const auto context = next_read_context_ + 1;
+    if (raft_node_->StartReadIndex(context)) {
+      next_read_context_ = context;
+      read_rounds_.emplace(context, open_read_round_);
+      open_read_round_.reset();
     }
   }
-  if (state.read_barrier_ && raft_node_->PublishedAppliedIndex() >= state.read_index_ && !state.read_) {
+}
+
+auto DistributedNode::StepRead(const ClientReadRequestV1 &request, RequestState &state)
+    -> std::optional<ClientResponseV1> {
+  if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+  const bool linear = request.consistency_ == ClientReadConsistency::LINEARIZABLE;
+  if (linear && (!raft_node_->LeaderReady() || (state.round_ &&
+      (state.round_->obsolete_ || state.round_->term_ != raft_node_->CurrentTerm()))))
+    return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
+  if (linear && !state.round_) {
+    if (open_read_round_ && open_read_round_->term_ != raft_node_->CurrentTerm()) {
+      open_read_round_->obsolete_ = true;
+      open_read_round_.reset();
+    }
+    if (!open_read_round_) {
+      open_read_round_ = std::make_shared<ReadRound>();
+      open_read_round_->term_ = raft_node_->CurrentTerm();
+    }
+    state.round_ = open_read_round_;
+  }
+  if (linear && !state.round_->index_) return std::nullopt;
+  const uint64_t index = linear ? *state.round_->index_ : 0;
+  if (raft_node_->PublishedAppliedIndex() >= index && !state.read_) {
     state.read_ = raft_node_->BusinessTasks().Submit(
         request.sql_.size() + ClientQueryResultCodec::MAX_RESULT_BYTES, false,
-        [owner = state_machine_, sql = request.sql_, index = state.read_index_] {
+        [owner = state_machine_, sql = request.sql_, index] {
           return owner->ExecuteReadSql(sql, index);
         });
   }

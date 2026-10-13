@@ -1,0 +1,5 @@
+{
+  "head": "b709e0aa95deec22cd87ac49d5856a0815ade602",
+  "source": "HEAD plus working tree; SHA256SUMS is authoritative",
+  "scope": "ReadIndex admission numbering and closed read rounds on b709e0a; original inputs, cache limits and deadlines; no profiling"
+}

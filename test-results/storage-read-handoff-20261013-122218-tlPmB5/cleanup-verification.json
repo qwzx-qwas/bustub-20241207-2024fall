@@ -1,0 +1,916 @@
+{
+  "date": "2026-10-13",
+  "authorization": "User requested completed-test intermediate cleanup and commit.",
+  "base_commit": "b709e0aa95deec22cd87ac49d5856a0815ade602",
+  "deleted_allocated_bytes": 8084156416,
+  "deleted_apparent_bytes": 88625326231,
+  "removed": [
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r2/P1-uniform-c4-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40333312
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r2/P1-uniform-c4-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47034368
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r2/P1-uniform-c4-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40374272
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r2/P1-uniform-c4-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 85550988,
+      "allocated_bytes": 85557248,
+      "sha256": "3f3db833ef007e1e19c03fa373706e05773a66e837657eba8420d65bb6a7bd6d"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r2/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r3/P1-hotspot-c4-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40398848
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r3/P1-hotspot-c4-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 46944256
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r3/P1-hotspot-c4-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40304640
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r3/P1-hotspot-c4-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 85856611,
+      "allocated_bytes": 85864448,
+      "sha256": "defd31bb0b63f8d56376103d6064ce423f8a719ceb30355c31eb0d1fa410aa44"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r3/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r3/P2-c8-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152748032
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r3/P2-c8-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153169920
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r3/P2-c8-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152752128
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r3/P2-c8-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14641225,
+      "allocated_bytes": 14643200,
+      "sha256": "f867be2832bc568008ee3c6153e784849c059523ed0400f8c078a64e11eabf80"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r3/P2-c8-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r1/P1-uniform-c4-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40443904
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r1/P1-uniform-c4-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 46882816
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r1/P1-uniform-c4-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40411136
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r1/P1-uniform-c4-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 85769982,
+      "allocated_bytes": 85770240,
+      "sha256": "11e113ab5c723fee409b252efebbc66c2b1b23a3fda6057663d42b68c8c727e4"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r3/P1-uniform-c4-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40435712
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r3/P1-uniform-c4-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47104000
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r3/P1-uniform-c4-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40452096
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r3/P1-uniform-c4-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 86587529,
+      "allocated_bytes": 86589440,
+      "sha256": "39df82f95faa0149a072b3e76956efe6c61863bc1233eacd40b9975f0a48c1bd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r3/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r1/P1-hotspot-c4-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40308736
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r1/P1-hotspot-c4-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47132672
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r1/P1-hotspot-c4-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40398848
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r1/P1-hotspot-c4-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 86624099,
+      "allocated_bytes": 86626304,
+      "sha256": "ff98e6d0332015f7849097a07632e8e8660cd0ad192f5164f44e1ebce3258a37"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r2/P1-hotspot-c4-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40423424
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r2/P1-hotspot-c4-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47087616
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r2/P1-hotspot-c4-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40370176
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r2/P1-hotspot-c4-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 86112811,
+      "allocated_bytes": 86118400,
+      "sha256": "8db68d7f363bd0ba146ae95fc47b0f1edc0c2e256d622d743184193affdf4b27"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r2/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r3/P1-uniform-c4-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40271872
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r3/P1-uniform-c4-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 46989312
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r3/P1-uniform-c4-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40263680
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r3/P1-uniform-c4-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 87639769,
+      "allocated_bytes": 87646208,
+      "sha256": "a3ecbfb8f3a4faf3b56392dc4f3f33f07e41e84f3ed483e7caa6e3d08012a848"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r3/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r2/P2-c8-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152817664
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r2/P2-c8-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153227264
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r2/P2-c8-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152817664
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r2/P2-c8-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14644906,
+      "allocated_bytes": 14647296,
+      "sha256": "acc4dcc5a2a032fdac726d34032d30124fb9edc79c59b5da573cd5f711b3a609"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r2/P2-c8-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r1/P2-c8-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152940544
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r1/P2-c8-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153358336
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r1/P2-c8-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152940544
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r1/P2-c8-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14709966,
+      "allocated_bytes": 14712832,
+      "sha256": "63f75e83e4ffdfaffeefdf2236ff9119902796eae2b8352675f81a4b6125cd6b"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r1/P2-c8-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r3/P1-hotspot-c4-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40304640
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r3/P1-hotspot-c4-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 46960640
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r3/P1-hotspot-c4-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40329216
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r3/P1-hotspot-c4-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 86181081,
+      "allocated_bytes": 86183936,
+      "sha256": "7a0f553744acb473549ab3252427b8271acfad076583acae500cd84a6f4e9f51"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r3/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r2/P1-uniform-c4-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40370176
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r2/P1-uniform-c4-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47181824
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r2/P1-uniform-c4-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40394752
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r2/P1-uniform-c4-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 86304193,
+      "allocated_bytes": 86306816,
+      "sha256": "9d44b1e548fa6f8170061532da6adcc222a2f58824171ad5cd141d9f8d984a4e"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r2/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r3/P2-c8-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152903680
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r3/P2-c8-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153325568
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r3/P2-c8-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152907776
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r3/P2-c8-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14682065,
+      "allocated_bytes": 14684160,
+      "sha256": "df8af8251ba90e87698303579ea4e426cdbc5060dddf977097f6d4940fb11d81"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r3/P2-c8-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r1/P1-hotspot-c4-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40415232
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r1/P1-hotspot-c4-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47079424
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r1/P1-hotspot-c4-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40280064
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r1/P1-hotspot-c4-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 87181246,
+      "allocated_bytes": 87187456,
+      "sha256": "8d5f6f16e924105e3a4f8252966b9dd65231bc4fadd6170c7c497b19eaaaae2a"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r1/P1-uniform-c4-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40288256
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r1/P1-uniform-c4-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 46940160
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r1/P1-uniform-c4-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40316928
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r1/P1-uniform-c4-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 86074047,
+      "allocated_bytes": 86081536,
+      "sha256": "582fa58b5256adc2bf91b84ee1821976a8df00981b0d1089874d857be7856ad2"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r2/P1-hotspot-c4-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40411136
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r2/P1-hotspot-c4-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47058944
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r2/P1-hotspot-c4-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40321024
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r2/P1-hotspot-c4-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 87341387,
+      "allocated_bytes": 87343104,
+      "sha256": "5ecd907cc2a0c02726f11ca1d91d136e149f020620570623378446da4489f7f0"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r2/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r2/P2-c8-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152829952
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r2/P2-c8-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153239552
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r2/P2-c8-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152834048
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r2/P2-c8-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14652588,
+      "allocated_bytes": 14655488,
+      "sha256": "13c5c22b44bd9584c6e51338f4a60c84fe9baa9e87ad0139036788bdff218483"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r2/P2-c8-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r1/P2-c8-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152829952
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r1/P2-c8-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153235456
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r1/P2-c8-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152829952
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r1/P2-c8-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14643920,
+      "allocated_bytes": 14647296,
+      "sha256": "58fa24e91fa88d778a876768844ec0d0fb92c4d8b3893bcc679c1d641cea25f8"
+    },
+    {
+      "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r1/P2-c8-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152616960
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153030656
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152629248
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14661150,
+      "allocated_bytes": 14663680,
+      "sha256": "0d1adf926e3185956f9650ad5a1a27e43b521252757481c365e2a2cd9452a156"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40361984
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47722496
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40312832
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 37775728,
+      "allocated_bytes": 37777408,
+      "sha256": "c5b42d43bcc0468728a9e19cfcf07dbd73bb1b5338ff2df61a798fb26d7d8428"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40484864
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47976448
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40521728
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 37638853,
+      "allocated_bytes": 37646336,
+      "sha256": "950fbd2b0cf224e6c7760168a433f886706f037bddeb4bf5499d2a8c5089dbac"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40476672
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47656960
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40513536
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 37383161,
+      "allocated_bytes": 37384192,
+      "sha256": "f8126efbeefc0bf0a862f35bbe4eba1cb669950b1c8ce64ff272900908022f87"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40484864
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47763456
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40452096
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 37863642,
+      "allocated_bytes": 37867520,
+      "sha256": "a4836039194e7576981785c49c665663cd40eb9d2a3f0dd7da64aeae0e34acb8"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40361984
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40488960
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47599616
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 37082091,
+      "allocated_bytes": 37085184,
+      "sha256": "bf1f15b4b71b2a9829cce3711b088f14b73a61ad3adc5d8deadb4a45d6b1c2b3"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40505344
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47824896
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40501248
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 36939591,
+      "allocated_bytes": 36941824,
+      "sha256": "3f73d23169e83959bd4e0f63cd335f36b1fc8a059d7ec11fcd5bcc393b189a58"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152612864
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153010176
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152604672
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14659885,
+      "allocated_bytes": 14663680,
+      "sha256": "4a54fc5c4e582b75514c0db3c2f113531446648176a73ac2cc60d549197f62df"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/provision/node-3.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152580096
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/provision/node-1.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152993792
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/provision/node-2.device",
+      "reason": "completed_test_device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152571904
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/inputs.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 14642031,
+      "allocated_bytes": 14643200,
+      "sha256": "d3b312a8af6e2412a43d044225a4379283ffc1f07383c2187d21eacf2cd9ef01"
+    },
+    {
+      "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/fixture.jsonl",
+      "reason": "regenerable_workload_input",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320,
+      "sha256": "9fcaabaa126fc7cd8a1fbe5be5a2be2edd7bad2efd4a376d557798abf87a22dd"
+    },
+    {
+      "path": "test.bustub",
+      "reason": "generated_test_artifact_or_stale_run_marker",
+      "bytes": 8392704,
+      "allocated_bytes": 0
+    },
+    {
+      "path": ".cache/final-acceptance/fixes-run-root",
+      "reason": "generated_test_artifact_or_stale_run_marker",
+      "bytes": 102,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build",
+      "reason": "regenerable_build_directory",
+      "directory": true,
+      "files": 2248,
+      "bytes": 93006315,
+      "allocated_bytes": 99786752
+    }
+  ],
+  "validation": {
+    "source_binary_sha256_entries_checked_before_cleanup": 563,
+    "prior_cpp_checks_with_xml_hashes_verified": 53,
+    "new_python_driver_checks_passed": 2,
+    "new_python_report_checks_passed": 2,
+    "bash_syntax_passed": true,
+    "all_27_case_business_measurement_and_cleanup_flags_checked": true,
+    "no_new_performance_workload": true,
+    "no_test_process_seen_in_accessible_proc": true
+  },
+  "retained": [
+    "All result.json, history.jsonl, logical_history.jsonl, resources and failure/diagnostic evidence",
+    "Four original C/P baseline tar.xz packages; no obsolete module test archives remain",
+    "Historical before binaries/source/provenance in .cache/final-acceptance/read-index-before",
+    "GCC/Go toolchains, check-history oracle, original-performance-json",
+    "Original SHA256SUMS (historical, may reference removed build/input files)"
+  ],
+  "limits": [
+    "Removed device images cannot be reopened for crash/recovery experiments.",
+    "Removed workload inputs can be regenerated; their original hashes are recorded here.",
+    "Run prepare then verify before a future workload; old run marker and current build removed.",
+    "Allocated-byte sum describes Linux filesystem blocks, not Windows VHD shrinkage."
+  ]
+}

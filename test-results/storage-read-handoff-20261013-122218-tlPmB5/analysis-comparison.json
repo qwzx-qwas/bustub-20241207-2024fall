@@ -1,0 +1,1438 @@
+{
+  "kind": "offline_analysis_no_new_workload",
+  "date": "2026-10-13",
+  "scope": "18 completed observations: same buffered harness, interleaved before/after ReadIndex completion handoff; P1 uniform/hotspot and P2 eight clients.",
+  "integrity": {
+    "point_count": 18,
+    "all_measurements_and_business_validated": true,
+    "all_cleanup_successful": true,
+    "same_source_manifest_all_points": true,
+    "paired_configs_identical": true,
+    "configs_identical_to_previous_historical": true,
+    "prior_result_hashes_verified": true,
+    "before_binaries_match_frozen_provenance": true,
+    "cpp_client_and_driver_identical": true,
+    "frozen_sources_and_binaries_SHA256SUMS_verified": true,
+    "workload_oracle_report_cpp_driver_sources_identical_to_previous": true,
+    "paired_fixture_documents_identical": true
+  },
+  "metric": "Median of three run values. Throughput counts successful logical confirmations inside the 180-second window; latency includes drain tails. Per-run percentiles are not pooled.",
+  "cost_method": "Join each successful logical operation to its single C++ call. Outside-call mean is computed per request, not by subtracting percentiles. C++ call includes client/trace work, not just server time. Process counters use first/last samples inside Python window.",
+  "comparisons": [
+    {
+      "point": "P1-uniform-c4",
+      "original_simplistic_historical": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r1/result.json",
+            "sha256": "0d5d2f4590062ae8f6efa9f86df92563fc37c79a77efc31b1da1e5303135c733"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r2/result.json",
+            "sha256": "73d55ba7c10d73098bb513caa39bd43d03050a5e297e24ed31810f29416a442f"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r3/result.json",
+            "sha256": "0bb4dd6b9fe77e24de4b5827a034f59f131e4ac583b0e672bfaaca28183c74dd"
+          }
+        ],
+        "ops_per_second": [
+          665.6777777777778,
+          657.0333333333333,
+          658.4611111111111
+        ],
+        "median_ops_per_second": 658.4611111111111,
+        "range_ops_per_second": [
+          657.0333333333333,
+          665.6777777777778
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 5.630083,
+          "p95_ms": 7.924143,
+          "p99_ms": 9.56625
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 2,
+          "SUCCESS": 356621
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 121.71,
+        "median_node_read_MiB": 0.0
+      },
+      "b709e0a_historical": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/result.json",
+            "sha256": "58df7646d29777c99232de1a937474cf319be6aae92e25d532ca60f0e264d665"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/result.json",
+            "sha256": "01962ee80742da530926f6a0f125ae4983f4e5abea02e54c1c948e3f3ae21bf1"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/result.json",
+            "sha256": "a78470b68432b7a9111ebe556432f4b0cbf0fd7d9fb7674bbe2a76388a790512"
+          }
+        ],
+        "ops_per_second": [
+          295.1666666666667,
+          295.6277777777778,
+          292.05555555555554
+        ],
+        "median_ops_per_second": 295.1666666666667,
+        "range_ops_per_second": [
+          292.05555555555554,
+          295.6277777777778
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.159527,
+          "p95_ms": 18.387879,
+          "p99_ms": 29.260312
+        },
+        "retry_attempts": 12,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 158925
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 202.3,
+        "median_node_read_MiB": 479.46484375
+      },
+      "previous_read_index_old_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/result.json",
+            "sha256": "2a1e12827bef386c57d739ad57121ddb385642c87834a8521f1488a4246f2628"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/result.json",
+            "sha256": "2908946d8a1431a45c204802deca82280fefaa3bc7e7d5559e3add650186e137"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/result.json",
+            "sha256": "33b66a973a93f877b207a1366dbfed859c73f3e13efaf52f37e74c4299c8ec9d"
+          }
+        ],
+        "ops_per_second": [
+          287.5833333333333,
+          285.7611111111111,
+          283.02777777777777
+        ],
+        "median_ops_per_second": 285.7611111111111,
+        "range_ops_per_second": [
+          283.02777777777777,
+          287.5833333333333
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.701256,
+          "p95_ms": 19.031831,
+          "p99_ms": 29.667192
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 154158
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 202.41,
+        "median_node_read_MiB": 470.62890625
+      },
+      "before_new_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r1/P1-uniform-c4-r1/result.json",
+            "sha256": "12780271f84e63ddcb94dae541f6a1a883e6d085529928130ae9667e185d6066"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r2/P1-uniform-c4-r2/result.json",
+            "sha256": "64739a4557bc76bf54cefaec0ab757973c9a357fb7b088a562fe31ac749395da"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r3/P1-uniform-c4-r3/result.json",
+            "sha256": "fefde664183dcf6af6ca74654373de5c789121078a212d5e9134d10f9b3159d7"
+          }
+        ],
+        "ops_per_second": [
+          810.8611111111111,
+          804.9166666666666,
+          819.5055555555556
+        ],
+        "median_ops_per_second": 810.8611111111111,
+        "range_ops_per_second": [
+          804.9166666666666,
+          819.5055555555556
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 4.54389,
+          "p95_ms": 6.154016,
+          "p99_ms": 8.386714
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 438360,
+          "NOT_ISSUED": 2
+        },
+        "median_node_cpu_seconds": 493.14,
+        "median_node_read_MiB": 967.94140625,
+        "median_client_cpu_seconds": 201.48
+      },
+      "before_cost_medians": {
+        "mean_call_ms": 3.446935185079613,
+        "mean_outside_call_ms": 1.2704462192851078,
+        "mean_logical_ms": 4.696129374833856,
+        "mean_inflight_cpp_calls": 2.774542284511111,
+        "python_cpu_seconds": 158.52,
+        "python_read_syscalls": 283899
+      },
+      "after_new_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r1/P1-uniform-c4-r1/result.json",
+            "sha256": "c63a930a4d080d84c63810e5337ec5e3968d28e1a363052092e556cc86c9b6c3"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r2/P1-uniform-c4-r2/result.json",
+            "sha256": "0fb01df4a1ef72a4ebfc9e2b9aa2c7ff9295461c62a0ac548071d8204d70d3a7"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r3/P1-uniform-c4-r3/result.json",
+            "sha256": "a6c243eca3fa3bcdd576b77bf11299e5b89d5ab10b68441e148db4fb4cd20848"
+          }
+        ],
+        "ops_per_second": [
+          807.4277777777778,
+          813.8777777777777,
+          827.7833333333333
+        ],
+        "median_ops_per_second": 813.8777777777777,
+        "range_ops_per_second": [
+          807.4277777777778,
+          827.7833333333333
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 4.516168,
+          "p95_ms": 6.125646,
+          "p99_ms": 8.327114
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 3,
+          "SUCCESS": 440845
+        },
+        "median_node_cpu_seconds": 494.41,
+        "median_node_read_MiB": 970.8671875,
+        "median_client_cpu_seconds": 202.05
+      },
+      "after_cost_medians": {
+        "mean_call_ms": 3.4032918204926927,
+        "mean_outside_call_ms": 1.2612980050579858,
+        "mean_logical_ms": 4.664589825550679,
+        "mean_inflight_cpp_calls": 2.7698948735722224,
+        "python_cpu_seconds": 159.19,
+        "python_read_syscalls": 284413
+      },
+      "throughput_change_percent": {
+        "original_simplistic_historical": 23.603013761042146,
+        "b709e0a_historical": 175.7349896480331,
+        "previous_read_index_old_harness": 184.8105449384684,
+        "before_new_harness": 0.3720324757630733
+      },
+      "paired_throughput_change_percent": [
+        -0.4234181768353218,
+        1.1132967525968818,
+        1.0100941624692217
+      ]
+    },
+    {
+      "point": "P1-hotspot-c4",
+      "original_simplistic_historical": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r1/result.json",
+            "sha256": "3ae7e8f2a581842c3a26af71fe40e2ef18c31bab42543222b7ce7dcc6ed77472"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r2/result.json",
+            "sha256": "479307bacffa016d7f9326fd3394d153c38f205578b2f40107853e0ae4386c0b"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r3/result.json",
+            "sha256": "d897dfdc25d4fdc0b008b61ad776fb6bc38346a8e0ff9cc55e7aac6cbf33008a"
+          }
+        ],
+        "ops_per_second": [
+          662.9555555555555,
+          657.7722222222222,
+          656.7611111111111
+        ],
+        "median_ops_per_second": 657.7722222222222,
+        "range_ops_per_second": [
+          656.7611111111111,
+          662.9555555555555
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 5.608022,
+          "p95_ms": 7.845514,
+          "p99_ms": 9.724642
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 3,
+          "SUCCESS": 355957
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 122.64,
+        "median_node_read_MiB": 0.0
+      },
+      "b709e0a_historical": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/result.json",
+            "sha256": "a27c1e99238569c8ee153e5e5705985c6158beda96cfed3cc0b21ea46316353d"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/result.json",
+            "sha256": "7e59fcb40f34ebea63df19ab76046ebdcd9a9993aadb4a9838f5c9a73f963c55"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/result.json",
+            "sha256": "ff77011674f560aee13ae35008d528073b1ffe04ec5cac9b3905a8aaa77bb22f"
+          }
+        ],
+        "ops_per_second": [
+          294.69444444444446,
+          291.6611111111111,
+          293.47777777777776
+        ],
+        "median_ops_per_second": 293.47777777777776,
+        "range_ops_per_second": [
+          291.6611111111111,
+          294.69444444444446
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.190246,
+          "p95_ms": 18.419858,
+          "p99_ms": 45.388172
+        },
+        "retry_attempts": 3,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 2,
+          "SUCCESS": 158380
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 167.27,
+        "median_node_read_MiB": 264.8125
+      },
+      "previous_read_index_old_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/result.json",
+            "sha256": "61736284fe2bef236421e114f06d4ff6b3b50b41ea5468d3867995dcced069ef"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/result.json",
+            "sha256": "19a7bd1196f196c0cdc9949d9174d85a2fb32e0df9d2ae783c2941b1ee278d4f"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/result.json",
+            "sha256": "0f07db9359cb94d8e1edcd812ee529a944c66b145fe6fcaa428911aaed8f1193"
+          }
+        ],
+        "ops_per_second": [
+          280.8611111111111,
+          289.48333333333335,
+          281.72222222222223
+        ],
+        "median_ops_per_second": 281.72222222222223,
+        "range_ops_per_second": [
+          280.8611111111111,
+          289.48333333333335
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.573551,
+          "p95_ms": 18.981876,
+          "p99_ms": 43.86762
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 153383,
+          "NOT_ISSUED": 1
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 168.61,
+        "median_node_read_MiB": 262.09765625
+      },
+      "before_new_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r1/P1-hotspot-c4-r1/result.json",
+            "sha256": "def4c41c13f8b3fe573aad9706e91570411b49bfd0159ef49a921b628f50f139"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r2/P1-hotspot-c4-r2/result.json",
+            "sha256": "d4aa6723d92e7496c0d52bc65f9621992a0f620929a8f9ad9db7210c2f87c6ad"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r3/P1-hotspot-c4-r3/result.json",
+            "sha256": "c32e6b4e43d39040cb5ac732047119c04a3041d24e45e2ff85ee6366492ff350"
+          }
+        ],
+        "ops_per_second": [
+          827.25,
+          829.1277777777777,
+          816.4222222222222
+        ],
+        "median_ops_per_second": 827.25,
+        "range_ops_per_second": [
+          816.4222222222222,
+          829.1277777777777
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 4.266521,
+          "p95_ms": 6.170517,
+          "p99_ms": 8.340794
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 5,
+          "SUCCESS": 445111
+        },
+        "median_node_cpu_seconds": 404.5,
+        "median_node_read_MiB": 380.21484375,
+        "median_client_cpu_seconds": 241.52
+      },
+      "before_cost_medians": {
+        "mean_call_ms": 2.5539639596526693,
+        "mean_outside_call_ms": 1.9097064218270465,
+        "mean_logical_ms": 4.463670381479716,
+        "mean_inflight_cpp_calls": 2.1127838023944445,
+        "python_cpu_seconds": 201.26,
+        "python_read_syscalls": 276195
+      },
+      "after_new_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r1/P1-hotspot-c4-r1/result.json",
+            "sha256": "b6f45576c0ecda55376406ea09073682572e762dfee59369eef91a801ce0b4df"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r2/P1-hotspot-c4-r2/result.json",
+            "sha256": "6be48fc569e85b866a11a547ecce7007a4c2edbf0aa7e8c1a2214847f80c69ae"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r3/P1-hotspot-c4-r3/result.json",
+            "sha256": "9bc20dcbceb75d486c6a8070e11f0a920bb41f81de17968b67ac062d6070f6a3"
+          }
+        ],
+        "ops_per_second": [
+          820.5388888888889,
+          816.4222222222222,
+          812.4666666666667
+        ],
+        "median_ops_per_second": 816.4222222222222,
+        "range_ops_per_second": [
+          812.4666666666667,
+          820.5388888888889
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 4.309461,
+          "p95_ms": 6.248933,
+          "p99_ms": 8.464383
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 6,
+          "SUCCESS": 440902
+        },
+        "median_node_cpu_seconds": 401.75,
+        "median_node_read_MiB": 379.1171875,
+        "median_client_cpu_seconds": 242.61
+      },
+      "after_cost_medians": {
+        "mean_call_ms": 2.5426846245457884,
+        "mean_outside_call_ms": 1.968548163162264,
+        "mean_logical_ms": 4.511232787708052,
+        "mean_inflight_cpp_calls": 2.075918119983333,
+        "python_cpu_seconds": 202.45,
+        "python_read_syscalls": 272824
+      },
+      "throughput_change_percent": {
+        "original_simplistic_historical": 24.11929154807051,
+        "b709e0a_historical": 178.18877068110402,
+        "previous_read_index_old_harness": 189.79688424373887,
+        "before_new_harness": -1.3088882173197702
+      },
+      "paired_throughput_change_percent": [
+        -0.8112554984721854,
+        -1.5324001795729125,
+        -0.4844987615340579
+      ]
+    },
+    {
+      "point": "P2-c8",
+      "original_simplistic_historical": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c8-r1/result.json",
+            "sha256": "3b93f58813622c1963d62ea374836a92bdd84aae44870130660b678762176c48"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c8-r2/result.json",
+            "sha256": "5480a0fdc27814055984802d113e965e3742712b059b6ebb1a9ee3fd77a964e9"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-c8-r3-resumed/P2-c8-r3/result.json",
+            "sha256": "2abd2e0db4b6694b3b857e0b84e2fb3259b1fbb89dd7ca14b40c12df630d7e4d"
+          }
+        ],
+        "ops_per_second": [
+          1.1333333333333333,
+          1.1166666666666667,
+          1.2944444444444445
+        ],
+        "median_ops_per_second": 1.1333333333333333,
+        "range_ops_per_second": [
+          1.1166666666666667,
+          1.2944444444444445
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 4151.540854,
+          "p95_ms": 23183.0724,
+          "p99_ms": 31771.472025
+        },
+        "retry_attempts": 533,
+        "deadline_misses": 5,
+        "outcomes": {
+          "SUCCESS": 657,
+          "UNCONFIRMED": 5
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 316.69,
+        "median_node_read_MiB": 0.0
+      },
+      "b709e0a_historical": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/result.json",
+            "sha256": "21741d82426af860120262cad172e00b3142fb8924ea4597adbf74c8e0c20eb2"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/result.json",
+            "sha256": "d90a02ea7a3ec38a1fe07aad5aa94bee118d7902a23389ded07a39d357c23966"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/result.json",
+            "sha256": "5226c10a74930c2077af6c643b319ab0b91beacc641de648c48b3fed02948a88"
+          }
+        ],
+        "ops_per_second": [
+          33.705555555555556,
+          33.88333333333333,
+          33.87222222222222
+        ],
+        "median_ops_per_second": 33.87222222222222,
+        "range_ops_per_second": [
+          33.705555555555556,
+          33.88333333333333
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 219.025221,
+          "p95_ms": 398.652977,
+          "p99_ms": 493.25388
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 1,
+          "SUCCESS": 18286
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 307.84,
+        "median_node_read_MiB": 1268.25
+      },
+      "previous_read_index_old_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/result.json",
+            "sha256": "9705585fe44fad08efaf35df34f844db21a15f2487c12e9f270f19741c74cf84"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/result.json",
+            "sha256": "3cafc95955a96d22e03150358bd129591e14c3ab46b520ede6b841008d6b496a"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/result.json",
+            "sha256": "e5a39fd462c76e0a9a9cd582207b4dba2949232441b631c5f48ae182505c5360"
+          }
+        ],
+        "ops_per_second": [
+          33.09444444444444,
+          32.86666666666667,
+          33.08888888888889
+        ],
+        "median_ops_per_second": 33.08888888888889,
+        "range_ops_per_second": [
+          32.86666666666667,
+          33.09444444444444
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 224.836817,
+          "p95_ms": 405.297128,
+          "p99_ms": 512.119974
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 17853
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 307.69,
+        "median_node_read_MiB": 1246.23046875
+      },
+      "before_new_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r1/P2-c8-r1/result.json",
+            "sha256": "b955f27b249eb429d7591deff7f2c0e8895a0eb7642ec8a2b77ca14385ad7ae7"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r2/P2-c8-r2/result.json",
+            "sha256": "77f237dcff5f9579ad95df70aed4fbb72b86b407219241f758cd2c1780f1efd9"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r3/P2-c8-r3/result.json",
+            "sha256": "6ffae332e1736d6ceb86c0990f9b8a29d8bcba5593df2f8f8fb48f02bb42d3e8"
+          }
+        ],
+        "ops_per_second": [
+          33.477777777777774,
+          33.605555555555554,
+          33.97222222222222
+        ],
+        "median_ops_per_second": 33.605555555555554,
+        "range_ops_per_second": [
+          33.477777777777774,
+          33.97222222222222
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 220.768291,
+          "p95_ms": 397.470701,
+          "p99_ms": 484.87296
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 18214
+        },
+        "median_node_cpu_seconds": 308.57,
+        "median_node_read_MiB": 1254.29296875,
+        "median_client_cpu_seconds": 9.52
+      },
+      "before_cost_medians": {
+        "mean_call_ms": 236.7234927573056,
+        "mean_outside_call_ms": 0.9295379479013556,
+        "mean_logical_ms": 237.6684117371636,
+        "mean_inflight_cpp_calls": 7.961556709244444,
+        "python_cpu_seconds": 7.61,
+        "python_read_syscalls": 17357
+      },
+      "after_new_harness": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r1/P2-c8-r1/result.json",
+            "sha256": "cbe20ef4410a10aa2a241a3c884e791047e5668e0df113d5c33b59522ea9502c"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r2/P2-c8-r2/result.json",
+            "sha256": "9051f110924455f442bbd1916cf0d307cd71e3d2ea7bde530450726deb5d3150"
+          },
+          {
+            "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r3/P2-c8-r3/result.json",
+            "sha256": "c48d37f2072923dc52d0180f9e8add35cca50b1c4b37ef9bbeb0c6529f643c8e"
+          }
+        ],
+        "ops_per_second": [
+          34.28888888888889,
+          33.5,
+          33.45
+        ],
+        "median_ops_per_second": 33.5,
+        "range_ops_per_second": [
+          33.45,
+          34.28888888888889
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 222.488221,
+          "p95_ms": 397.713702,
+          "p99_ms": 478.204253
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 18246
+        },
+        "median_node_cpu_seconds": 309.73,
+        "median_node_read_MiB": 1259.3125,
+        "median_client_cpu_seconds": 9.48
+      },
+      "after_cost_medians": {
+        "mean_call_ms": 237.49966003461412,
+        "mean_outside_call_ms": 0.9273302622977346,
+        "mean_logical_ms": 238.4231056023518,
+        "mean_inflight_cpp_calls": 7.961401298511111,
+        "python_cpu_seconds": 7.59,
+        "python_read_syscalls": 17326
+      },
+      "throughput_change_percent": {
+        "original_simplistic_historical": 2855.8823529411766,
+        "b709e0a_historical": -1.098901098901095,
+        "previous_read_index_old_harness": 1.242444593687031,
+        "before_new_harness": -0.31410150438088147
+      },
+      "paired_throughput_change_percent": [
+        2.422834384334571,
+        -0.31410150438088147,
+        -1.5372035977105347
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "label": "after-P1-hotspot-r1",
+      "version": "after",
+      "point": "P1-hotspot-c4",
+      "repeat": 1,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r1/P1-hotspot-c4-r1/result.json",
+        "sha256": "b6f45576c0ecda55376406ea09073682572e762dfee59369eef91a801ce0b4df"
+      },
+      "config_sha256": "6634dc7dccd43db4ddb5d037cd0f7346017183bc4413256153bbc0c4e67bbd10",
+      "raw_measurement_statuses": {
+        "READ/OK": 147699,
+        "READ/skipped": 1
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 147699,
+        "mean_call_ms": 2.4815529766010607,
+        "mean_outside_call_ms": 2.0016515582163725,
+        "mean_logical_ms": 4.483204534817433,
+        "mean_inflight_cpp_calls": 2.0362272036944447,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 205.01,
+            "read_syscalls": 272881,
+            "read_chars": 259745143
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 39.79,
+            "read_syscalls": 147453,
+            "read_chars": 34477646
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P1-hotspot-r2",
+      "version": "after",
+      "point": "P1-hotspot-c4",
+      "repeat": 2,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r2/P1-hotspot-c4-r2/result.json",
+        "sha256": "6be48fc569e85b866a11a547ecce7007a4c2edbf0aa7e8c1a2214847f80c69ae"
+      },
+      "config_sha256": "8f8d768120cca2148c0c2c614d942e8440400603b8f09704dfb96d57d0137311",
+      "raw_measurement_statuses": {
+        "READ/OK": 146958,
+        "READ/skipped": 2
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 146958,
+        "mean_call_ms": 2.5426846245457884,
+        "mean_outside_call_ms": 1.968548163162264,
+        "mean_logical_ms": 4.511232787708052,
+        "mean_inflight_cpp_calls": 2.075918119983333,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 202.45,
+            "read_syscalls": 272824,
+            "read_chars": 258468375
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 40.16,
+            "read_syscalls": 146721,
+            "read_chars": 34302584
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P1-hotspot-r3",
+      "version": "after",
+      "point": "P1-hotspot-c4",
+      "repeat": 3,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-hotspot-r3/P1-hotspot-c4-r3/result.json",
+        "sha256": "9bc20dcbceb75d486c6a8070e11f0a920bb41f81de17968b67ac062d6070f6a3"
+      },
+      "config_sha256": "972fde7b9efc53f7e7ef33dcf9add334ee97fc8ee8407002a58cdb4d58baa068",
+      "raw_measurement_statuses": {
+        "READ/OK": 146245,
+        "READ/skipped": 3
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 146245,
+        "mean_call_ms": 2.5941951809361004,
+        "mean_outside_call_ms": 1.9415157995145131,
+        "mean_logical_ms": 4.535710980450613,
+        "mean_inflight_cpp_calls": 2.1077048670666665,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 199.55,
+            "read_syscalls": 272382,
+            "read_chars": 257245363
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 40.16,
+            "read_syscalls": 146014,
+            "read_chars": 34136643
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P1-uniform-r1",
+      "version": "after",
+      "point": "P1-uniform-c4",
+      "repeat": 1,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r1/P1-uniform-c4-r1/result.json",
+        "sha256": "c63a930a4d080d84c63810e5337ec5e3968d28e1a363052092e556cc86c9b6c3"
+      },
+      "config_sha256": "b35b24d341d12f00e7d2dafb74f12afe21c3293df2fd0cc3921f321b1e7355a2",
+      "raw_measurement_statuses": {
+        "READ/OK": 145340,
+        "READ/skipped": 1
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 145340,
+        "mean_call_ms": 3.4485604310238065,
+        "mean_outside_call_ms": 1.260184440229806,
+        "mean_logical_ms": 4.708744871253613,
+        "mean_inflight_cpp_calls": 2.7844915853666667,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 157.28,
+            "read_syscalls": 282268,
+            "read_chars": 259465929
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 42.66,
+            "read_syscalls": 145098,
+            "read_chars": 34273711
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P1-uniform-r2",
+      "version": "after",
+      "point": "P1-uniform-c4",
+      "repeat": 2,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r2/P1-uniform-c4-r2/result.json",
+        "sha256": "0fb01df4a1ef72a4ebfc9e2b9aa2c7ff9295461c62a0ac548071d8204d70d3a7"
+      },
+      "config_sha256": "7ec19a16bbbc63faa402bd8a11f6c039cf2a0cb0249f583cda87c3140aa0cab1",
+      "raw_measurement_statuses": {
+        "READ/OK": 146501,
+        "READ/skipped": 1
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 146501,
+        "mean_call_ms": 3.4032918204926927,
+        "mean_outside_call_ms": 1.2612980050579858,
+        "mean_logical_ms": 4.664589825550679,
+        "mean_inflight_cpp_calls": 2.7698948735722224,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 159.19,
+            "read_syscalls": 284413,
+            "read_chars": 261567815
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 42.86,
+            "read_syscalls": 146265,
+            "read_chars": 34551540
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P1-uniform-r3",
+      "version": "after",
+      "point": "P1-uniform-c4",
+      "repeat": 3,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P1-uniform-r3/P1-uniform-c4-r3/result.json",
+        "sha256": "a6c243eca3fa3bcdd576b77bf11299e5b89d5ab10b68441e148db4fb4cd20848"
+      },
+      "config_sha256": "0b1977957adf7723e00bee75b056a72158cbfababfcc3f1baeca830c4a8c4d24",
+      "raw_measurement_statuses": {
+        "READ/OK": 149004,
+        "READ/skipped": 1
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 149004,
+        "mean_call_ms": 3.3103413903385146,
+        "mean_outside_call_ms": 1.2720345626023464,
+        "mean_logical_ms": 4.582375952940861,
+        "mean_inflight_cpp_calls": 2.7402754920388888,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 162.69,
+            "read_syscalls": 289480,
+            "read_chars": 266031560
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 42.56,
+            "read_syscalls": 148746,
+            "read_chars": 35143780
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P2-c8-r1",
+      "version": "after",
+      "point": "P2-c8",
+      "repeat": 1,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r1/P2-c8-r1/result.json",
+        "sha256": "cbe20ef4410a10aa2a241a3c884e791047e5668e0df113d5c33b59522ea9502c"
+      },
+      "config_sha256": "69e15b0b10da325dadb547d74de59620a86911493d7127b43d0b7fc03aafc974",
+      "raw_measurement_statuses": {
+        "WRITE/COMMITTED": 6180
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 6180,
+        "mean_call_ms": 231.98755221634303,
+        "mean_outside_call_ms": 0.9273302622977346,
+        "mean_logical_ms": 232.91488247864078,
+        "mean_inflight_cpp_calls": 7.9613754710333335,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 7.62,
+            "read_syscalls": 17622,
+            "read_chars": 5901575
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 1.93,
+            "read_syscalls": 6675,
+            "read_chars": 1390076
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P2-c8-r2",
+      "version": "after",
+      "point": "P2-c8",
+      "repeat": 2,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r2/P2-c8-r2/result.json",
+        "sha256": "9051f110924455f442bbd1916cf0d307cd71e3d2ea7bde530450726deb5d3150"
+      },
+      "config_sha256": "e64bbf020e56ae2a044420f87ea10fea331d074875bbdf5ae96af1b630c9d022",
+      "raw_measurement_statuses": {
+        "WRITE/COMMITTED": 6038
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 6038,
+        "mean_call_ms": 237.49966003461412,
+        "mean_outside_call_ms": 0.9234455677376615,
+        "mean_logical_ms": 238.4231056023518,
+        "mean_inflight_cpp_calls": 7.962245933261111,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 7.45,
+            "read_syscalls": 17326,
+            "read_chars": 5797383
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 1.86,
+            "read_syscalls": 6526,
+            "read_chars": 1357103
+          }
+        ]
+      }
+    },
+    {
+      "label": "after-P2-c8-r3",
+      "version": "after",
+      "point": "P2-c8",
+      "repeat": 3,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/after-P2-c8-r3/P2-c8-r3/result.json",
+        "sha256": "c48d37f2072923dc52d0180f9e8add35cca50b1c4b37ef9bbeb0c6529f643c8e"
+      },
+      "config_sha256": "3b96591011cac1a644c6a8312b19c9d86468e50adf079137a83bf61d69537719",
+      "raw_measurement_statuses": {
+        "WRITE/COMMITTED": 6028
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 6028,
+        "mean_call_ms": 237.78054035252157,
+        "mean_outside_call_ms": 0.9478068842070337,
+        "mean_logical_ms": 238.7283472367286,
+        "mean_inflight_cpp_calls": 7.961401298511111,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 7.59,
+            "read_syscalls": 17307,
+            "read_chars": 5799011
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 1.89,
+            "read_syscalls": 6528,
+            "read_chars": 1357493
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P1-hotspot-r1",
+      "version": "before",
+      "point": "P1-hotspot-c4",
+      "repeat": 1,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r1/P1-hotspot-c4-r1/result.json",
+        "sha256": "def4c41c13f8b3fe573aad9706e91570411b49bfd0159ef49a921b628f50f139"
+      },
+      "config_sha256": "6634dc7dccd43db4ddb5d037cd0f7346017183bc4413256153bbc0c4e67bbd10",
+      "raw_measurement_statuses": {
+        "READ/OK": 148907,
+        "READ/skipped": 2
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 148907,
+        "mean_call_ms": 2.5539639596526693,
+        "mean_outside_call_ms": 1.9097064218270465,
+        "mean_logical_ms": 4.463670381479716,
+        "mean_inflight_cpp_calls": 2.1127838023944445,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 201.26,
+            "read_syscalls": 276929,
+            "read_chars": 261851856
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 40.34,
+            "read_syscalls": 148657,
+            "read_chars": 34760751
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P1-hotspot-r2",
+      "version": "before",
+      "point": "P1-hotspot-c4",
+      "repeat": 2,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r2/P1-hotspot-c4-r2/result.json",
+        "sha256": "d4aa6723d92e7496c0d52bc65f9621992a0f620929a8f9ad9db7210c2f87c6ad"
+      },
+      "config_sha256": "8f8d768120cca2148c0c2c614d942e8440400603b8f09704dfb96d57d0137311",
+      "raw_measurement_statuses": {
+        "READ/OK": 149245,
+        "READ/skipped": 2
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 149245,
+        "mean_call_ms": 2.511852835981105,
+        "mean_outside_call_ms": 1.9336773274012529,
+        "mean_logical_ms": 4.445530163382358,
+        "mean_inflight_cpp_calls": 2.0826735213444443,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 201.64,
+            "read_syscalls": 276195,
+            "read_chars": 260937854
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 39.88,
+            "read_syscalls": 148145,
+            "read_chars": 34641880
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P1-hotspot-r3",
+      "version": "before",
+      "point": "P1-hotspot-c4",
+      "repeat": 3,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-hotspot-r3/P1-hotspot-c4-r3/result.json",
+        "sha256": "c32e6b4e43d39040cb5ac732047119c04a3041d24e45e2ff85ee6366492ff350"
+      },
+      "config_sha256": "972fde7b9efc53f7e7ef33dcf9add334ee97fc8ee8407002a58cdb4d58baa068",
+      "raw_measurement_statuses": {
+        "READ/OK": 146959,
+        "READ/skipped": 1
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 146959,
+        "mean_call_ms": 2.630044386264196,
+        "mean_outside_call_ms": 1.8944456886682681,
+        "mean_logical_ms": 4.524490074932465,
+        "mean_inflight_cpp_calls": 2.1472418424111113,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 198.15,
+            "read_syscalls": 274785,
+            "read_chars": 258433009
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 40.03,
+            "read_syscalls": 146713,
+            "read_chars": 34300874
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P1-uniform-r1",
+      "version": "before",
+      "point": "P1-uniform-c4",
+      "repeat": 1,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r1/P1-uniform-c4-r1/result.json",
+        "sha256": "12780271f84e63ddcb94dae541f6a1a883e6d085529928130ae9667e185d6066"
+      },
+      "config_sha256": "b35b24d341d12f00e7d2dafb74f12afe21c3293df2fd0cc3921f321b1e7355a2",
+      "raw_measurement_statuses": {
+        "READ/OK": 145958
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 537
+      },
+      "cost": {
+        "matched_successes": 145958,
+        "mean_call_ms": 3.4835795073856866,
+        "mean_outside_call_ms": 1.21254986744817,
+        "mean_logical_ms": 4.696129374833856,
+        "mean_inflight_cpp_calls": 2.8247546503944445,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 154.42,
+            "read_syscalls": 283899,
+            "read_chars": 260208265
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 42.12,
+            "read_syscalls": 145728,
+            "read_chars": 34423776
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P1-uniform-r2",
+      "version": "before",
+      "point": "P1-uniform-c4",
+      "repeat": 2,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r2/P1-uniform-c4-r2/result.json",
+        "sha256": "64739a4557bc76bf54cefaec0ab757973c9a357fb7b088a562fe31ac749395da"
+      },
+      "config_sha256": "7ec19a16bbbc63faa402bd8a11f6c039cf2a0cb0249f583cda87c3140aa0cab1",
+      "raw_measurement_statuses": {
+        "READ/OK": 144889
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 144889,
+        "mean_call_ms": 3.446935185079613,
+        "mean_outside_call_ms": 1.2704462192851078,
+        "mean_logical_ms": 4.717381404364721,
+        "mean_inflight_cpp_calls": 2.774542284511111,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 158.52,
+            "read_syscalls": 281940,
+            "read_chars": 258670368
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 42.96,
+            "read_syscalls": 144656,
+            "read_chars": 34168466
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P1-uniform-r3",
+      "version": "before",
+      "point": "P1-uniform-c4",
+      "repeat": 3,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P1-uniform-r3/P1-uniform-c4-r3/result.json",
+        "sha256": "fefde664183dcf6af6ca74654373de5c789121078a212d5e9134d10f9b3159d7"
+      },
+      "config_sha256": "0b1977957adf7723e00bee75b056a72158cbfababfcc3f1baeca830c4a8c4d24",
+      "raw_measurement_statuses": {
+        "READ/OK": 147513,
+        "READ/skipped": 2
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 147513,
+        "mean_call_ms": 3.348264923972802,
+        "mean_outside_call_ms": 1.2813564452895678,
+        "mean_logical_ms": 4.62962136926237,
+        "mean_inflight_cpp_calls": 2.7439403555777777,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 161.44,
+            "read_syscalls": 285950,
+            "read_chars": 263385605
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 42.53,
+            "read_syscalls": 147264,
+            "read_chars": 34786415
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P2-c8-r1",
+      "version": "before",
+      "point": "P2-c8",
+      "repeat": 1,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r1/P2-c8-r1/result.json",
+        "sha256": "b955f27b249eb429d7591deff7f2c0e8895a0eb7642ec8a2b77ca14385ad7ae7"
+      },
+      "config_sha256": "69e15b0b10da325dadb547d74de59620a86911493d7127b43d0b7fc03aafc974",
+      "raw_measurement_statuses": {
+        "WRITE/COMMITTED": 6034
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 6034,
+        "mean_call_ms": 237.75561779284058,
+        "mean_outside_call_ms": 0.9278202441166722,
+        "mean_logical_ms": 238.68343803695723,
+        "mean_inflight_cpp_calls": 7.962186606466667,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 7.54,
+            "read_syscalls": 17309,
+            "read_chars": 5797105
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 1.87,
+            "read_syscalls": 6524,
+            "read_chars": 1356583
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P2-c8-r2",
+      "version": "before",
+      "point": "P2-c8",
+      "repeat": 2,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r2/P2-c8-r2/result.json",
+        "sha256": "77f237dcff5f9579ad95df70aed4fbb72b86b407219241f758cd2c1780f1efd9"
+      },
+      "config_sha256": "e64bbf020e56ae2a044420f87ea10fea331d074875bbdf5ae96af1b630c9d022",
+      "raw_measurement_statuses": {
+        "WRITE/COMMITTED": 6057
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 6057,
+        "mean_call_ms": 236.7234927573056,
+        "mean_outside_call_ms": 0.9449189798580155,
+        "mean_logical_ms": 237.6684117371636,
+        "mean_inflight_cpp_calls": 7.961274331027778,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 7.63,
+            "read_syscalls": 17357,
+            "read_chars": 5814756
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 1.9,
+            "read_syscalls": 6551,
+            "read_chars": 1362626
+          }
+        ]
+      }
+    },
+    {
+      "label": "before-P2-c8-r3",
+      "version": "before",
+      "point": "P2-c8",
+      "repeat": 3,
+      "source": {
+        "path": "test-results/storage-read-handoff-20261013-122218-tlPmB5/before-P2-c8-r3/P2-c8-r3/result.json",
+        "sha256": "6ffae332e1736d6ceb86c0990f9b8a29d8bcba5593df2f8f8fb48f02bb42d3e8"
+      },
+      "config_sha256": "3b96591011cac1a644c6a8312b19c9d86468e50adf079137a83bf61d69537719",
+      "raw_measurement_statuses": {
+        "WRITE/COMMITTED": 6123
+      },
+      "raw_measurement_errors": [],
+      "observations_in_window": {
+        "STORAGE_STATUS/OK": 540
+      },
+      "cost": {
+        "matched_successes": 6123,
+        "mean_call_ms": 234.14596435570797,
+        "mean_outside_call_ms": 0.9295379479013556,
+        "mean_logical_ms": 235.07550230360934,
+        "mean_inflight_cpp_calls": 7.961556709244444,
+        "processes": [
+          {
+            "owner": "python_harness",
+            "cpu_seconds": 7.61,
+            "read_syscalls": 17487,
+            "read_chars": 5861451
+          },
+          {
+            "owner": "cpp_driver",
+            "cpu_seconds": 1.91,
+            "read_syscalls": 6617,
+            "read_chars": 1377238
+          }
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "Original simplistic results use old file backend/toolchain and old harness; observed ratios are historical whole-system comparisons, not same-harness database speedups.",
+    "The before/after experiment isolates completion handoff, not ReadIndex numbering/grouping versus b709e0a.",
+    "Three adjacent pairs show direction and variation, not statistical proof of equivalence or causation of small differences.",
+    "P3, P4 and P2 four clients were not rerun; recovery and turnover pain points remain outside this round.",
+    "STATUS and storage observation failures during startup/teardown must not be counted as measured SQL failures."
+  ],
+  "findings": [
+    "Both versions finish all 18 observations with successful business validation and cleanup. After: 881747 successful measured reads and 18246 committed measured writes, no raw business errors/retries/deadline misses. Nine after reads were skipped at the workload cutoff before execution.",
+    "The previous node binary with the new buffered harness already measures 810.86/827.25 P1 ops/s. The rise from historical 285.76/281.72 cannot be attributed to the new node handoff change.",
+    "Identical-harness handoff comparison: uniform +0.37%, hotspot -1.31%, P2 eight clients -0.31%. No consistent throughput benefit; hotspot is lower in each of the three adjacent pairs.",
+    "Python read-family syscalls fall from historical 91983143/89146204 to 284413/272824 per sampled P1 window, despite processing more requests. Outside-C++-call means fall from 10.91/11.70 ms to 1.26/1.97 ms. These are observer/client costs, not server phase measurements.",
+    "P2 paired differences have mixed signs (+2.42%, -0.31%, -1.54%). This does not prove the earlier ReadIndex package has no cost versus b709e0a; b709e0a was not rerun with the new harness.",
+    "P2 after still averages about 237.50 ms inside the client call versus 0.93 ms outside it, with about 7.96 of 8 calls in flight. Further write optimization needs phase attribution inside that call, not an assumption that buffered output or ReadIndex dominates.",
+    "P1 numeric comparisons exceed the original historic results by 23.60%/24.12%, but the original code was not rerun under the new harness. No same-harness claim of database-core speedup over the original is supported."
+  ]
+}

@@ -1,0 +1,775 @@
+{
+  "kind": "offline_analysis_no_workload_run",
+  "date": "2026-10-13",
+  "current_root": "test-results/storage-read-index-20261013-103605-MlI6eQ",
+  "base_commit": "b709e0aa95deec22cd87ac49d5856a0815ade602",
+  "scope": "ReadIndex admission numbering and closed shared read rounds; compare original simplistic and immediately previous persistent-TCP/recovery-pipeline version.",
+  "integrity": {
+    "point_count": 9,
+    "all_current_configs_identical_to_previous": true,
+    "all_scenario_source_and_binary_snapshots_identical": true,
+    "current_source_and_binary_SHA256SUMS_verified": true,
+    "formal_profiler_enabled": false,
+    "previous_and_original_result_hashes_match_retained_comparison": true
+  },
+  "metrics": "Medians of three per-run values. Logical success rate counts confirmations within each 180-second window. Outcomes/latency also include drain tails; latency percentiles are not pooled.",
+  "comparisons": [
+    {
+      "point": "P1-uniform-c4",
+      "original_simplistic": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r1/result.json",
+            "sha256": "0d5d2f4590062ae8f6efa9f86df92563fc37c79a77efc31b1da1e5303135c733"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r2/result.json",
+            "sha256": "73d55ba7c10d73098bb513caa39bd43d03050a5e297e24ed31810f29416a442f"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r3/result.json",
+            "sha256": "0bb4dd6b9fe77e24de4b5827a034f59f131e4ac583b0e672bfaaca28183c74dd"
+          }
+        ],
+        "ops_per_second": [
+          665.6777777777778,
+          657.0333333333333,
+          658.4611111111111
+        ],
+        "median_ops_per_second": 658.4611111111111,
+        "range_ops_per_second": [
+          657.0333333333333,
+          665.6777777777778
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 5.630083,
+          "p95_ms": 7.924143,
+          "p99_ms": 9.56625
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 2,
+          "SUCCESS": 356621
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 121.71,
+        "median_node_read_MiB": 0.0
+      },
+      "previous_b709e0a": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/result.json",
+            "sha256": "58df7646d29777c99232de1a937474cf319be6aae92e25d532ca60f0e264d665"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/result.json",
+            "sha256": "01962ee80742da530926f6a0f125ae4983f4e5abea02e54c1c948e3f3ae21bf1"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/result.json",
+            "sha256": "a78470b68432b7a9111ebe556432f4b0cbf0fd7d9fb7674bbe2a76388a790512"
+          }
+        ],
+        "ops_per_second": [
+          295.1666666666667,
+          295.6277777777778,
+          292.05555555555554
+        ],
+        "median_ops_per_second": 295.1666666666667,
+        "range_ops_per_second": [
+          292.05555555555554,
+          295.6277777777778
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.159527,
+          "p95_ms": 18.387879,
+          "p99_ms": 29.260312
+        },
+        "retry_attempts": 12,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 158925
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 202.3,
+        "median_node_read_MiB": 479.46484375
+      },
+      "current_read_index": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/result.json",
+            "sha256": "2a1e12827bef386c57d739ad57121ddb385642c87834a8521f1488a4246f2628"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/result.json",
+            "sha256": "2908946d8a1431a45c204802deca82280fefaa3bc7e7d5559e3add650186e137"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/result.json",
+            "sha256": "33b66a973a93f877b207a1366dbfed859c73f3e13efaf52f37e74c4299c8ec9d"
+          }
+        ],
+        "ops_per_second": [
+          287.5833333333333,
+          285.7611111111111,
+          283.02777777777777
+        ],
+        "median_ops_per_second": 285.7611111111111,
+        "range_ops_per_second": [
+          283.02777777777777,
+          287.5833333333333
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.701256,
+          "p95_ms": 19.031831,
+          "p99_ms": 29.667192
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 154158
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 202.41,
+        "median_node_read_MiB": 470.62890625
+      },
+      "original_configuration_difference": {
+        "config_sha256": {
+          "prior": "c6ef2142072a23534db213a29ff4e04ea0707bb550f0f4b99fcd976cd7647784",
+          "two_paths": "b35b24d341d12f00e7d2dafb74f12afe21c3293df2fd0cc3921f321b1e7355a2"
+        },
+        "port_base": {
+          "prior": 33100,
+          "two_paths": 39100
+        },
+        "storage_template": {
+          "prior": null,
+          "two_paths": "/home/qwzx/projects/bustub-20241207-2024fall/docs/storage_redesign/node-storage.example.conf"
+        }
+      },
+      "throughput_change_percent": {
+        "original_simplistic": -56.60167224926808,
+        "previous_b709e0a": -3.1865236213062365
+      }
+    },
+    {
+      "point": "P1-hotspot-c4",
+      "original_simplistic": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r1/result.json",
+            "sha256": "3ae7e8f2a581842c3a26af71fe40e2ef18c31bab42543222b7ce7dcc6ed77472"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r2/result.json",
+            "sha256": "479307bacffa016d7f9326fd3394d153c38f205578b2f40107853e0ae4386c0b"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r3/result.json",
+            "sha256": "d897dfdc25d4fdc0b008b61ad776fb6bc38346a8e0ff9cc55e7aac6cbf33008a"
+          }
+        ],
+        "ops_per_second": [
+          662.9555555555555,
+          657.7722222222222,
+          656.7611111111111
+        ],
+        "median_ops_per_second": 657.7722222222222,
+        "range_ops_per_second": [
+          656.7611111111111,
+          662.9555555555555
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 5.608022,
+          "p95_ms": 7.845514,
+          "p99_ms": 9.724642
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 3,
+          "SUCCESS": 355957
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 122.64,
+        "median_node_read_MiB": 0.0
+      },
+      "previous_b709e0a": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/result.json",
+            "sha256": "a27c1e99238569c8ee153e5e5705985c6158beda96cfed3cc0b21ea46316353d"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/result.json",
+            "sha256": "7e59fcb40f34ebea63df19ab76046ebdcd9a9993aadb4a9838f5c9a73f963c55"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/result.json",
+            "sha256": "ff77011674f560aee13ae35008d528073b1ffe04ec5cac9b3905a8aaa77bb22f"
+          }
+        ],
+        "ops_per_second": [
+          294.69444444444446,
+          291.6611111111111,
+          293.47777777777776
+        ],
+        "median_ops_per_second": 293.47777777777776,
+        "range_ops_per_second": [
+          291.6611111111111,
+          294.69444444444446
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.190246,
+          "p95_ms": 18.419858,
+          "p99_ms": 45.388172
+        },
+        "retry_attempts": 3,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 2,
+          "SUCCESS": 158380
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 167.27,
+        "median_node_read_MiB": 264.8125
+      },
+      "current_read_index": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/result.json",
+            "sha256": "61736284fe2bef236421e114f06d4ff6b3b50b41ea5468d3867995dcced069ef"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/result.json",
+            "sha256": "19a7bd1196f196c0cdc9949d9174d85a2fb32e0df9d2ae783c2941b1ee278d4f"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/result.json",
+            "sha256": "0f07db9359cb94d8e1edcd812ee529a944c66b145fe6fcaa428911aaed8f1193"
+          }
+        ],
+        "ops_per_second": [
+          280.8611111111111,
+          289.48333333333335,
+          281.72222222222223
+        ],
+        "median_ops_per_second": 281.72222222222223,
+        "range_ops_per_second": [
+          280.8611111111111,
+          289.48333333333335
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 12.573551,
+          "p95_ms": 18.981876,
+          "p99_ms": 43.86762
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 153383,
+          "NOT_ISSUED": 1
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 168.61,
+        "median_node_read_MiB": 262.09765625
+      },
+      "original_configuration_difference": {
+        "config_sha256": {
+          "prior": "f805fa4e236cb6336740d865adcc3bbef45b495c6e832b1c291355bedcb1acd1",
+          "two_paths": "6634dc7dccd43db4ddb5d037cd0f7346017183bc4413256153bbc0c4e67bbd10"
+        },
+        "port_base": {
+          "prior": 33100,
+          "two_paths": 39100
+        },
+        "storage_template": {
+          "prior": null,
+          "two_paths": "/home/qwzx/projects/bustub-20241207-2024fall/docs/storage_redesign/node-storage.example.conf"
+        }
+      },
+      "throughput_change_percent": {
+        "original_simplistic": -57.17024637032407,
+        "previous_b709e0a": -4.005603301404603
+      }
+    },
+    {
+      "point": "P2-c8",
+      "original_simplistic": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c8-r1/result.json",
+            "sha256": "3b93f58813622c1963d62ea374836a92bdd84aae44870130660b678762176c48"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c8-r2/result.json",
+            "sha256": "5480a0fdc27814055984802d113e965e3742712b059b6ebb1a9ee3fd77a964e9"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-c8-r3-resumed/P2-c8-r3/result.json",
+            "sha256": "2abd2e0db4b6694b3b857e0b84e2fb3259b1fbb89dd7ca14b40c12df630d7e4d"
+          }
+        ],
+        "ops_per_second": [
+          1.1333333333333333,
+          1.1166666666666667,
+          1.2944444444444445
+        ],
+        "median_ops_per_second": 1.1333333333333333,
+        "range_ops_per_second": [
+          1.1166666666666667,
+          1.2944444444444445
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 4151.540854,
+          "p95_ms": 23183.0724,
+          "p99_ms": 31771.472025
+        },
+        "retry_attempts": 533,
+        "deadline_misses": 5,
+        "outcomes": {
+          "SUCCESS": 657,
+          "UNCONFIRMED": 5
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 316.69,
+        "median_node_read_MiB": 0.0
+      },
+      "previous_b709e0a": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/result.json",
+            "sha256": "21741d82426af860120262cad172e00b3142fb8924ea4597adbf74c8e0c20eb2"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/result.json",
+            "sha256": "d90a02ea7a3ec38a1fe07aad5aa94bee118d7902a23389ded07a39d357c23966"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/result.json",
+            "sha256": "5226c10a74930c2077af6c643b319ab0b91beacc641de648c48b3fed02948a88"
+          }
+        ],
+        "ops_per_second": [
+          33.705555555555556,
+          33.88333333333333,
+          33.87222222222222
+        ],
+        "median_ops_per_second": 33.87222222222222,
+        "range_ops_per_second": [
+          33.705555555555556,
+          33.88333333333333
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 219.025221,
+          "p95_ms": 398.652977,
+          "p99_ms": 493.25388
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "NOT_ISSUED": 1,
+          "SUCCESS": 18286
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 307.84,
+        "median_node_read_MiB": 1268.25
+      },
+      "current_read_index": {
+        "sources": [
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/result.json",
+            "sha256": "9705585fe44fad08efaf35df34f844db21a15f2487c12e9f270f19741c74cf84"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/result.json",
+            "sha256": "3cafc95955a96d22e03150358bd129591e14c3ab46b520ede6b841008d6b496a"
+          },
+          {
+            "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/result.json",
+            "sha256": "e5a39fd462c76e0a9a9cd582207b4dba2949232441b631c5f48ae182505c5360"
+          }
+        ],
+        "ops_per_second": [
+          33.09444444444444,
+          32.86666666666667,
+          33.08888888888889
+        ],
+        "median_ops_per_second": 33.08888888888889,
+        "range_ops_per_second": [
+          32.86666666666667,
+          33.09444444444444
+        ],
+        "median_per_run_logical_latency_ms": {
+          "p50_ms": 224.836817,
+          "p95_ms": 405.297128,
+          "p99_ms": 512.119974
+        },
+        "retry_attempts": 0,
+        "deadline_misses": 0,
+        "outcomes": {
+          "SUCCESS": 17853
+        },
+        "all_measurement_and_business_validated": true,
+        "median_node_cpu_seconds": 307.69,
+        "median_node_read_MiB": 1246.23046875
+      },
+      "original_configuration_difference": {
+        "config_sha256": {
+          "prior": "78c6f7351611e9a7d1070fd7026868a8172c3fd10c234b45f14f97d21428afb8",
+          "two_paths": "69e15b0b10da325dadb547d74de59620a86911493d7127b43d0b7fc03aafc974"
+        },
+        "port_base": {
+          "prior": 33100,
+          "two_paths": 39100
+        },
+        "storage_template": {
+          "prior": null,
+          "two_paths": "/home/qwzx/projects/bustub-20241207-2024fall/docs/storage_redesign/node-storage.example.conf"
+        }
+      },
+      "throughput_change_percent": {
+        "original_simplistic": 2819.607843137255,
+        "previous_b709e0a": -2.3126127603739444
+      }
+    }
+  ],
+  "current_points": [
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r1/result.json",
+        "sha256": "2a1e12827bef386c57d739ad57121ddb385642c87834a8521f1488a4246f2628"
+      },
+      "measurement": {
+        "drain_deadline": 3671.590479549,
+        "end_ns": 3611589852434,
+        "phase": "measure",
+        "python_end_ns": 3611590475381,
+        "python_start_ns": 3431590475381,
+        "start_ns": 3431589852434
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P1-uniform-c4-r1",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "READ/return/OK": 51768
+      },
+      "max_call_ms": 164.579153,
+      "max_logical_ms": 167.168993,
+      "error_events": {
+        "status/outside_measurement": 183,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r2/result.json",
+        "sha256": "2908946d8a1431a45c204802deca82280fefaa3bc7e7d5559e3add650186e137"
+      },
+      "measurement": {
+        "drain_deadline": 3998.62824245,
+        "end_ns": 3938627589169,
+        "phase": "measure",
+        "python_end_ns": 3938628239625,
+        "python_start_ns": 3758628239625,
+        "start_ns": 3758627589169
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P1-uniform-c4-r2",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "READ/return/OK": 51441
+      },
+      "max_call_ms": 32.432676,
+      "max_logical_ms": 42.004956,
+      "error_events": {
+        "status/outside_measurement": 186,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-uniform-c4-r3/result.json",
+        "sha256": "33b66a973a93f877b207a1366dbfed859c73f3e13efaf52f37e74c4299c8ec9d"
+      },
+      "measurement": {
+        "drain_deadline": 4323.379061986,
+        "end_ns": 4263378623888,
+        "phase": "measure",
+        "python_end_ns": 4263379058640,
+        "python_start_ns": 4083379058640,
+        "start_ns": 4083378623888
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P1-uniform-c4-r3",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "READ/return/OK": 50949
+      },
+      "max_call_ms": 22.949367,
+      "max_logical_ms": 47.990869,
+      "error_events": {
+        "status/outside_measurement": 185,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r1/result.json",
+        "sha256": "61736284fe2bef236421e114f06d4ff6b3b50b41ea5468d3867995dcced069ef"
+      },
+      "measurement": {
+        "drain_deadline": 4652.08569633,
+        "end_ns": 4592085194472,
+        "phase": "measure",
+        "python_end_ns": 4592085693284,
+        "python_start_ns": 4412085693284,
+        "start_ns": 4412085194472
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P1-hotspot-c4-r1",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "READ/return/OK": 50559
+      },
+      "max_call_ms": 17.434716,
+      "max_logical_ms": 55.169367,
+      "error_events": {
+        "status/outside_measurement": 190,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r2/result.json",
+        "sha256": "19a7bd1196f196c0cdc9949d9174d85a2fb32e0df9d2ae783c2941b1ee278d4f"
+      },
+      "measurement": {
+        "drain_deadline": 4974.113391147,
+        "end_ns": 4914112958540,
+        "phase": "measure",
+        "python_end_ns": 4914113388352,
+        "python_start_ns": 4734113388352,
+        "start_ns": 4734112958540
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P1-hotspot-c4-r2",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "READ/return/OK": 52110,
+        "READ/skipped/": 1
+      },
+      "max_call_ms": 11.357652,
+      "max_logical_ms": 57.753577,
+      "error_events": {
+        "status/outside_measurement": 183,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": [
+        {
+          "event_ns": 4914113443949,
+          "cutoff_ns": 4914112958540,
+          "measurement_end_ns": 4914112958540
+        }
+      ]
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P1/P1-hotspot-c4-r3/result.json",
+        "sha256": "0f07db9359cb94d8e1edcd812ee529a944c66b145fe6fcaa428911aaed8f1193"
+      },
+      "measurement": {
+        "drain_deadline": 5298.270854738,
+        "end_ns": 5238270381181,
+        "phase": "measure",
+        "python_end_ns": 5238270851662,
+        "python_start_ns": 5058270851662,
+        "start_ns": 5058270381181
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P1-hotspot-c4-r3",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "READ/return/OK": 50714
+      },
+      "max_call_ms": 7.963305,
+      "max_logical_ms": 68.183632,
+      "error_events": {
+        "status/outside_measurement": 183,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r1/P2-c8-r1/result.json",
+        "sha256": "9705585fe44fad08efaf35df34f844db21a15f2487c12e9f270f19741c74cf84"
+      },
+      "measurement": {
+        "drain_deadline": 5668.713106177,
+        "end_ns": 5608712652710,
+        "phase": "measure",
+        "python_end_ns": 5608713100607,
+        "python_start_ns": 5428713100607,
+        "start_ns": 5428712652710
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P2-c8-r1",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "WRITE/return/COMMITTED": 5965
+      },
+      "max_call_ms": 1648.187087,
+      "max_logical_ms": 1649.788628,
+      "error_events": {
+        "status/outside_measurement": 183,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r2/P2-c8-r2/result.json",
+        "sha256": "3cafc95955a96d22e03150358bd129591e14c3ab46b520ede6b841008d6b496a"
+      },
+      "measurement": {
+        "drain_deadline": 6039.389542521,
+        "end_ns": 5979389081820,
+        "phase": "measure",
+        "python_end_ns": 5979389538353,
+        "python_start_ns": 5799389538353,
+        "start_ns": 5799389081820
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P2-c8-r2",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "WRITE/return/COMMITTED": 5924
+      },
+      "max_call_ms": 2128.825082,
+      "max_logical_ms": 2130.745286,
+      "error_events": {
+        "status/outside_measurement": 183,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    },
+    {
+      "result": {
+        "path": "test-results/storage-read-index-20261013-103605-MlI6eQ/P2-c8-r3/P2-c8-r3/result.json",
+        "sha256": "e5a39fd462c76e0a9a9cd582207b4dba2949232441b631c5f48ae182505c5360"
+      },
+      "measurement": {
+        "drain_deadline": 6409.197580013,
+        "end_ns": 6349197153467,
+        "phase": "measure",
+        "python_end_ns": 6349197574863,
+        "python_start_ns": 6169197574863,
+        "start_ns": 6169197153467
+      },
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      },
+      "point": "P2-c8-r3",
+      "config_differences_vs_previous": {},
+      "raw_business": {
+        "WRITE/return/COMMITTED": 5964
+      },
+      "max_call_ms": 1433.13014,
+      "max_logical_ms": 1435.004754,
+      "error_events": {
+        "status/outside_measurement": 182,
+        "storage_observation/outside_measurement": 21
+      },
+      "skips": []
+    }
+  ],
+  "previous_measurement_server_TIMEOUTs": {
+    "P1-uniform-c4": 12,
+    "P1-hotspot-c4": 3
+  },
+  "limits": [
+    "Six P1 windows do not prove all future schedules are timeout-free.",
+    "P2 measures writes only; ReadIndex is not directly invoked by each write, but shared scheduling and environment can affect it.",
+    "Three current P2 runs are all slower than all three previous runs. This is a performance regression signal, not single-change causal attribution.",
+    "Original P2 contains 533 retries and 5 deadline misses; observed successful throughput ratios are not equal-service-quality speedups.",
+    "P3, P4 and P2 four-client runs were not executed in this round.",
+    "Original uses file storage; current and previous use the same Direct object-storage configuration.",
+    "One P1 measurement request was skipped by the client driver after cutoff, not sent and not a server timeout. Status/storage observation errors are outside the measurement windows."
+  ]
+}

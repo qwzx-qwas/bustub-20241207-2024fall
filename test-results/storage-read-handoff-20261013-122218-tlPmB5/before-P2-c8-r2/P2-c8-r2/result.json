@@ -1,0 +1,166 @@
+{
+  "attempt_summary": {
+    "all_attempt_outcomes": {
+      "SUCCESS": 8673,
+      "UNKNOWN": 205
+    },
+    "failed_call_latency": {
+      "count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "latency_scope": "driver invocation to validated client return; window-started operations include drain tails",
+    "out_of_window_calls": 0,
+    "outcomes": {
+      "SUCCESS": 6057
+    },
+    "p99_exploratory": true,
+    "phase_outcomes": {
+      "load/SUCCESS": 313,
+      "measure/SUCCESS": 6057,
+      "precondition/SUCCESS": 1000,
+      "schema/SUCCESS": 1,
+      "status/SUCCESS": 6,
+      "status/UNKNOWN": 184,
+      "storage_observation/SUCCESS": 816,
+      "storage_observation/UNKNOWN": 21,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "verify_precondition/SUCCESS": 160
+    },
+    "success_ops_per_second": 33.605555555555554,
+    "successful_call_latency": {
+      "count": 6057,
+      "p50_ms": 219.762118,
+      "p95_ms": 402.096171,
+      "p99_ms": 487.581307
+    },
+    "tail_successes": 8,
+    "window_calls": 6057,
+    "window_seconds": 180.0,
+    "window_successes": 6049
+  },
+  "business_validated": true,
+  "cleanup": {
+    "cluster_exit": 0,
+    "driver": {
+      "exit_code": 0,
+      "history_error": null,
+      "reader_stopped": true
+    },
+    "monitor_stopped": true
+  },
+  "elapsed_seconds": 299.04413142299927,
+  "execution_coverage": {
+    "completed_operations": null,
+    "incomplete_stage": null,
+    "measurement_complete": true,
+    "target_operations": null
+  },
+  "failures": [],
+  "logical_summary": {
+    "censored": {
+      "count": 0,
+      "display": "observed time +; success confirmation absent at cutoff",
+      "max_observed_ms": null,
+      "min_observed_ms": null
+    },
+    "deadline_misses": 0,
+    "failed_operation_latency": {
+      "count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "full_population_p99_ms": 488.791467,
+    "latency_scope": "logical start to confirmation; includes attempts, rediscovery/backoff; P4 includes queueing",
+    "logical_operations": 6057,
+    "observation_complete": true,
+    "outcomes": {
+      "SUCCESS": 6057
+    },
+    "p99_exploratory": true,
+    "phase_outcomes": {
+      "load/SUCCESS": 313,
+      "measure/SUCCESS": 6057,
+      "precondition/SUCCESS": 1000,
+      "schema/SUCCESS": 1,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "verify_precondition/SUCCESS": 160
+    },
+    "retry_attempts": 0,
+    "success_fraction": 1.0,
+    "success_ops_per_second": 33.605555555555554,
+    "successful_operation_latency": {
+      "count": 6057,
+      "p50_ms": 220.768291,
+      "p95_ms": 402.838896,
+      "p99_ms": 488.791467
+    },
+    "tail_successes": 8,
+    "unconfirmed_fraction": 0.0,
+    "unknown_scope": "no successful confirmation observed; not evidence that the write did not commit",
+    "window_seconds": 180.0,
+    "window_successes": 6049
+  },
+  "measurement": {
+    "drain_deadline": 14473.899174237,
+    "end_ns": 14413898796414,
+    "phase": "measure",
+    "python_end_ns": 14413899169478,
+    "python_start_ns": 14233899169478,
+    "start_ns": 14233898796414
+  },
+  "measurement_complete": true,
+  "measurement_valid": true,
+  "resource_summary": {
+    "clients": {
+      "cpu_seconds": 9.53,
+      "io": {
+        "read_bytes": 0,
+        "write_bytes": 14082048
+      },
+      "sampled_process_lifetimes": 2
+    },
+    "nodes": {
+      "cpu_seconds": 308.4,
+      "io": {
+        "read_bytes": 1312354304,
+        "write_bytes": 1757569024
+      },
+      "sampled_process_lifetimes": 3
+    },
+    "observation_seconds": 179.034204598,
+    "peak_client_rss_bytes": 45006848,
+    "peak_node_rss_bytes": 46436352,
+    "scope": "sampled process lifetimes; gaps and before/after-sample IO excluded",
+    "status": "observed"
+  },
+  "role": "baseline",
+  "scenario": "P2",
+  "service_outcomes": {
+    "load/SUCCESS": 313,
+    "measure/SUCCESS": 6057,
+    "precondition/SUCCESS": 1000,
+    "schema/SUCCESS": 1,
+    "verify_final/SUCCESS": 160,
+    "verify_load/SUCCESS": 160,
+    "verify_precondition/SUCCESS": 160
+  },
+  "stalled_client_seconds": {},
+  "status": "measured",
+  "successes_by_client": [
+    758,
+    757,
+    757,
+    757,
+    757,
+    757,
+    757,
+    757
+  ],
+  "validated_comparison": true,
+  "validation": "passed"
+}

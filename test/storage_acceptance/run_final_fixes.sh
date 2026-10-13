@@ -4,8 +4,9 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 export PYTHONDONTWRITEBYTECODE=1
 export LD_LIBRARY_PATH="$PWD/.cache/toolchains/gcc-16.2.0/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-phase=${1:?usage: run_final_fixes.sh prepare|verify|correctness|performance|selected}
+phase=${1:?usage: run_final_fixes.sh prepare|verify|correctness|performance|selected|read-index|read-index-compare}
 build=.cache/final-acceptance/build
+reference=.cache/final-acceptance/read-index-before/build
 marker=.cache/final-acceptance/fixes-run-root
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -26,12 +27,12 @@ run_logged() {
   fi
 }
 case "$phase" in
-  prepare|verify|correctness|performance|selected) ;;
-  *) fail 'Usage: run_final_fixes.sh prepare|verify|correctness|performance|selected' ;;
+  prepare|verify|correctness|performance|selected|read-index|read-index-compare) ;;
+  *) fail 'Usage: run_final_fixes.sh prepare|verify|correctness|performance|selected|read-index|read-index-compare' ;;
 esac
 if [[ $phase == prepare ]]; then
   mkdir -p .cache/final-acceptance
-  run_root=$(mktemp -d "$PWD/test-results/storage-two-paths-$(date +%Y%m%d-%H%M%S)-XXXXXX")
+  run_root=$(mktemp -d "$PWD/test-results/storage-read-handoff-$(date +%Y%m%d-%H%M%S)-XXXXXX")
   printf '%s\n' "$run_root" > "$marker"
   printf 'Results: %s\n' "$run_root"
   run_logged 'Configure Release build' "$run_root/configure.log" \
@@ -65,10 +66,25 @@ def sha(path):
     with path.open('rb') as f:
         for b in iter(lambda:f.read(1024*1024),b''): h.update(b)
     return h.hexdigest()
+reference=Path('.cache/final-acceptance/read-index-before')
+if reference.exists():
+    before=json.loads((reference/'provenance.json').read_text())
+    for name, expected in before['binaries'].items():
+        if sha(reference/'build'/name) != expected:
+            raise RuntimeError(f'comparison binary changed: {name}')
+    files.update(p for p in reference.rglob('*') if p.is_file())
+    (root/'comparison.json').write_text(json.dumps({
+        'before': before, 'before_build': str((reference/'build').resolve()),
+        'after_build': str(Path('.cache/final-acceptance/build').resolve()),
+        'harness': 'Both versions use the current buffered Python driver and unchanged workloads.',
+        'order': 'For each scenario, repeat 1 before/after, repeat 2 after/before, repeat 3 before/after.',
+        'scope': 'P1 uniform/hotspot and P2 eight clients; three repeats per version; 18 points.',
+        'source_note': 'Per-run source.diff describes the current workspace/harness. Before binary provenance is this record and .cache/final-acceptance/read-index-before/source.diff.'
+    },indent=2)+'\n')
 (root/'SHA256SUMS').write_text(''.join(f'{sha(p)}  {p}\n' for p in sorted(files)))
 (root/'freeze.json').write_text(json.dumps({'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
     'source':'HEAD plus working tree; SHA256SUMS is authoritative',
-    'scope':'recovery pipeline and persistent TCP only; original inputs, cache limits and deadlines; no profiling'},indent=2)+'\n')
+    'scope':'ReadIndex completion before notification; buffered driver stdout; same admission numbering, closed rounds, inputs, cache limits and deadlines; no profiling'},indent=2)+'\n')
 PY
   printf 'Prepared. Next: bash test/storage_acceptance/run_final_fixes.sh verify\n'
   exit 0
@@ -88,6 +104,8 @@ if [[ $phase == verify ]]; then
     "$build/test/final_performance_test" --gtest_output="xml:$run_root/contracts.xml"
   run_logged 'Acceptance report contracts' "$run_root/report-contracts.log" \
     python3 test/storage_acceptance/test_report_contracts.py
+  run_logged 'Buffered driver stream and truncated output' "$run_root/driver-stream.log" \
+    python3 test/storage_acceptance/test_driver_stream.py
   for binary in tcp_transport_test raft_node_test distributed_node_test; do
     run_logged "$binary" "$run_root/$binary.log" \
       timeout 180 "$build/test/$binary" --gtest_output="xml:$run_root/$binary.xml"
@@ -95,7 +113,7 @@ if [[ $phase == verify ]]; then
   run_logged 'Persistent proxy streams and live loss rules' "$run_root/proxy-stream.log" \
     python3 test/storage_acceptance/test_proxy_stream.py
   touch "$run_root/verify.ok"
-  printf 'Contract checks passed. Selected P1/P4/P2(4,8): bash test/storage_acceptance/run_final_fixes.sh selected\n'
+  printf 'Contract checks passed. Paired P1 + P2(8): bash test/storage_acceptance/run_final_fixes.sh read-index-compare\n'
   exit 0
 fi
 run_case() {
@@ -127,6 +145,13 @@ for p in files:
 sys.exit(0 if ok else 1)
 PY
 }
+run_version() {
+  local version=$1
+  local build=$build
+  shift
+  if [[ $version == before ]]; then build=$reference; fi
+  run_case "$version-$1" "${@:2}"
+}
 if [[ $phase == correctness ]]; then
   test -f "$run_root/verify.ok" || fail "Cannot start correctness: verify has not passed. See $run_root/crc.log, contracts.log and report-contracts.log."
   run_case C1 C1 1
@@ -136,6 +161,38 @@ if [[ $phase == correctness ]]; then
   run_case C5 C5 2 --matrix
   touch "$run_root/correctness.ok"
   printf 'C1-C5 passed. Next: bash test/storage_acceptance/run_final_fixes.sh performance\n'
+elif [[ $phase == read-index-compare ]]; then
+  test -f "$run_root/verify.ok" || fail "Run verify first. Results: $run_root"
+  test -f "$run_root/comparison.json" || fail 'Missing frozen before binaries; comparison cannot use an unspecified baseline.'
+  test ! -e "$run_root/read-index-compare.started" || fail 'This comparison already started. Preserve its evidence; use prepare for a fresh run.'
+  touch "$run_root/read-index-compare.started"
+  failures=0
+  for scenario in uniform hotspot write8; do
+    for repeat in 1 2 3; do
+      versions=(before after)
+      if [[ $repeat == 2 ]]; then versions=(after before); fi
+      for version in "${versions[@]}"; do
+        if [[ $scenario == write8 ]]; then
+          run_version "$version" "P2-c8-r$repeat" P2 1 --clients 8 --repeat "$repeat" || failures=$((failures+1))
+        else
+          run_version "$version" "P1-$scenario-r$repeat" P1 1 --variant "$scenario" --repeat "$repeat" || failures=$((failures+1))
+        fi
+      done
+    done
+  done
+  printf 'Paired scenarios not passed: %s\nResults: %s\n' "$failures" "$run_root"
+  test "$failures" -eq 0
+elif [[ $phase == read-index ]]; then
+  test -f "$run_root/verify.ok" || fail "Run verify first. Results: $run_root"
+  test ! -e "$run_root/read-index.started" || fail 'This read-index run already started. Preserve its evidence; use prepare for a fresh run.'
+  touch "$run_root/read-index.started"
+  failures=0
+  run_case P1 P1 6 --matrix || failures=$((failures+1))
+  for repeat in 1 2 3; do
+    run_case "P2-c8-r$repeat" P2 1 --clients 8 --repeat "$repeat" || failures=$((failures+1))
+  done
+  printf 'ReadIndex scenarios not passed: %s\nResults: %s\n' "$failures" "$run_root"
+  test "$failures" -eq 0
 elif [[ $phase == selected ]]; then
   test -f "$run_root/verify.ok" || fail "Run verify first. Results: $run_root"
   test ! -e "$run_root/selected.started" || fail 'This selected run already started. Preserve its evidence; use prepare for a fresh run.'

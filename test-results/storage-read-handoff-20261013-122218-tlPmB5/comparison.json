@@ -1,0 +1,21 @@
+{
+  "before": {
+    "label": "before_completion_handoff_fix",
+    "base": "b709e0aa95deec22cd87ac49d5856a0815ade602",
+    "evidence": "test-results/storage-read-index-20261013-103605-MlI6eQ",
+    "scope": "ReadIndex numbering and closed rounds before completion-handoff fix; both versions will use the NEW Python driver.",
+    "binaries": {
+      "bin/bustub-node": "788ae3f9db3036e9cf152ea27e2d77c72916714423aa834a11ece090bb3049ad",
+      "bin/bustub-client": "0cba39bbc691e49875e526d6fc6030f59f11d284bb444bfb219e83764f79324e",
+      "test/storage-e2e-driver": "28e17fd07f88c3a992b43681023ae448a779e7347e912f9bf899ea2866d2ea85",
+      "CMakeCache.txt": "7946063c2b86b0f102ed6bd1325242a75f9105167a9cb9622f75c6e5b2759b2c",
+      "compile_commands.json": "db719923ae964b4ccb9f71aed30a2fede9be2b4ccf8a53d0b4c1414450d90ace"
+    }
+  },
+  "before_build": "/home/qwzx/projects/bustub-20241207-2024fall/.cache/final-acceptance/read-index-before/build",
+  "after_build": "/home/qwzx/projects/bustub-20241207-2024fall/.cache/final-acceptance/build",
+  "harness": "Both versions use the current buffered Python driver and unchanged workloads.",
+  "order": "For each scenario, repeat 1 before/after, repeat 2 after/before, repeat 3 before/after.",
+  "scope": "P1 uniform/hotspot and P2 eight clients; three repeats per version; 18 points.",
+  "source_note": "Per-run source.diff describes the current workspace/harness. Before binary provenance is this record and .cache/final-acceptance/read-index-before/source.diff."
+}

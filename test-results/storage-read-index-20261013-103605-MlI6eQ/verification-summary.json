@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-13",
+  "base_commit": "b709e0aa95deec22cd87ac49d5856a0815ade602",
+  "source": "working tree plus frozen SHA256SUMS",
+  "scope": "ReadIndex admission numbering and closed read rounds",
+  "cpp": [
+    {
+      "file": "crc.xml",
+      "tests": 4,
+      "failures": 0,
+      "sha256": "eeaeaee5507f3b28c0c70d32255c6ee67e8a166f3e8d5f69190071081377073c"
+    },
+    {
+      "file": "contracts.xml",
+      "tests": 3,
+      "failures": 0,
+      "sha256": "b2a173bc547a51305dd7880d125743e7bb92c4079df51b605e452cc5765d1d20"
+    },
+    {
+      "file": "tcp_transport_test.xml",
+      "tests": 4,
+      "failures": 0,
+      "sha256": "c941159eba713989e4a5e2ba34af948d2676f65debb70876b76964c9c4fd7e58"
+    },
+    {
+      "file": "raft_node_test.xml",
+      "tests": 31,
+      "failures": 0,
+      "sha256": "ef477919f33021a48389016a26c81ba410b702466face600a1743db9eff5d165"
+    },
+    {
+      "file": "distributed_node_test.xml",
+      "tests": 11,
+      "failures": 0,
+      "sha256": "7f452d3233edce6a10805a25cb176e8609443035ba6b6452b87fd6d47e399b5e"
+    }
+  ],
+  "cpp_total": 53,
+  "python_report_contracts": 2,
+  "python_proxy_stream": 1,
+  "total_unique_checks": 56,
+  "source_and_binary_fingerprint_verified": true,
+  "production_files_changed": [
+    "src/distributed/node.cpp",
+    "src/include/distributed/node.h"
+  ],
+  "unchanged_files_checked": [
+    "src/raft/raft_node.cpp",
+    "src/storage/disk/io_executor.cpp",
+    "test/storage_acceptance/performance.py",
+    "test/storage_acceptance/content.py"
+  ],
+  "unchanged_node_methods_reviewed": [
+    "AcquireWrite",
+    "ReconcileActiveWrite",
+    "MaybeCreateSnapshot",
+    "StepWrite",
+    "StepSession"
+  ],
+  "specific_validation": [
+    "96 real TCP/SQL linear reads concurrent with six updates, without retries; checks monotone values and visibility of acknowledged writes.",
+    "Pre-isolation nonempty read succeeds; a later read after quorum loss must time out instead of using its completed round.",
+    "Existing Raft context uniqueness, one-way ACK loss, node recovery/leadership/stop tests."
+  ],
+  "tool_environment": "CRC/contracts/report passed in sandbox; loopback-denied TCP attempt preserved separately; remaining TCP/Raft/node/proxy stages passed with local network access.",
+  "build_history": "Initial new test used C++20 types in the C++17 test target; changed to promise/future, rebuilt successfully. Initial build log retained in storage-read-index-20261013-103019-Ask2nn.",
+  "formal_P1_P2_run": false,
+  "user_command": "bash test/storage_acceptance/run_final_fixes.sh read-index",
+  "limits": [
+    "No throughput or zero-timeout claim before the user runs the nine formal points.",
+    "Concurrency tests do not prove every possible schedule; shared-waiter lifetime and round closure additionally reviewed in code."
+  ]
+}

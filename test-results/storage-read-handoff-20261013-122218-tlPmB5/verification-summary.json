@@ -1,0 +1,97 @@
+{
+  "date": "2026-10-13",
+  "base_commit": "b709e0aa95deec22cd87ac49d5856a0815ade602",
+  "before_program_evidence": "test-results/storage-read-index-20261013-103605-MlI6eQ",
+  "scope": "ReadIndex completion before the existing Receive/Tick notification; stdout buffering in the Python test driver.",
+  "cpp": [
+    {
+      "file": "crc.xml",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "disabled": 0,
+      "sha256": "7c870e2059eb227a1a9710082eba4c81e273121435451cc985cdd27877d9b288"
+    },
+    {
+      "file": "contracts.xml",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "disabled": 0,
+      "sha256": "bda6ec78d03473165b10d09130f099fb248063e6a6c4327f3a1c992755c2d7a4"
+    },
+    {
+      "file": "tcp_transport_test.xml",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "disabled": 0,
+      "sha256": "5c1944b8d6f24f67e19f3a0df17664af7acea0cd85f53b0016375c39d0e53815"
+    },
+    {
+      "file": "raft_node_test.xml",
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "disabled": 0,
+      "sha256": "89ac28987fe55b23df9d156306b038ed408c4492e151a870cad7f65917f042cf"
+    },
+    {
+      "file": "distributed_node_test.xml",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "disabled": 0,
+      "sha256": "4c9130ec0c8c5fca56214a18cdb2a4c28e9c673d8e272667da5724f6af5908e5"
+    }
+  ],
+  "cpp_total": 53,
+  "python": {
+    "report": 2,
+    "driver_stream": 2,
+    "proxy_stream": 1
+  },
+  "total_unique_checks": 58,
+  "baseline_detection": "New stream test against original unbuffered runtime fails only the read-syscall upper bound (210856 vs 4096), retained in driver-old-expected-failure.log. Not counted as a current failure or a passing test.",
+  "logic_review": [
+    "Raft completion is consumed in Receive/Tick before their existing notification, under the original node mutex.",
+    "New round admission remains separate; numbering advances only on acceptance and membership closes then.",
+    "Shared-waiter lifetime, term invalidation, applied-index lower bound and stop/cancel remain intact.",
+    "Buffered stdout has a single owner; nonblocking stdin, trace record retention, errors and EOF handling remain unchanged."
+  ],
+  "unchanged_node_methods_vs_before": [
+    "AcquireWrite",
+    "ReconcileActiveWrite",
+    "StepWrite",
+    "StepSession",
+    "MaybeCreateSnapshot",
+    "StepRead"
+  ],
+  "shell_checks": {
+    "bash_syntax": true,
+    "runner_help": true,
+    "comparison_dispatch_dry_run": "18 unique points, correct versions and alternating order; injected failure retained with nonzero status and no retry"
+  },
+  "environment": "Loopback tests passed outside the network-restricted sandbox. Windows C volume query returned 35 GiB; sandbox denied WSL vsock, normal query passed.",
+  "binaries": {
+    "bin/bustub-node": {
+      "before": "788ae3f9db3036e9cf152ea27e2d77c72916714423aa834a11ece090bb3049ad",
+      "after": "25bc79299694fd1eb09968cc5d9b8dfeb4237020e7af7e66a51a6f1bec08c0bb"
+    },
+    "bin/bustub-client": {
+      "before": "0cba39bbc691e49875e526d6fc6030f59f11d284bb444bfb219e83764f79324e",
+      "after": "0cba39bbc691e49875e526d6fc6030f59f11d284bb444bfb219e83764f79324e"
+    },
+    "test/storage-e2e-driver": {
+      "before": "28e17fd07f88c3a992b43681023ae448a779e7347e912f9bf899ea2866d2ea85",
+      "after": "28e17fd07f88c3a992b43681023ae448a779e7347e912f9bf899ea2866d2ea85"
+    }
+  },
+  "formal_performance_run": false,
+  "user_command": "bash test/storage_acceptance/run_final_fixes.sh read-index-compare",
+  "limitations": [
+    "No throughput recovery or no-P2-regression claim until the user runs paired performance.",
+    "Before means the just-measured ReadIndex implementation, not bare b709e0a or the original simplistic version.",
+    "Historical results from the unbuffered harness are retained and are not interchangeable with new buffered-harness measurements."
+  ]
+}

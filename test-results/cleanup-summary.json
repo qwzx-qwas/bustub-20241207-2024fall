@@ -55,6 +55,18 @@
       "removed_directories": 3,
       "deleted_allocated_bytes": 11775332352,
       "performance_rerun": false
+    },
+    {
+      "status": "verified_and_cleaned",
+      "date": "2026-10-13",
+      "purpose": "commit ReadIndex rounds and buffered-driver fixes after completed comparison",
+      "cleanup_record": "test-results/storage-read-handoff-20261013-122218-tlPmB5/cleanup-verification.json",
+      "removed_test_devices": 81,
+      "removed_regenerable_inputs": 54,
+      "removed_build_directories": 1,
+      "deleted_allocated_bytes": 8084156416,
+      "raw_request_evidence_retained": true,
+      "performance_rerun": false
     }
   ],
   "temporary_build_removed": "/tmp/bustub-t0-reviewed-binaries",

@@ -1,0 +1,5 @@
+{
+  "head": "b709e0aa95deec22cd87ac49d5856a0815ade602",
+  "source": "HEAD plus working tree; SHA256SUMS is authoritative",
+  "scope": "ReadIndex completion before notification; buffered driver stdout; same admission numbering, closed rounds, inputs, cache limits and deadlines; no profiling"
+}

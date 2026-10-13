@@ -97,6 +97,8 @@ class DistributedNode {
   void ClientLoop();
   void Wake();
   void NotifyClients();
+  void CompleteReadRounds();
+  void StartReadRound();
   void MaybeCreateSnapshot();
   void ReconcileActiveWrite();
   struct ActiveWrite;
@@ -105,14 +107,19 @@ class DistributedNode {
   void FinishWrite(const std::shared_ptr<ActiveWrite> &active, ClientResponseStatus status,
                    std::vector<std::byte> bytes = {});
 
+  // A round closes when Raft accepts it. Only requests already holding it may
+  // use its confirmation; later requests need a fresh majority acknowledgement.
+  struct ReadRound {
+    uint64_t term_;
+    std::optional<uint64_t> index_;
+    bool obsolete_{false};
+  };
   struct RequestState {
     std::chrono::steady_clock::time_point start_{std::chrono::steady_clock::now()};
     std::shared_ptr<ActiveWrite> write_, acknowledgement_;
     std::optional<RequestFingerprintV1> fingerprint_;
     bool acknowledged_{false};
-    // One original ReadIndex per request. Connection reuse does not introduce read cohorts.
-    bool read_started_{false}, read_probe_{false}, read_barrier_{false};
-    uint64_t read_context_{0}, read_term_{0}, read_index_{0};
+    std::shared_ptr<ReadRound> round_;
     std::shared_ptr<TaskExecutor::Result<PublishedSqlRead>> read_;
     std::optional<PublishedSqlRead> completed_;
     ResourceCharge charge_;
@@ -180,6 +187,8 @@ class DistributedNode {
   std::shared_ptr<ResourceAccount> write_memory_;
   bool snapshot_draining_{false};
   uint64_t next_read_context_{0};
+  std::shared_ptr<ReadRound> open_read_round_;
+  std::map<uint64_t, std::weak_ptr<ReadRound>> read_rounds_;
   int client_wake_fd_{-1};
   uint64_t logical_now_ms_{0};
   std::atomic<bool> work_ready_{false};

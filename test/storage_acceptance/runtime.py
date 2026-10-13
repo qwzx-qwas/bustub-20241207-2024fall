@@ -3,6 +3,7 @@
 from concurrent.futures import Future, TimeoutError as FutureTimeout
 import json
 import hashlib
+import io
 import uuid
 import os
 from pathlib import Path
@@ -64,6 +65,10 @@ class Driver:
         try:
             self.process = subprocess.Popen([str(binary), "8"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=self._stderr, bufsize=0)
+            # Keep stdin unbuffered for the nonblocking writes below. Buffer
+            # stdout reads so readline does not issue a syscall for each byte;
+            # a complete line is delivered without waiting to fill the buffer.
+            self.process.stdout = io.BufferedReader(self.process.stdout, buffer_size=64 * 1024)
             os.set_blocking(self.process.stdin.fileno(), False)
             self._reader.start()
         except Exception:

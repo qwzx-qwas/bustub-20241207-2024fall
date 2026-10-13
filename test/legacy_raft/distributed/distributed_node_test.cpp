@@ -16,6 +16,7 @@
 #include <chrono>              // NOLINT(build/c++11)
 #include <condition_variable>  // NOLINT(build/c++11)
 #include <filesystem>
+#include <future>  // NOLINT(build/c++11)
 #include <memory>
 #include <mutex>  // NOLINT(build/c++11)
 #include <optional>
@@ -710,7 +711,14 @@ TEST(DistributedNodeTest, IsolatedLeaderTimesOutAndItsUncommittedSuffixIsReplace
                       ClientWriteRequestV1{904, 1, "CREATE TABLE accounts(id int PRIMARY KEY, name varchar(32));"})
                 .status_,
             ClientResponseStatus::COMMITTED);
-  cluster.AwaitCommit(2);
+  ASSERT_EQ(cluster.Send(old_leader, ClientWriteRequestV1{904, 2,
+      "INSERT INTO accounts VALUES (1, 'initial');"}).status_, ClientResponseStatus::COMMITTED);
+  cluster.AwaitCommit(3);
+  const auto before_isolation = cluster.Send(old_leader, ClientReadRequestV1{799,
+      ClientReadConsistency::LINEARIZABLE, "SELECT id, name FROM accounts ORDER BY id;"});
+  ASSERT_EQ(before_isolation.status_, ClientResponseStatus::OK);
+  EXPECT_EQ(ClientQueryResultCodec::Decode(before_isolation.payload_).rows_,
+            (std::vector<std::vector<std::string>>{{"1", "initial"}}));
 
   std::vector<NodeId> majority;
   for (NodeId id = 1; id <= 3; id++) {
@@ -720,9 +728,11 @@ TEST(DistributedNodeTest, IsolatedLeaderTimesOutAndItsUncommittedSuffixIsReplace
     }
   }
   const auto isolated_write =
-      cluster.Send(old_leader, ClientWriteRequestV1{904, 2, "INSERT INTO accounts VALUES (9, 'must-not-commit');"});
+      cluster.Send(old_leader, ClientWriteRequestV1{904, 3, "INSERT INTO accounts VALUES (9, 'must-not-commit');"});
   EXPECT_EQ(isolated_write.status_, ClientResponseStatus::TIMEOUT);
-  EXPECT_EQ(isolated_write.commit_index_, 2);
+  EXPECT_EQ(isolated_write.commit_index_, 3);
+  // This later read must start a new round; the successful pre-isolation round
+  // cannot authorize it even though the former leader's local data is intact.
   const auto isolated_read = cluster.Send(
       old_leader, ClientReadRequestV1{800, ClientReadConsistency::LINEARIZABLE, "SELECT count(*) FROM accounts;"});
   EXPECT_EQ(isolated_read.status_, ClientResponseStatus::TIMEOUT);
@@ -734,15 +744,16 @@ TEST(DistributedNodeTest, IsolatedLeaderTimesOutAndItsUncommittedSuffixIsReplace
   const auto new_leader = cluster.AwaitLeader(old_leader);
   ASSERT_NE(new_leader, old_leader);
   cluster.Restart(old_leader);
-  cluster.AwaitCommit(3);
+  cluster.AwaitCommit(4);
 
   const auto after_replacement = cluster.Send(
       old_leader, ClientReadRequestV1{801, ClientReadConsistency::STALE, "SELECT id, name FROM accounts;"});
   ASSERT_EQ(after_replacement.status_, ClientResponseStatus::OK);
-  EXPECT_TRUE(ClientQueryResultCodec::Decode(after_replacement.payload_).rows_.empty());
+  EXPECT_EQ(ClientQueryResultCodec::Decode(after_replacement.payload_).rows_,
+            (std::vector<std::vector<std::string>>{{"1", "initial"}}));
 
   const auto retry =
-      cluster.Send(new_leader, ClientWriteRequestV1{904, 2, "INSERT INTO accounts VALUES (9, 'must-not-commit');"});
+      cluster.Send(new_leader, ClientWriteRequestV1{904, 3, "INSERT INTO accounts VALUES (9, 'must-not-commit');"});
   ASSERT_EQ(retry.status_, ClientResponseStatus::COMMITTED);
   cluster.AwaitCommit(WriteResponseCodec::Decode(retry.payload_).commit_index_);
 }
@@ -992,6 +1003,63 @@ TEST(DistributedNodeTest, ConcurrentReadsObserveOnlyWholeMultiRowBatch) {
   ASSERT_EQ(final.status_, ClientResponseStatus::OK);
   EXPECT_EQ(ClientQueryResultCodec::Decode(final.payload_).rows_,
             (std::vector<std::vector<std::string>>{{std::to_string(row_count)}}));
+}
+
+// Exercise admission while durable writes occupy Raft, through actual TCP and
+// SQL. No client retry may hide a stranded read context. Previously completed
+// writes give an independent lower bound for each read's published timestamp.
+TEST(DistributedNodeTest, ConcurrentLinearReadsAndWritesDoNotStrandContexts) {
+  ThreeNodeInProcessCluster cluster;
+  const auto leader = cluster.AwaitLeader();
+  ASSERT_EQ(cluster.Send(leader, ClientWriteRequestV1{991, 1,
+      "CREATE TABLE read_rounds(id int PRIMARY KEY, amount int);"}).status_, ClientResponseStatus::COMMITTED);
+  const auto inserted = cluster.Send(leader, ClientWriteRequestV1{991, 2,
+      "INSERT INTO read_rounds VALUES (7, 0);"});
+  ASSERT_EQ(inserted.status_, ClientResponseStatus::COMMITTED);
+  const auto initial_index = WriteResponseCodec::Decode(inserted.payload_).commit_index_;
+  std::atomic<uint64_t> minimum_commit{initial_index};
+  std::atomic<size_t> successful{0};
+  std::promise<void> start;
+  const auto go = start.get_future().share();
+  std::vector<std::future<void>> readers;
+  for (size_t client = 0; client < 8; ++client) readers.emplace_back(std::async(std::launch::async, [&, client, go] {
+    go.wait();
+    try {
+      int previous = 0;
+      for (size_t n = 0; n < 12; ++n) {
+        const auto required = minimum_commit.load();
+        const auto result = cluster.Send(leader, ClientReadRequestV1{5000 + client * 100 + n,
+            ClientReadConsistency::LINEARIZABLE, "SELECT amount FROM read_rounds WHERE id = 7;"});
+        ASSERT_EQ(result.status_, ClientResponseStatus::OK) << "client=" << client << " read=" << n;
+        ASSERT_TRUE(result.read_timestamp_.has_value());
+        EXPECT_GE(*result.read_timestamp_, required);
+        const auto rows = ClientQueryResultCodec::Decode(result.payload_).rows_;
+        ASSERT_EQ(rows.size(), 1);
+        ASSERT_EQ(rows[0].size(), 1);
+        const auto amount = std::stoi(rows[0][0]);
+        EXPECT_GE(amount, previous);
+        EXPECT_GE(amount, static_cast<int>(required - initial_index));
+        EXPECT_LE(amount, 6);
+        previous = amount;
+        ++successful;
+      }
+    } catch (const std::exception &error) { ADD_FAILURE() << error.what(); }
+  }));
+  start.set_value();
+  for (uint64_t request = 3; request < 9; ++request) {
+    const auto result = cluster.Send(leader, ClientWriteRequestV1{991, request,
+        "UPDATE read_rounds SET amount = amount + 1 WHERE id = 7;"});
+    EXPECT_EQ(result.status_, ClientResponseStatus::COMMITTED);
+    if (result.status_ == ClientResponseStatus::COMMITTED)
+      minimum_commit = WriteResponseCodec::Decode(result.payload_).commit_index_;
+  }
+  for (auto &reader : readers) reader.get();
+  EXPECT_EQ(successful.load(), 96);
+  const auto final = cluster.Send(leader, ClientReadRequestV1{9001, ClientReadConsistency::LINEARIZABLE,
+      "SELECT id, amount FROM read_rounds;"});
+  ASSERT_EQ(final.status_, ClientResponseStatus::OK);
+  EXPECT_EQ(ClientQueryResultCodec::Decode(final.payload_).rows_,
+            (std::vector<std::vector<std::string>>{{"7", "6"}}));
 }
 
 }  // namespace bustub

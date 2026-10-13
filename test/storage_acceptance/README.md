@@ -1,5 +1,37 @@
 # Storage correctness and performance acceptance (T0-A/B/C)
 
+## 2026-10-13 当前验收：完成交接修正，同一驱动交错对照
+
+修正 ReadIndex 完成结果的额外交接/通知，并为驱动 stdout 使用 64 KiB 读取缓冲。输入、业务核对和所有逐请求记录不变，见[协议 §13](../../docs/storage_redesign/final_performance_fixes_20261011.md#13-2026-10-13读取完成交接与测试驱动收集开销修正)。下面的旧九点运行已经完成，不要覆盖其结果。
+
+对照程序已保存在 `.cache/final-acceptance/read-index-before/build`，指纹对应 `storage-read-index-20261013-103605-MlI6eQ`。**before 是本次交接修改前的 ReadIndex 版本，不是裸 b709e0a。** after 为当前修正程序。两者使用相同的新 Python 驱动；需要重新准备时：
+
+```bash
+cd /home/qwzx/projects/bustub-20241207-2024fall
+bash test/storage_acceptance/run_final_fixes.sh prepare &&
+bash test/storage_acceptance/run_final_fixes.sh verify &&
+bash test/storage_acceptance/run_final_fixes.sh read-index-compare
+```
+
+**本轮 prepare/verify 已由代理完成：53 项 C++、5 项 Python 全部通过，当前结果目录为 `storage-read-handoff-20261013-122218-tlPmB5`。** 源码/程序未再修改时，直接执行最后一个命令即可。标记文件仍是 `.cache/final-acceptance/fixes-run-root`；结果为独立 `test-results/storage-read-handoff-*`。`comparison.json` 标明来源及口径，`SHA256SUMS` 同时保护新旧程序。每个场景三轮，before/after 相邻执行且第二轮交换顺序：P1 均匀、P1 热点、P2 八客户端，共 18 点，不启动 perf/bpf、P3/P4 或其他客户端数。脚本自行查询 Windows 卷空间，不需要旧 Bash 变量，失败记录保留而不自动重试。
+
+换过驱动后的绝对成绩不能直接与旧驱动成绩当作单项程序收益比较；优先看这一轮 before/after 差异。正式性能由用户运行，构建及短检查由代理验证。
+
+## 2026-10-13 当前验收：ReadIndex，P1 与 P2 八客户端
+
+在 `b709e0a` 的长连接与恢复流水线上，仅修改 ReadIndex 编号交接和读取合批，见[共同协议](../../docs/storage_redesign/final_performance_fixes_20261011.md#11-2026-10-13readindex-编号交接与读取合批试验)。沿用原输入、缓存、时限和种子，不启用诊断采样。下面旧日期的 `selected` 是前一轮范围，本轮使用 `read-index`。
+
+本次代理已完成 `prepare` 与 `verify`：53 项 C++、3 项 Python 检查通过，结果为 `test-results/storage-read-index-20261013-103605-MlI6eQ`。在未修改源码/程序的当前工作区，可直接运行 `bash test/storage_acceptance/run_final_fixes.sh read-index`。下面完整流程仅用于需要重新建立一轮时；正式性能尚未由代理执行。
+
+```bash
+cd /home/qwzx/projects/bustub-20241207-2024fall
+bash test/storage_acceptance/run_final_fixes.sh prepare &&
+bash test/storage_acceptance/run_final_fixes.sh verify &&
+bash test/storage_acceptance/run_final_fixes.sh read-index
+```
+
+最后一个阶段只运行 P1 均匀/热点各三轮、P2 八客户端三轮，共九点。原场景的业务校验、超时及重试记录均保留；重试后成功不等于单次读取没有超时。每点输出日志位置，结果在独立 `test-results/storage-read-index-*` 目录；换 Bash 后仍由 `.cache/final-acceptance/fixes-run-root` 找到同一轮。脚本自行查询 Windows 卷空闲空间，无需额外变量。已开始的同一轮不能覆盖重跑。
+
 ## 2026-10-12 当前验收：仅恢复流水线与长连接
 
 **2026-10-13 状态更新：** 用户已完成下面的 13 点流程，见[结果与限制](../../docs/storage_redesign/final_performance_fixes_20261011.md#10-2026-10-13用户验收结果readindex-分析与提交前清理)。已清理结束测试的设备、可重建 fixture 和初轮重复证据；结果、请求记录、最终验证与程序仍保留。不要对已完成目录再次运行 `selected`；只有确需新一轮时才从 `prepare` 建立新目录。本次清理没有重新执行负载。
