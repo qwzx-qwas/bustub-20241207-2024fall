@@ -1,0 +1,300 @@
+{
+  "arrival_dispatch": {
+    "all_workers_stopped": true,
+    "blocked_writers": {},
+    "confirmed_writes": 272,
+    "end_ns": 12629257931132,
+    "errors": [],
+    "expected_arrivals": 1366,
+    "generated_arrivals": 1366,
+    "generator_unproduced": 0,
+    "last_index": 587,
+    "max_inflight": 3,
+    "max_queued": 1,
+    "queue_rejections": 0,
+    "queued_unissued": 0,
+    "service_failures": [],
+    "start_ns": 11263997228579,
+    "unissued_plans": []
+  },
+  "arrival_summary": {
+    "dispatch": {
+      "all_workers_stopped": true,
+      "blocked_writers": {},
+      "confirmed_writes": 272,
+      "end_ns": 12629257931132,
+      "errors": [],
+      "expected_arrivals": 1366,
+      "generated_arrivals": 1366,
+      "generator_unproduced": 0,
+      "last_index": 587,
+      "max_inflight": 3,
+      "max_queued": 1,
+      "queue_rejections": 0,
+      "queued_unissued": 0,
+      "service_failures": [],
+      "start_ns": 11263997228579,
+      "unissued_plans": []
+    },
+    "scope": "logical operations by planned arrival; retry traffic is not successful goodput",
+    "windows": {
+      "after_k0": {
+        "admitted": 31,
+        "censored": 0,
+        "completed_in_window": 33,
+        "end_ns": 12629257931132,
+        "latencies": {
+          "queue": {
+            "count": 31,
+            "p50_ms": 0.520952,
+            "p95_ms": 0.893141,
+            "p99_ms": 4.418521
+          },
+          "schedule_success": {
+            "count": 31,
+            "p50_ms": 8.365469,
+            "p95_ms": 47.747348,
+            "p99_ms": 471.984384
+          }
+        },
+        "outcomes": {
+          "SUCCESS": 31
+        },
+        "planned": 31,
+        "start_ns": 12598465747041,
+        "success_ops_per_second": 1.071700529669323,
+        "window_seconds": 30.792184091
+      },
+      "follower_offline": {
+        "admitted": 1279,
+        "censored": 0,
+        "completed_in_window": 1280,
+        "end_ns": 12573242529290,
+        "latencies": {
+          "queue": {
+            "count": 1279,
+            "p50_ms": 0.542659,
+            "p95_ms": 0.912185,
+            "p99_ms": 1.058882
+          },
+          "schedule_success": {
+            "count": 1279,
+            "p50_ms": 179.521581,
+            "p95_ms": 311.2487,
+            "p99_ms": 336.788643
+          }
+        },
+        "outcomes": {
+          "SUCCESS": 1279
+        },
+        "planned": 1279,
+        "start_ns": 11294002949389,
+        "success_ops_per_second": 1.0005944313410462,
+        "window_seconds": 1279.239579901
+      },
+      "healthy": {
+        "admitted": 31,
+        "censored": 0,
+        "completed_in_window": 30,
+        "end_ns": 11294002949389,
+        "latencies": {
+          "queue": {
+            "count": 31,
+            "p50_ms": 0.52788,
+            "p95_ms": 0.84837,
+            "p99_ms": 3.717216
+          },
+          "schedule_success": {
+            "count": 31,
+            "p50_ms": 7.846071,
+            "p95_ms": 37.081798,
+            "p99_ms": 43.179499
+          }
+        },
+        "outcomes": {
+          "SUCCESS": 31
+        },
+        "planned": 31,
+        "start_ns": 11263997228579,
+        "success_ops_per_second": 0.9998093426904747,
+        "window_seconds": 30.00572081
+      },
+      "recovering_k0": {
+        "admitted": 25,
+        "censored": 0,
+        "completed_in_window": 23,
+        "end_ns": 12598465747041,
+        "latencies": {
+          "queue": {
+            "count": 25,
+            "p50_ms": 0.571689,
+            "p95_ms": 1.064298,
+            "p99_ms": 1.303757
+          },
+          "schedule_success": {
+            "count": 25,
+            "p50_ms": 242.879701,
+            "p95_ms": 5110.67916,
+            "p99_ms": 5123.801735
+          }
+        },
+        "outcomes": {
+          "SUCCESS": 25
+        },
+        "planned": 25,
+        "start_ns": 12573242529290,
+        "success_ops_per_second": 0.9118582818041977,
+        "window_seconds": 25.223217751
+      }
+    }
+  },
+  "attempt_summary": {
+    "all_attempt_outcomes": {
+      "SUCCESS": 5327,
+      "UNKNOWN": 433
+    },
+    "failed_call_latency": {
+      "count": 2,
+      "p50_ms": 5000.880952,
+      "p95_ms": 5005.573197,
+      "p99_ms": 5005.573197
+    },
+    "latency_scope": "driver invocation to validated client return; window-started operations include drain tails",
+    "out_of_window_calls": 0,
+    "outcomes": {
+      "SUCCESS": 1366,
+      "UNKNOWN": 2
+    },
+    "p99_exploratory": true,
+    "phase_outcomes": {
+      "foreground/SUCCESS": 1366,
+      "foreground/UNKNOWN": 2,
+      "load/SUCCESS": 313,
+      "schema/SUCCESS": 1,
+      "status/SUCCESS": 51,
+      "status/UNKNOWN": 389,
+      "storage_observation/SUCCESS": 3116,
+      "storage_observation/UNKNOWN": 42,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "verify_target/SUCCESS": 160
+    },
+    "success_ops_per_second": 1.000541506428492,
+    "successful_call_latency": {
+      "count": 1366,
+      "p50_ms": 172.164548,
+      "p95_ms": 308.273589,
+      "p99_ms": 337.848922
+    },
+    "tail_successes": 0,
+    "window_calls": 1368,
+    "window_seconds": 1365.260702553,
+    "window_successes": 1366
+  },
+  "business_validated": true,
+  "cleanup": {
+    "cluster_exit": 0,
+    "driver": {
+      "exit_code": 0,
+      "history_error": null,
+      "reader_stopped": true
+    },
+    "monitor_stopped": true
+  },
+  "coverage": "recovered",
+  "elapsed_seconds": 1498.626078753001,
+  "execution_coverage": {
+    "completed_operations": null,
+    "incomplete_stage": null,
+    "measurement_complete": true,
+    "target_operations": null
+  },
+  "interruption": null,
+  "logical_summary": {
+    "censored": {
+      "count": 0,
+      "display": "observed time +; success confirmation absent at cutoff",
+      "max_observed_ms": null,
+      "min_observed_ms": null
+    },
+    "deadline_misses": 0,
+    "failed_operation_latency": {
+      "count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "full_population_p99_ms": 341.713255,
+    "latency_scope": "logical start to confirmation; includes attempts, rediscovery/backoff; P4 includes queueing",
+    "logical_operations": 1366,
+    "observation_complete": true,
+    "outcomes": {
+      "SUCCESS": 1366
+    },
+    "p99_exploratory": true,
+    "phase_outcomes": {
+      "foreground/SUCCESS": 1366,
+      "load/SUCCESS": 313,
+      "schema/SUCCESS": 1,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "verify_target/SUCCESS": 160
+    },
+    "retry_attempts": 2,
+    "success_fraction": 1.0,
+    "success_ops_per_second": 1.000541506428492,
+    "successful_operation_latency": {
+      "count": 1366,
+      "p50_ms": 176.895189,
+      "p95_ms": 312.741987,
+      "p99_ms": 341.713255
+    },
+    "tail_successes": 0,
+    "unconfirmed_fraction": 0.0,
+    "unknown_scope": "no successful confirmation observed; not evidence that the write did not commit",
+    "window_seconds": 1365.260702553,
+    "window_successes": 1366
+  },
+  "measurement_complete": true,
+  "measurement_valid": true,
+  "rate": 1.0,
+  "recovery_lower_bound_seconds": null,
+  "recovery_seconds": 25.223217751,
+  "resource_summary": {
+    "clients": {
+      "cpu_seconds": 118.09,
+      "io": {
+        "read_bytes": 20480,
+        "write_bytes": 162115584
+      },
+      "sampled_process_lifetimes": 5
+    },
+    "nodes": {
+      "cpu_seconds": 1142.88,
+      "io": {
+        "read_bytes": 8256016384,
+        "write_bytes": 331202560
+      },
+      "sampled_process_lifetimes": 4
+    },
+    "observation_seconds": 1364.220649913,
+    "peak_client_rss_bytes": 106614784,
+    "peak_node_rss_bytes": 43425792,
+    "scope": "sampled process lifetimes; gaps and before/after-sample IO excluded",
+    "status": "observed"
+  },
+  "role": "baseline",
+  "scenario": "P4",
+  "service_outcomes": {
+    "foreground/SUCCESS": 1366,
+    "load/SUCCESS": 313,
+    "schema/SUCCESS": 1,
+    "verify_final/SUCCESS": 160,
+    "verify_load/SUCCESS": 160,
+    "verify_target/SUCCESS": 160
+  },
+  "status": "measured",
+  "validated_comparison": true,
+  "validation": "passed",
+  "validation_error": null
+}

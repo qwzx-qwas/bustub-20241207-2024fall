@@ -90,7 +90,7 @@ class ClientQueryResultCodec {
   static auto Decode(const std::vector<std::byte> &bytes) -> ClientQueryResultV1;
 };
 
-/** Stable client framing. One TCP connection carries one request frame and one response frame. */
+/** Stable client framing. A TCP stream carries repeated request/response frames; framing and request identities are unchanged. */
 class ClientProtocolCodec {
  public:
   static constexpr uint32_t FORMAT_VERSION = 1;

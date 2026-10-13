@@ -1,0 +1,5 @@
+{
+  "head": "1c651c73c8869cf50e3235a68410cca7b815aef3",
+  "source": "HEAD plus working tree; SHA256SUMS is authoritative",
+  "scope": "recovery pipeline and persistent TCP only; original inputs, cache limits and deadlines; no profiling"
+}

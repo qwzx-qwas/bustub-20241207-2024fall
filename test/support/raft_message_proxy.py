@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""External one-frame Raft proxy with file-controlled loss and snapshot replay."""
+"""External framed-stream Raft proxy with file-controlled loss and snapshot replay."""
 
 import argparse
 import json
@@ -21,18 +21,20 @@ def terminate_on_signal(signum: int, _frame: object) -> None:
     raise SystemExit(128 + signum)
 
 
-def read_exact(connection: socket.socket, size: int) -> bytes:
+def read_exact(connection: socket.socket, size: int, clean_eof: bool = False) -> bytes:
     result = bytearray()
     while len(result) < size:
         chunk = connection.recv(size - len(result))
         if not chunk:
+            if clean_eof and not result:
+                raise EOFError()
             raise RuntimeError("truncated Raft frame")
         result.extend(chunk)
     return bytes(result)
 
 
 def read_frame(connection: socket.socket) -> bytes:
-    prefix = read_exact(connection, 16)
+    prefix = read_exact(connection, 16, clean_eof=True)
     if prefix[:8] != RPC_MAGIC or struct.unpack(">I", prefix[8:12])[0] != RPC_FORMAT_VERSION:
         raise RuntimeError("invalid Raft frame prefix")
     payload_size = struct.unpack(">I", prefix[12:16])[0]
@@ -218,6 +220,7 @@ class Proxy:
         self.forward_lock = threading.Lock()
         self.rules = {"generation": 0, "blocked_from": [], "drop_all": False}
         self.rules_error = None
+        self.stream = threading.local()
 
     def event(self, value: dict) -> None:
         with (self.controls / "events.jsonl").open("a", encoding="utf-8") as output:
@@ -248,8 +251,17 @@ class Proxy:
             (self.controls / "last-error").write_text(str(error))
 
     def forward(self, frame: bytes) -> None:
-        with socket.create_connection(("127.0.0.1", self.target_port), timeout=2) as target:
+        target = getattr(self.stream, "target", None)
+        if target is None:
+            target = socket.create_connection(("127.0.0.1", self.target_port), timeout=2)
+            target.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.stream.target = target
+        try:
             target.sendall(frame)
+        except OSError:
+            target.close()
+            self.stream.target = None
+            raise
 
     def record_snapshot_request(self, frame: bytes, from_node: int, to_node: int, message: bytes) -> None:
         request = snapshot_request(message)
@@ -313,7 +325,18 @@ class Proxy:
             observed_path.write_text(fields_text(observed), encoding="ascii")
 
     def handle(self, connection: socket.socket) -> None:
-        frame = read_frame(connection)
+        try:
+            while True:
+                self.handle_frame(read_frame(connection))
+        except EOFError:
+            pass
+        finally:
+            target = getattr(self.stream, "target", None)
+            if target is not None:
+                target.close()
+                self.stream.target = None
+
+    def handle_frame(self, frame: bytes) -> None:
         from_node, to_node, group, message_type, message = message_view(frame)
         if self.observe:
             if to_node != self.node_id or from_node not in (1, 2, 3) or group != "storage-acceptance":
@@ -390,20 +413,26 @@ def main() -> None:
         listener.bind(("127.0.0.1", arguments.listen_port))
         listener.listen(128)
         (arguments.controls / "ready").write_text("ready\n", encoding="ascii")
+        slots = threading.BoundedSemaphore(16)
+
+        def serve(connection):
+            try:
+                with connection:
+                    connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    proxy.handle(connection)
+            except (ConnectionError, TimeoutError, OSError) as error:
+                (arguments.controls / "last-transport-error").write_text(f"{error}\n", encoding="utf-8")
+            except Exception as error:
+                (arguments.controls / "last-error").write_text(f"{error}\n", encoding="utf-8")
+            finally:
+                slots.release()
+
         while True:
             connection, _ = listener.accept()
-            with connection:
-                try:
-                    if arguments.observe:
-                        connection.settimeout(2)
-                    proxy.handle(connection)
-                except (ConnectionError, TimeoutError) as error:
-                    # A target process may deliberately be stopped or isolated.
-                    # Preserve that transport fact for diagnostics, but do not
-                    # confuse it with a malformed formal Raft frame.
-                    (arguments.controls / "last-transport-error").write_text(f"{error}\n", encoding="utf-8")
-                except Exception as error:  # pylint: disable=broad-exception-caught
-                    (arguments.controls / "last-error").write_text(f"{error}\n", encoding="utf-8")
+            if slots.acquire(blocking=False):
+                threading.Thread(target=serve, args=(connection,), daemon=True).start()
+            else:
+                connection.close()
 
 
 if __name__ == "__main__":

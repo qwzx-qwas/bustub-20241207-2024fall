@@ -259,7 +259,17 @@ TEST(TcpRaftTransportTest, StopDiscardsQueuedFramesInsteadOfDrainingStaleBacklog
     }
   });
 
-  TcpRaftTransport sender(1, "shutdown", {"127.0.0.1", 0}, {{2, peer.Endpoint()}}, 5000);
+  std::mutex healthy_mutex;
+  std::condition_variable healthy_cv;
+  bool healthy_received = false;
+  TcpRaftTransport healthy(3, "shutdown", {"127.0.0.1", 0}, {{1, {"127.0.0.1", 1}}});
+  healthy.Start([&](RaftEnvelope envelope) {
+    const auto &vote = std::get<RequestVoteRequest>(envelope.message_);
+    std::lock_guard lock(healthy_mutex);
+    healthy_received = vote.term_ == 7 && vote.last_log_index_ == 83;
+    healthy_cv.notify_all();
+  });
+  TcpRaftTransport sender(1, "shutdown", {"127.0.0.1", 0}, {{2, peer.Endpoint()}, {3, healthy.ListenEndpoint()}}, 5000);
   sender.Start([](const RaftEnvelope &) {});
   ReplicatedLogEntry large_entry;
   large_entry.index_ = 1;
@@ -276,6 +286,13 @@ TEST(TcpRaftTransportTest, StopDiscardsQueuedFramesInsteadOfDrainingStaleBacklog
     server.join();
     ADD_FAILURE() << "large Raft frame never reached the blocking peer";
     return;
+  }
+
+  // Peer 2's first frame is still blocked. Peer 3 must receive its own stream.
+  sender.Send({1, 3, RequestVoteRequest{7, 1, 83, 6}, "shutdown"});
+  {
+    std::unique_lock lock(healthy_mutex);
+    EXPECT_TRUE(healthy_cv.wait_for(lock, std::chrono::seconds(1), [&] { return healthy_received; }));
   }
 
   constexpr uint64_t queued_messages = 16;

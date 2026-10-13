@@ -652,6 +652,14 @@ auto LogStore::TermAt(uint64_t index) const -> std::optional<uint64_t> {
   return TermAtUnlocked(index);
 }
 
+auto LogStore::EntryEncodedBytes(uint64_t index) const -> size_t {
+  std::lock_guard lock(*mutex_);
+  if (object_) return object_->EntryEncodedBytes(index);
+  if (index <= snapshot_base_index_ || index > LastLogIndexUnlocked())
+    throw std::out_of_range("Raft log size unavailable");
+  return entries_[index - snapshot_base_index_ - 1].payload_.size() +
+         LogCodec::FRAME_HEADER_BYTES + LogCodec::FRAME_BODY_FIXED_BYTES;
+}
 auto LogStore::EntryAt(uint64_t index) const -> std::optional<ReplicatedLogEntry> {
   std::lock_guard lock(*mutex_);
   if (object_) {

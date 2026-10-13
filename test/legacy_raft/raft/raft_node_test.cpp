@@ -452,8 +452,12 @@ class CrossFileRecoveryDisk {
 auto OpenRecoveredKvNode(const std::filesystem::path &raft_directory, const std::shared_ptr<PowerLossStorage> &storage,
                          const std::shared_ptr<KvStateMachine> &machine) -> std::unique_ptr<SynchronousTestNode> {
   auto recovered = RecoverRaftPersistentState(raft_directory, storage, machine);
+  RaftNodeConfig config{1, {1, 2, 3}, 100, 300, 50, "cross-file-recovery", MakeFixedElectionTimeoutSource(100)};
+  // Existing recovery schedules now cross prefetch batches, including the
+  // snapshot boundary, committed suffix and uncommitted-tail rejection.
+  config.append_batch_entries_ = 1;
   return std::make_unique<SynchronousTestNode>(
-      RaftNodeConfig{1, {1, 2, 3}, 100, 300, 50, "cross-file-recovery", MakeFixedElectionTimeoutSource(100)},
+      std::move(config),
       std::make_shared<InMemoryRaftTransport>(), std::move(recovered.stable_store_), std::move(recovered.log_store_),
       machine, std::move(recovered.snapshot_store_));
 }

@@ -1,0 +1,42 @@
+{
+  "cpp": [
+    {
+      "file": "contracts.xml",
+      "tests": 3,
+      "failures": 0,
+      "seconds": 19.813
+    },
+    {
+      "file": "crc.xml",
+      "tests": 4,
+      "failures": 0,
+      "seconds": 0.001
+    },
+    {
+      "file": "distributed_node_test.xml",
+      "tests": 10,
+      "failures": 0,
+      "seconds": 16.406
+    },
+    {
+      "file": "raft_node_test.xml",
+      "tests": 31,
+      "failures": 0,
+      "seconds": 4.247
+    },
+    {
+      "file": "tcp_transport_test.xml",
+      "tests": 4,
+      "failures": 0,
+      "seconds": 0.308
+    }
+  ],
+  "cpp_total": 52,
+  "python_report_contracts": 2,
+  "python_proxy_stream": 1,
+  "total_unique_checks": 55,
+  "formal_P1_P4_P2_run": false,
+  "build": "Release GCC 16.2.0",
+  "scope_review": "scope-review.json",
+  "fingerprints": "SHA256SUMS"
+}

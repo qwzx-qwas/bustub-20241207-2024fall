@@ -1,5 +1,28 @@
 # Storage correctness and performance acceptance (T0-A/B/C)
 
+## 2026-10-12 当前验收：仅恢复流水线与长连接
+
+**2026-10-13 状态更新：** 用户已完成下面的 13 点流程，见[结果与限制](../../docs/storage_redesign/final_performance_fixes_20261011.md#10-2026-10-13用户验收结果readindex-分析与提交前清理)。已清理结束测试的设备、可重建 fixture 和初轮重复证据；结果、请求记录、最终验证与程序仍保留。不要对已完成目录再次运行 `selected`；只有确需新一轮时才从 `prepare` 建立新目录。本次清理没有重新执行负载。
+
+基线 `1c651c7`。复用原测试输入、预算、种子及业务校验，不开 perf/bpf。具体实现和定向检查见[修正记录 §9](../../docs/storage_redesign/final_performance_fixes_20261011.md#9-2026-10-12在恢复后的基线上仅接入恢复流水线与长连接)。下面旧日期的完整验收流程保留为历史说明，本轮使用 `selected`。
+
+```bash
+cd /home/qwzx/projects/bustub-20241207-2024fall
+bash test/storage_acceptance/run_final_fixes.sh prepare &&
+bash test/storage_acceptance/run_final_fixes.sh verify
+```
+
+准备与定向检查通过后，只需一个命令启动本轮性能验收：
+
+```bash
+bash /home/qwzx/projects/bustub-20241207-2024fall/test/storage_acceptance/run_final_fixes.sh selected
+```
+
+`selected` 按顺序执行 P1 均匀/热点各三轮、P4 固定 1 次/秒一轮、P2 四/八客户端各三轮；不执行 P3 或 P2 一/二客户端。共 13 点；每点继续使用原预热、测量、业务核对及关闭流程。阶段打印日志和结果位置，不因失败改参数重跑。重复执行同一个已开始的 `selected` 会拒绝；需用 `prepare` 建立新目录，保留失败证据。
+
+`prepare` 只构建和冻结源码/程序；`verify` 运行既有 CRC、恢复/快照/GC、Raft、TCP、节点与报告器检查，以及长连接代理定向测试。这些是短的正确性检查，不是正式 P1/P2/P4。结果目录由 `.cache/final-acceptance/fixes-run-root` 记录，换 Bash 不丢失；Windows 卷空闲空间由既有脚本查询，不需要手设变量。
+
+
 <a id="final-fixes-2026-10-11"></a>
 ## 2026-10-11 收尾修正：由用户执行
 

@@ -97,6 +97,8 @@ class LogStore {
   auto LastLogIndex() const -> uint64_t;
   auto LastLogTerm() const -> uint64_t;
   auto TermAt(uint64_t index) const -> std::optional<uint64_t>;
+  /** Encoded size from the existing index, for bounded read admission. */
+  auto EntryEncodedBytes(uint64_t index) const -> size_t;
   auto EntryAt(uint64_t index) const -> std::optional<ReplicatedLogEntry>;
   auto Entries(uint64_t first_index, uint64_t last_index, size_t maximum_entries = SIZE_MAX,
                size_t maximum_bytes = SIZE_MAX) const -> std::vector<ReplicatedLogEntry>;

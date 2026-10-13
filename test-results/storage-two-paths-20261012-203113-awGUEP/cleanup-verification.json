@@ -1,0 +1,3030 @@
+{
+  "date": "2026-10-13",
+  "authorization": "User requested cleanup of obsolete test intermediates and commit",
+  "status": "completed",
+  "files": [
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152694784
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153100288
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152690688
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r3/P2-c4-r3/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r3/P2-c4-r3/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152035328
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r3/P2-c4-r3/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152444928
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r3/P2-c4-r3/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152035328
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40357888
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47783936
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40497152
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40427520
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47661056
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40316928
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40390656
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47706112
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40366080
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40435712
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47603712
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40370176
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40275968
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47575040
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40468480
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40476672
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 47767552
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 40460288
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 68190208
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 85221376
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 99401728
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152793088
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153227264
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152805376
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152875008
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 153284608
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152879104
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r2/P2-c4-r2/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r2/P2-c4-r2/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152215552
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r2/P2-c4-r2/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152621056
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r2/P2-c4-r2/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152211456
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r1/P2-c4-r1/fixture.jsonl",
+      "reason": "regenerable workload fixture; frozen generator and configuration retained",
+      "bytes": 5814623,
+      "allocated_bytes": 5816320
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r1/P2-c4-r1/provision/node-3.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152182784
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r1/P2-c4-r1/provision/node-1.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152584192
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r1/P2-c4-r1/provision/node-2.device",
+      "reason": "completed disposable test device",
+      "bytes": 1073741824,
+      "allocated_bytes": 152182784
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/crc.xml",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 1485,
+      "allocated_bytes": 4096,
+      "sha256": "64907afb24ccadb6f30feb57b34d2e3c1c8d9469a75fbd09d3e7e980a7766861"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/crc.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 961,
+      "allocated_bytes": 4096,
+      "sha256": "620732093e64c9c8c2b45f00cfd12b622791ef662bae77b68d94e9d86f98d0c3"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/freeze.json",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 239,
+      "allocated_bytes": 4096,
+      "sha256": "3e0613580e8f616107000fd96ee4f43448298beb92a0e2c3547ef8a27e5509c1"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/distributed_node_test.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 2196,
+      "allocated_bytes": 4096,
+      "sha256": "52bf17af3eb632d722945c347f73b24ee2ed7c15dd407387d4bca07da0ff7329"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/configure.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 1295,
+      "allocated_bytes": 4096,
+      "sha256": "6d8db69373a650391b8d261d745a6b34e1bc3deca15ef1cd435367e251670005"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/report-contracts.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 100,
+      "allocated_bytes": 4096,
+      "sha256": "dec5673ee7ead0e86a249ea046dba60aab31a8206a43fedeb035ab8449b4e26d"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/proxy-stream.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 98,
+      "allocated_bytes": 4096,
+      "sha256": "280e93b8dda473146a11b2c2442101a0b71ddc2211e7d3d5cad5befad6e1d457"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/contracts.xml",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 1236,
+      "allocated_bytes": 4096,
+      "sha256": "f5d5f70c37eb8ad62617b19fd637e28dcf7a8b0b5e7310bff7ac93bab4e628df"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/fingerprint-check.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 0,
+      "allocated_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/SHA256SUMS",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 57426,
+      "allocated_bytes": 61440,
+      "sha256": "1aa40d2d540800ac5902dadd438e6a4c7821b6b0d861220aecab9465c7f81cc6"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/tcp_transport_test.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 1051,
+      "allocated_bytes": 4096,
+      "sha256": "f236e6d07a03a819365b900d839ce36fefe767ae9e455d57ca63411216775ed7"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/raft_node_test.xml",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 9360,
+      "allocated_bytes": 12288,
+      "sha256": "1aac3ba6ebae9bdd8eea1974dd94ce5c822f1837ec1f5c014623a3f949b0a2a9"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/verify.ok",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 0,
+      "allocated_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/contracts.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 943,
+      "allocated_bytes": 4096,
+      "sha256": "26c9da613fff1a42f935dfe67232faf1669843d162dcc40734058b80cf431f5d"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/distributed_node_test.xml",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 3429,
+      "allocated_bytes": 4096,
+      "sha256": "7fe8db4a80e740f76a5b6ec5820c359e97b297c90b59ad28d66e2e8bbe2bc292"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/raft_node_test.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 5757,
+      "allocated_bytes": 8192,
+      "sha256": "b26ac5d77b5068599bc600c7467446918d586ef912c43705ff7a3707b295df37"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/tcp_transport_test.xml",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 1514,
+      "allocated_bytes": 4096,
+      "sha256": "96620578a662badca42d2a80fe1e8b0413729e3abdf052a03b764c7b7277ad36"
+    },
+    {
+      "path": "test-results/storage-two-paths-20261012-202804-MXgPuX/build.log",
+      "reason": "superseded successful pre-HUP-fix verification; final verification retained",
+      "bytes": 6335,
+      "allocated_bytes": 8192,
+      "sha256": "f454860a4ffe483f186e6b9d7616ab6299908f864b1e4851f3aa5d1df3b5c4e1"
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libbustub_murmur3.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 4542,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libgtest.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 983636,
+      "allocated_bytes": 987136
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libfort.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 141846,
+      "allocated_bytes": 143360
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libbustub.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 17204254,
+      "allocated_bytes": 17207296
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libfmt.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 275340,
+      "allocated_bytes": 278528
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libgmock_main.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 2302,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libduckdb_pg_query.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 521926,
+      "allocated_bytes": 524288
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libbustub_lz4.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 126240,
+      "allocated_bytes": 126976
+    },
+    {
+      "path": ".cache/final-acceptance/build/lib/libgmock.a",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 225504,
+      "allocated_bytes": 229376
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/final_performance_test.dir/storage/final_performance_test.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 217472,
+      "allocated_bytes": 221184
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/final_performance_test.dir/storage/final_performance_test.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 47762,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/final_performance_test.dir/__/tools/backtrace.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 89712,
+      "allocated_bytes": 90112
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/final_performance_test.dir/__/tools/backtrace.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26032,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/final_performance_test.dir/__/tools/bustub-node/storage_config.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 103792,
+      "allocated_bytes": 106496
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/final_performance_test.dir/__/tools/bustub-node/storage_config.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 42571,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/distributed_node_test.dir/__/tools/backtrace.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 89712,
+      "allocated_bytes": 90112
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/distributed_node_test.dir/__/tools/backtrace.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26031,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/distributed_node_test.dir/legacy_raft/distributed/distributed_node_test.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 533480,
+      "allocated_bytes": 536576
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/distributed_node_test.dir/legacy_raft/distributed/distributed_node_test.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 47750,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/tcp_transport_test.dir/__/tools/backtrace.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 89712,
+      "allocated_bytes": 90112
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/tcp_transport_test.dir/__/tools/backtrace.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26028,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/tcp_transport_test.dir/legacy_raft/raft/tcp_transport_test.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34293,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/tcp_transport_test.dir/legacy_raft/raft/tcp_transport_test.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 223280,
+      "allocated_bytes": 225280
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/storage-e2e-driver.dir/storage_acceptance/client_driver.cc.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 28057,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/storage-e2e-driver.dir/storage_acceptance/client_driver.cc.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 88640,
+      "allocated_bytes": 90112
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/versioned_frame_test.dir/__/tools/backtrace.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 89712,
+      "allocated_bytes": 90112
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/versioned_frame_test.dir/__/tools/backtrace.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26030,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/versioned_frame_test.dir/legacy_raft/recovery/versioned_frame_test.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 30843,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/versioned_frame_test.dir/legacy_raft/recovery/versioned_frame_test.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 97696,
+      "allocated_bytes": 98304
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/raft_node_test.dir/__/tools/backtrace.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 89712,
+      "allocated_bytes": 90112
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/raft_node_test.dir/__/tools/backtrace.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26024,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/raft_node_test.dir/legacy_raft/raft/raft_node_test.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1223440,
+      "allocated_bytes": 1224704
+    },
+    {
+      "path": ".cache/final-acceptance/build/test/CMakeFiles/raft_node_test.dir/legacy_raft/raft/raft_node_test.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34599,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/hyperloglog_presto.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 31160,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/orset_driver.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 60680,
+      "allocated_bytes": 61440
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/hyperloglog.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 23560,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/orset.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 90504,
+      "allocated_bytes": 94208
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/orset.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 22597,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/hyperloglog_presto.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27002,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/hyperloglog.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26063,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/trie.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 136952,
+      "allocated_bytes": 139264
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/trie_store.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 21429,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/orset_driver.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 17939,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/trie_store.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 55736,
+      "allocated_bytes": 57344
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/primer/CMakeFiles/bustub_primer.dir/trie.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 21225,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/sha256.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14501,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/bustub_ddl.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 483736,
+      "allocated_bytes": 487424
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/byte_codec.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26160,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/bustub_instance.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43646,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/config.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 4761,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/bustub_ddl.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43550,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/sha256.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 6912,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/byte_codec.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 16127,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/bustub_instance.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 197768,
+      "allocated_bytes": 200704
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/config.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1224,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/util/string_util.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 67464,
+      "allocated_bytes": 69632
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/common/CMakeFiles/bustub_common.dir/util/string_util.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24938,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/tinyint_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24703,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/timestamp_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25865,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/bigint_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24700,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27112,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/decimal_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24616,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/boolean_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24530,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/value.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26507,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/integer_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24703,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/timestamp_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 18008,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/decimal_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 42480,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/value.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 21872,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/bigint_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 46256,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/varlen_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 35032,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/integer_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 44888,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/smallint_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 57840,
+      "allocated_bytes": 61440
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/integer_parent_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 5544,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/vector_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26525,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/tinyint_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 53304,
+      "allocated_bytes": 57344
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/vector_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 109784,
+      "allocated_bytes": 110592
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 36440,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/smallint_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24706,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/boolean_type.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14256,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/integer_parent_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24637,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/type/CMakeFiles/bustub_type.dir/varlen_type.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25296,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/column.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 8152,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/column.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 23342,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/table_generator.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 68672,
+      "allocated_bytes": 69632
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/table_generator.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39587,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/catalog_snapshot.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 914768,
+      "allocated_bytes": 917504
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/schema.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 12880,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/catalog_snapshot.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38426,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/catalog/CMakeFiles/bustub_catalog.dir/schema.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24091,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/session_table.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43976,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/node.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 401272,
+      "allocated_bytes": 401408
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/session_table.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 18058,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/client_protocol.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25896,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/node.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43751,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/raft_state_machine.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 44356,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/client_protocol.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 37984,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/client.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29516,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/single_node_sql_runtime.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40762,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/bustub_state_machine.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 201408,
+      "allocated_bytes": 204800
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/command_codec.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38808,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/sql_command_preparer.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43799,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/sql_command_preparer.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 153616,
+      "allocated_bytes": 155648
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/command_codec.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 163336,
+      "allocated_bytes": 163840
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/raft_state_machine.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 327344,
+      "allocated_bytes": 327680
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/client.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 33560,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/single_node_sql_runtime.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 30696,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/request_fingerprint.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 15704,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/bustub_state_machine.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39185,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/distributed/CMakeFiles/bustub_distributed.dir/request_fingerprint.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 7704,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_aggregation.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39893,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_expression.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 116664,
+      "allocated_bytes": 118784
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_window_function.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 113672,
+      "allocated_bytes": 114688
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_table_ref.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40826,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_func_call.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 114160,
+      "allocated_bytes": 114688
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_insert.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 180336,
+      "allocated_bytes": 184320
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_select.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40319,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/expression_factory.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 159032,
+      "allocated_bytes": 159744
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/expression_factory.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 41443,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/planner.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 55528,
+      "allocated_bytes": 57344
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_func_call.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 42150,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_aggregation.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 140376,
+      "allocated_bytes": 143360
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_expression.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 41599,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_table_ref.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 194928,
+      "allocated_bytes": 196608
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/planner.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40238,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_window_function.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 41213,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_select.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 159704,
+      "allocated_bytes": 159744
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/planner/CMakeFiles/bustub_planner.dir/plan_insert.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40711,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/container/disk/hash/CMakeFiles/bustub_container_disk_hash.dir/linear_probe_hash_table.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32856,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/container/disk/hash/CMakeFiles/bustub_container_disk_hash.dir/disk_extendible_hash_table_utils.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34724,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/container/disk/hash/CMakeFiles/bustub_container_disk_hash.dir/disk_extendible_hash_table_utils.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 35160,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/container/disk/hash/CMakeFiles/bustub_container_disk_hash.dir/disk_extendible_hash_table.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 55024,
+      "allocated_bytes": 57344
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/container/disk/hash/CMakeFiles/bustub_container_disk_hash.dir/linear_probe_hash_table.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34584,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/container/disk/hash/CMakeFiles/bustub_container_disk_hash.dir/disk_extendible_hash_table.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34888,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/object_storage.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 79024,
+      "allocated_bytes": 81920
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/object_snapshot_store.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 182208,
+      "allocated_bytes": 184320
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/kv_state_machine.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 62784,
+      "allocated_bytes": 65536
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/stable_store.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38712,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/persistent_state.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29945,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/object_log_store.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 155160,
+      "allocated_bytes": 155648
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/object_snapshot_store.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29863,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/log_store.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 107568,
+      "allocated_bytes": 110592
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/rpc_codec.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27230,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/object_log_store.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29201,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/kv_state_machine.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26868,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/snapshot_store.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 30009,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/stable_store.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29775,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/tcp_transport.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 167880,
+      "allocated_bytes": 167936
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/object_storage.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 30028,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/rpc_codec.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 59472,
+      "allocated_bytes": 61440
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/snapshot_tasks.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29112,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/persistent_state.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 103336,
+      "allocated_bytes": 106496
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/raft_node.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1015408,
+      "allocated_bytes": 1015808
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/snapshot_tasks.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 94312,
+      "allocated_bytes": 98304
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/raft_node.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 33888,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/snapshot_store.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 140976,
+      "allocated_bytes": 143360
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/log_store.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 28903,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/raft/CMakeFiles/bustub_raft.dir/tcp_transport.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32235,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/topn_check_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 10216,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/nested_loop_join_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 54040,
+      "allocated_bytes": 57344
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/execution_common.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 65736,
+      "allocated_bytes": 69632
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/delete_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39428,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/update_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 136896,
+      "allocated_bytes": 139264
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/delete_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 48992,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/seq_scan_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39704,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/insert_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39428,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/limit_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 10320,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/insert_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 99488,
+      "allocated_bytes": 102400
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/plan_node.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38984,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/topn_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39691,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/hash_join_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39352,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/executor_factory.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40992,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/limit_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38987,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/external_merge_sort_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39284,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/topn_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 52400,
+      "allocated_bytes": 53248
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/index_scan_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 49912,
+      "allocated_bytes": 53248
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/aggregation_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39095,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/index_scan_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39444,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/fmt_impl.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 184640,
+      "allocated_bytes": 188416
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/topn_per_group_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39553,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/filter_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 11752,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/values_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14744,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/external_merge_sort_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 77872,
+      "allocated_bytes": 81920
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/executor_factory.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43813,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/nested_index_join_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39300,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/mock_scan_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39901,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/vector_knn_scan_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39375,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/vector_knn_scan_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 22328,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/projection_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14552,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/projection_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39367,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/nested_loop_join_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39379,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/nested_index_join_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 62312,
+      "allocated_bytes": 65536
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/init_check_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 10816,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/aggregation_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 49136,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/window_function_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39707,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/values_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39351,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/topn_per_group_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 15480,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/hash_join_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 85888,
+      "allocated_bytes": 86016
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/filter_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39351,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/vector_index_scan_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39472,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/fmt_impl.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39976,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/window_function_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 89240,
+      "allocated_bytes": 90112
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/sort_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39513,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/update_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39428,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/plan_node.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39427,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/sort_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 15152,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/mock_scan_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 149152,
+      "allocated_bytes": 151552
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/execution_common.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38776,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/init_check_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38913,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/topn_check_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39716,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/vector_index_scan_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 121192,
+      "allocated_bytes": 122880
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/execution/CMakeFiles/bustub_execution.dir/seq_scan_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 22456,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/node_directory.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32888,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/log_codec.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 10944,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/durable_storage.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 53672,
+      "allocated_bytes": 57344
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/canonical_snapshot.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 133784,
+      "allocated_bytes": 135168
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/state_manifest.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 100336,
+      "allocated_bytes": 102400
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/state_manifest.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38850,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/snapshot_manager.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 121096,
+      "allocated_bytes": 122880
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/page_snapshot.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38679,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/single_node_runtime.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39929,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/snapshot_manager.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39130,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/log_codec.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14583,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/page_snapshot.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 13208,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/canonical_snapshot.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38862,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/command_log.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24063,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/command_log.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 65840,
+      "allocated_bytes": 69632
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/durable_storage.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 23309,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/log_manager.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1600,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/log_manager.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29962,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/single_node_runtime.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 103072,
+      "allocated_bytes": 106496
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/recovery/CMakeFiles/bustub_recovery.dir/node_directory.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 23740,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/eliminate_true_filter.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 18984,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/seqscan_as_indexscan.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 118968,
+      "allocated_bytes": 122880
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/merge_filter_scan.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39323,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/optimizer_custom_rules.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 48640,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/optimizer.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38422,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/merge_projection.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38344,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/nlj_as_hash_join.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39586,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/order_by_index_scan.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 79864,
+      "allocated_bytes": 81920
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/nlj_as_index_join.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 113160,
+      "allocated_bytes": 114688
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/column_pruning.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 157272,
+      "allocated_bytes": 159744
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/order_by_index_scan.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39750,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/vector_knn_scan.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 134752,
+      "allocated_bytes": 135168
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/seqscan_as_indexscan.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39323,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/vector_knn_scan.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40091,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/sort_limit_as_topn.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38869,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/optimizer_internal.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 187,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/merge_projection.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38638,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/eliminate_true_filter.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38971,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/merge_filter_nlj.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 144640,
+      "allocated_bytes": 147456
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/nlj_as_index_join.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39780,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/merge_filter_scan.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 76056,
+      "allocated_bytes": 77824
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/merge_filter_nlj.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39286,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/optimizer.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 12944,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/column_pruning.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 39263,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/nlj_as_hash_join.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 154832,
+      "allocated_bytes": 155648
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/optimizer_custom_rules.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38448,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/optimizer_internal.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1280,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/optimizer/CMakeFiles/bustub_optimizer.dir/sort_limit_as_topn.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 42696,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/concurrency/CMakeFiles/bustub_concurrency.dir/watermark.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 10480,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/concurrency/CMakeFiles/bustub_concurrency.dir/transaction_manager_impl.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38721,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/concurrency/CMakeFiles/bustub_concurrency.dir/transaction_manager_impl.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 60184,
+      "allocated_bytes": 61440
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/concurrency/CMakeFiles/bustub_concurrency.dir/transaction_manager.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 120208,
+      "allocated_bytes": 122880
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/concurrency/CMakeFiles/bustub_concurrency.dir/watermark.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29188,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/concurrency/CMakeFiles/bustub_concurrency.dir/transaction_manager.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38714,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/frame_arena.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 23970,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/buffer_pool_manager.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 171992,
+      "allocated_bytes": 172032
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/clock_pro_replacer.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 20059,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/page_storage.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 28246,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/page_storage.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 99504,
+      "allocated_bytes": 102400
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/buffer_pool_manager.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 28225,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/file_page_storage.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 13344,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/clock_pro_replacer.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 65136,
+      "allocated_bytes": 65536
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/frame_arena.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 60392,
+      "allocated_bytes": 61440
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_buffer.dir/file_page_storage.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26910,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_translation.dir/translation_directory.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27805,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/buffer/CMakeFiles/bustub_translation.dir/translation_directory.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 152624,
+      "allocated_bytes": 155648
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_insert.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 41180,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_select.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 42128,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/binder.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40976,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_variable.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40618,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/node_tag_to_string.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40532,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/fmt_impl.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 110888,
+      "allocated_bytes": 114688
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_insert.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 31224,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/keyword_helper.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 11152,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_variable.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32048,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_create.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 92000,
+      "allocated_bytes": 94208
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/binder.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 20344,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bound_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 7952,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_create.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 42048,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/fmt_impl.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 41252,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/transformer.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 17576,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bound_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 23416,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/transformer.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 41592,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/bind_select.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 206448,
+      "allocated_bytes": 208896
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/keyword_helper.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 40602,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/CMakeFiles/bustub_binder.dir/node_tag_to_string.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 71464,
+      "allocated_bytes": 73728
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/explain_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 41099,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/update_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 30348,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/delete_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29312,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/index_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 66072,
+      "allocated_bytes": 69632
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/delete_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 46296,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/insert_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 36424,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/select_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 92984,
+      "allocated_bytes": 94208
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/select_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27492,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/update_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 64792,
+      "allocated_bytes": 65536
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/insert_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 29849,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/create_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24660,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/create_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 46448,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/explain_statement.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 10664,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/binder/statement/CMakeFiles/bustub_statement.dir/index_statement.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 30483,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/b_plus_tree_internal_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32120,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/table_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34861,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_bucket_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 47576,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/hash_table_block_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26310,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_page_utils.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32542,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_header_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 20911,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/b_plus_tree_leaf_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34224,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/page_guard.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 12904,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/hash_table_bucket_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27340,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/hash_table_block_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 17104,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/hash_table_directory_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 13288,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/b_plus_tree_leaf_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32137,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_directory_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 12392,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/hash_table_bucket_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43352,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/b_plus_tree_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 2224,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/b_plus_tree_internal_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32690,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_page_utils.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34224,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/b_plus_tree_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32036,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/table_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14152,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_header_page.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 9992,
+      "allocated_bytes": 12288
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/hash_table_directory_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27574,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_directory_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27499,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/extendible_htable_bucket_page.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32255,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/page/CMakeFiles/bustub_storage_page.dir/page_guard.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27537,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/linear_probe_hash_table_index.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 35208,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/b_plus_tree.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 558776,
+      "allocated_bytes": 561152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/ivfflat_index.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 33071,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/hnsw_index.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1024,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/b_plus_tree.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 33511,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/hnsw_index.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 33603,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/extendible_hash_table_index.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 35423,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/linear_probe_hash_table_index.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 73856,
+      "allocated_bytes": 77824
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/b_plus_tree_index.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34467,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/extendible_hash_table_index.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 169920,
+      "allocated_bytes": 172032
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/index_iterator.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 37296,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/ivfflat_index.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1024,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/index_iterator.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 32316,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/index/CMakeFiles/bustub_storage_index.dir/b_plus_tree_index.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 503768,
+      "allocated_bytes": 503808
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/bootstrap_store.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 66784,
+      "allocated_bytes": 69632
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/metadata_backend.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 36672,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_transaction.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27856,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/journal_backend.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 38040,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/bootstrap_store.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26174,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_reference.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26851,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/journal_service.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 197704,
+      "allocated_bytes": 200704
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/journal_backend.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25576,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/node_storage.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 188448,
+      "allocated_bytes": 192512
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/block_device.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 31872,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/metadata_engine.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 311440,
+      "allocated_bytes": 315392
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_mapping.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 186064,
+      "allocated_bytes": 188416
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_reference.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 153688,
+      "allocated_bytes": 155648
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_io.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 183488,
+      "allocated_bytes": 184320
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/disk_manager.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 33768,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/disk_manager.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25410,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/metadata_backend.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25655,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/disk_manager_memory.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26264,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/region_manager.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 33456,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/journal_service.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27208,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/node_storage.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27085,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/io_executor.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 95304,
+      "allocated_bytes": 98304
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/block_device.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 24077,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/io_executor.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26390,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/data_allocator.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 81480,
+      "allocated_bytes": 81920
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/disk_manager_memory.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 15704,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/data_allocator.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26692,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/metadata_engine.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34637,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_io.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 26723,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_mapping.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27052,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/region_manager.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25574,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/disk/CMakeFiles/bustub_storage_disk.dir/object_transaction.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 192368,
+      "allocated_bytes": 192512
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/table/CMakeFiles/bustub_storage_table.dir/table_iterator.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 5480,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/table/CMakeFiles/bustub_storage_table.dir/table_iterator.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34869,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/table/CMakeFiles/bustub_storage_table.dir/table_heap.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 34861,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/table/CMakeFiles/bustub_storage_table.dir/tuple.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 25909,
+      "allocated_bytes": 28672
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/table/CMakeFiles/bustub_storage_table.dir/table_heap.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 45960,
+      "allocated_bytes": 49152
+    },
+    {
+      "path": ".cache/final-acceptance/build/src/storage/table/CMakeFiles/bustub_storage_table.dir/tuple.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 31896,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/lz4/CMakeFiles/bustub_lz4.dir/lz4.c.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 124720,
+      "allocated_bytes": 126976
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/lz4/CMakeFiles/bustub_lz4.dir/lz4.c.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 3713,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/murmur3/CMakeFiles/bustub_murmur3.dir/MurmurHash3.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 12601,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/murmur3/CMakeFiles/bustub_murmur3.dir/MurmurHash3.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 4200,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/fmt/CMakeFiles/fmt.dir/src/format.cc.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 244952,
+      "allocated_bytes": 245760
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/fmt/CMakeFiles/fmt.dir/src/os.cc.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 18904,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/fmt/CMakeFiles/fmt.dir/src/format.cc.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 23616,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/fmt/CMakeFiles/fmt.dir/src/os.cc.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 22666,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/googletest/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 37926,
+      "allocated_bytes": 40960
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/googletest/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 923264,
+      "allocated_bytes": 925696
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/googletest/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 35940,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/googletest/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 2160,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/googletest/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 36570,
+      "allocated_bytes": 36864
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/googletest/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 214152,
+      "allocated_bytes": 217088
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_parser.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 15792,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_common_keywords.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 18837,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_parser.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 30648,
+      "allocated_bytes": 32768
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_nodes_value.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14679,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_scan.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 51440,
+      "allocated_bytes": 53248
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_nodes_list.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 4816,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_scansup.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 4168,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_common_keywords.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 2528,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_nodes_list.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14525,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/pg_functions.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 20776,
+      "allocated_bytes": 24576
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_nodes_makefuncs.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14824,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_gram.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 16420,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_nodes_makefuncs.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 4392,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/postgres_parser.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 15571,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_nodes_value.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 1832,
+      "allocated_bytes": 4096
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_scan.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 16729,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_scansup.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 14776,
+      "allocated_bytes": 16384
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/src_backend_parser_gram.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 388064,
+      "allocated_bytes": 389120
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/pg_functions.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 19006,
+      "allocated_bytes": 20480
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libpg_query/CMakeFiles/duckdb_pg_query.dir/postgres_parser.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 5664,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libfort/lib/CMakeFiles/fort.dir/fort.c.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 139608,
+      "allocated_bytes": 143360
+    },
+    {
+      "path": ".cache/final-acceptance/build/third_party/libfort/lib/CMakeFiles/fort.dir/fort.c.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 4553,
+      "allocated_bytes": 8192
+    },
+    {
+      "path": ".cache/final-acceptance/build/tools/bustub-node/CMakeFiles/bustub-node.dir/storage_config.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 103792,
+      "allocated_bytes": 106496
+    },
+    {
+      "path": ".cache/final-acceptance/build/tools/bustub-node/CMakeFiles/bustub-node.dir/storage_config.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 42552,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/tools/bustub-node/CMakeFiles/bustub-node.dir/bustub-node.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 43459,
+      "allocated_bytes": 45056
+    },
+    {
+      "path": ".cache/final-acceptance/build/tools/bustub-node/CMakeFiles/bustub-node.dir/bustub-node.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 75608,
+      "allocated_bytes": 77824
+    },
+    {
+      "path": ".cache/final-acceptance/build/tools/bustub-client/CMakeFiles/bustub-client.dir/bustub-client.cpp.o",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 51064,
+      "allocated_bytes": 53248
+    },
+    {
+      "path": ".cache/final-acceptance/build/tools/bustub-client/CMakeFiles/bustub-client.dir/bustub-client.cpp.o.d",
+      "reason": "rebuildable object/library/dependency intermediate; current executables and CMake configuration retained",
+      "bytes": 27940,
+      "allocated_bytes": 28672
+    }
+  ],
+  "total_files": 499,
+  "logical_bytes": 41999298275,
+  "allocated_bytes": 3894935552,
+  "preserved": [
+    "latest binaries, CMake configuration and required toolchains",
+    "all raw request/response histories, result JSON, profiles, failures and configurations",
+    "four original common C/P evidence archives",
+    "previous rollback source evidence for ReadIndex and P2 analysis"
+  ],
+  "basis": "13 completed latest performance points all recorded successful process/monitor cleanup; final source/binary SHA256SUMS verified before deletion",
+  "all_listed_paths_absent": true
+}

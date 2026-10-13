@@ -12,6 +12,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -19,6 +20,8 @@
 #include <cerrno>
 #include <chrono>  // NOLINT(build/c++11)
 #include <cstring>
+#include <iostream>
+#include <list>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -26,6 +29,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/framed_socket.h"
 #include "distributed/request_fingerprint.h"
 #include "raft/persistent_state.h"
 #include "recovery/log_codec.h"
@@ -55,42 +59,6 @@ class SocketGuard {
  private:
   int socket_fd_;
 };
-
-void SetSocketTimeout(int socket_fd, uint64_t timeout_ms) {
-  timeval timeout{static_cast<time_t>(timeout_ms / 1000), static_cast<suseconds_t>((timeout_ms % 1000) * 1000)};
-  setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-  setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-}
-
-auto ReadExact(int socket_fd, std::byte *data, size_t size) -> bool {
-  size_t offset = 0;
-  while (offset < size) {
-    const auto count = recv(socket_fd, data + offset, size - offset, 0);
-    if (count > 0) {
-      offset += static_cast<size_t>(count);
-    } else if (count < 0 && errno == EINTR) {
-      continue;
-    } else {
-      return false;
-    }
-  }
-  return true;
-}
-
-auto WriteExact(int socket_fd, const std::byte *data, size_t size) -> bool {
-  size_t offset = 0;
-  while (offset < size) {
-    const auto count = send(socket_fd, data + offset, size - offset, MSG_NOSIGNAL);
-    if (count > 0) {
-      offset += static_cast<size_t>(count);
-    } else if (count < 0 && errno == EINTR) {
-      continue;
-    } else {
-      return false;
-    }
-  }
-  return true;
-}
 
 auto OpenListener(TcpEndpoint *endpoint) -> int {
   addrinfo hints{};
@@ -185,6 +153,8 @@ DistributedNode::DistributedNode(DistributedNodeConfig config, std::shared_ptr<D
     : config_(std::move(config)), storage_(std::move(storage)), bound_client_endpoint_(config_.client_listen_) {}
 
 void DistributedNode::Initialize() {
+  client_wake_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (client_wake_fd_ < 0) throw std::runtime_error("cannot open client completion notification");
   directory_ = NodeDirectory::Open(config_.data_directory_, storage_);
   std::vector<NodeId> voters{config_.node_id_};
   for (const auto &[peer_id, peer] : config_.peers_) {
@@ -200,6 +170,14 @@ void DistributedNode::Initialize() {
     object_storage_ = RaftObjectStorage::Open(local_storage_, deployment.space_, deployment.raft_);
     object_storage_->EnsureIdentity(config_.node_id_, config_.group_id_, voters);
   }
+  // Store validation reads are independent of A's private working-space restore.
+  // This scoped use of the existing executor drains before any dependent repair.
+  std::unique_ptr<TaskExecutor> preparation;
+  std::shared_ptr<TaskExecutor::Result<PreparedRaftStores>> stores;
+  if (object_storage_) {
+    preparation = std::make_unique<TaskExecutor>(1, 1, local_storage_->MemoryBudget(), std::function<void()>{});
+    stores = preparation->Submit(4096, true, [objects = object_storage_] { return PrepareRaftStores(objects); });
+  }
   if (config_.object_storage_) {
     const auto &deployment = *config_.object_storage_;
     state_machine_ = BusTubRaftStateMachine::OpenObjectPages(
@@ -208,8 +186,12 @@ void DistributedNode::Initialize() {
   } else {
     state_machine_ = BusTubRaftStateMachine::Open(directory_.get(), storage_, config_.buffer_pool_size_);
   }
-  auto recovered = object_storage_ ? RecoverRaftPersistentState(object_storage_, state_machine_)
+  if (preparation) preparation->Drain();
+  auto recovered = object_storage_ ? RecoverRaftPersistentState(object_storage_, state_machine_,
+                                        stores ? stores->Take() : PrepareRaftStores(object_storage_))
                                    : RecoverRaftPersistentState(directory_->RaftDirectory(), storage_, state_machine_);
+  stores.reset();
+  preparation.reset();
 
   std::map<NodeId, TcpEndpoint> raft_peers;
   for (const auto &[peer_id, peer] : config_.peers_) {
@@ -223,17 +205,29 @@ void DistributedNode::Initialize() {
       RaftNodeConfig{config_.node_id_, std::move(voters), config_.election_timeout_min_ms_,
                      config_.election_timeout_max_ms_, config_.heartbeat_interval_ms_, config_.group_id_,
                      MakeRandomElectionTimeoutSource(), local_storage_ ? local_storage_->MemoryBudget() : nullptr,
-                     [this] {
-                       work_ready_.store(true);
-                       state_changed_.notify_all();
-                     },
+                     [this] { Wake(); },
                      config_.object_storage_ ? config_.object_storage_->raft_.max_batch_entries_ : 128,
                      config_.object_storage_ ? config_.object_storage_->raft_.max_batch_bytes_ : 1024U * 1024U},
       transport_, std::move(recovered.stable_store_), std::move(recovered.log_store_), state_machine_,
       std::move(recovered.snapshot_store_));
 }
 
-DistributedNode::~DistributedNode() { Stop(); }
+DistributedNode::~DistributedNode() {
+  Stop();
+  raft_node_.reset();
+  if (client_wake_fd_ >= 0) close(client_wake_fd_);
+}
+
+void DistributedNode::NotifyClients() {
+  const uint64_t one = 1;
+  static_cast<void>(write(client_wake_fd_, &one, sizeof(one)));
+}
+
+void DistributedNode::Wake() {
+  work_ready_.store(true);
+  state_changed_.notify_all();
+  NotifyClients();
+}
 
 void DistributedNode::Start() {
   std::unique_lock lock(mutex_);
@@ -255,6 +249,7 @@ void DistributedNode::Start() {
         fatal_error_ = std::current_exception();
       }
       state_changed_.notify_all();
+      NotifyClients();
     });
     running_ = true;
     tick_thread_ = std::thread([this] { TickLoop(); });
@@ -283,7 +278,7 @@ void DistributedNode::Stop() {
   if (!running_.exchange(false)) {
     return;
   }
-  state_changed_.notify_all();
+  Wake();
   if (client_listen_fd_ >= 0) {
     shutdown(client_listen_fd_, SHUT_RDWR);
   }
@@ -298,13 +293,6 @@ void DistributedNode::Stop() {
     close(client_listen_fd_);
     client_listen_fd_ = -1;
   }
-  std::lock_guard workers_lock(client_workers_mutex_);
-  for (auto &worker : client_workers_) {
-    if (worker.thread_.joinable()) {
-      worker.thread_.join();
-    }
-  }
-  client_workers_.clear();
   try {
     raft_node_->Drain();
     if (local_storage_) local_storage_->SetStoreMaintenance({});
@@ -343,6 +331,7 @@ void DistributedNode::TickLoop() {
       }
     }
     state_changed_.notify_all();
+    NotifyClients();
   }
 }
 
@@ -712,82 +701,125 @@ void DistributedNode::MaybeCreateSnapshot() {
 }
 
 void DistributedNode::ClientLoop() {
+  struct Connection {
+    Connection(int fd, std::shared_ptr<ResourceAccount> memory)
+        : socket_(fd, ClientProtocolCodec::FRAME_PREFIX_BYTES, std::move(memory)) {}
+    FramedSocket socket_;
+    std::optional<ClientRequestV1> request_;
+    std::optional<RequestState> state_;
+    std::optional<ClientResponseV1> response_;
+  };
+  std::list<Connection> connections;
   while (running_) {
-    ReapClientWorkers();
-    pollfd descriptor{client_listen_fd_, POLLIN, 0};
-    const auto status = poll(&descriptor, 1, 100);
-    if (status < 0 && errno == EINTR) {
-      continue;
+    std::vector<pollfd> descriptors{{client_listen_fd_, POLLIN, 0}, {client_wake_fd_, POLLIN, 0}};
+    for (auto &connection : connections)
+      descriptors.push_back({connection.socket_.Fd(),
+          static_cast<short>(connection.socket_.HasOutput() ? POLLOUT : (!connection.request_ ? POLLIN : 0)), 0});
+    const auto ready = poll(descriptors.data(), descriptors.size(), static_cast<int>(config_.tick_interval_ms_));
+    if (ready < 0 && errno == EINTR) continue;
+    if (ready < 0) { std::lock_guard lock(mutex_); fatal_error_ =
+        std::make_exception_ptr(std::runtime_error("client poll failed")); break; }
+    if (!running_) break;
+    if (descriptors[1].revents & POLLIN) {
+      uint64_t count;
+      static_cast<void>(read(client_wake_fd_, &count, sizeof(count)));
     }
-    if (status <= 0 || !running_) {
-      continue;
+    size_t position = 2;
+    for (auto it = connections.begin(); it != connections.end();) {
+      auto &connection = *it;
+      const auto events = descriptors[position++].revents;
+      bool closed = events & (POLLERR | POLLNVAL);
+      // A disconnected caller must not turn an outstanding task into a poll
+      // spin. Accepted work keeps its own executor/write-window ownership.
+      closed |= (events & POLLHUP) && (connection.request_ || connection.socket_.HasOutput());
+      try {
+        if (!closed && !connection.request_ && !connection.socket_.HasOutput()) {
+          const auto result = connection.socket_.Receive(ClientProtocolCodec::PayloadSizeFromPrefix, 4);
+          closed |= result == FramedSocket::Result::Closed;
+          if (result == FramedSocket::Result::Ready) {
+            connection.request_ = ClientProtocolCodec::DecodeRequest(connection.socket_.Input());
+            connection.state_.emplace();
+            connection.state_->charge_ = connection.socket_.Consume();
+          } else if (connection.socket_.Partial() && std::chrono::steady_clock::now() - connection.socket_.Started() >
+                     std::chrono::milliseconds(config_.client_timeout_ms_)) closed = true;
+        }
+        if (!closed && connection.request_ && !connection.response_ && !connection.socket_.HasOutput())
+          connection.response_ = StepRequest(*connection.request_, *connection.state_);
+        if (!closed && connection.response_) {
+          const auto bytes = 4096 + 3 * connection.response_->payload_.size();
+          if (write_memory_->Reserve(bytes, false)) {
+            ResourceCharge charge(write_memory_, bytes, false);
+            auto output = ClientProtocolCodec::EncodeResponse(*connection.response_);
+            charge.ShrinkTo(output.capacity());
+            connection.socket_.Reply(std::move(output), std::move(charge));
+            connection.response_.reset();
+            connection.state_.reset();
+          } else if (std::chrono::steady_clock::now() - connection.state_->start_ >
+                     std::chrono::milliseconds(config_.client_timeout_ms_)) closed = true;
+        }
+        if (!closed && connection.socket_.HasOutput()) {
+          const auto result = connection.socket_.Send();
+          closed |= result == FramedSocket::Result::Closed;
+          if (result == FramedSocket::Result::Ready) {
+            connection.request_.reset();
+          }
+          else if (std::chrono::steady_clock::now() - connection.socket_.OutputStarted() >
+                   std::chrono::milliseconds(config_.client_timeout_ms_)) closed = true;
+        }
+      } catch (const std::exception &error) {
+        std::clog << "CLIENT_CONNECTION_ERROR " << error.what() << '\n';
+        closed = true;
+      }
+      if (closed) {
+        if (connection.state_) {
+          std::lock_guard lock(mutex_);
+          raft_node_->CancelReadIndex(connection.state_->read_context_);
+        }
+        it = connections.erase(it);
+      } else ++it;
     }
-    const auto connection = accept(client_listen_fd_, nullptr, nullptr);
-    if (connection < 0) {
-      continue;
+    if (descriptors[0].revents & POLLIN) {
+      const auto fd = accept(client_listen_fd_, nullptr, nullptr);
+      if (fd >= 0) {
+        if (connections.size() < 128) connections.emplace_back(fd, write_memory_);
+        else close(fd);
+      }
     }
-    auto finished = std::make_shared<std::atomic<bool>>(false);
-    std::thread worker([this, connection, finished] {
-      HandleConnection(connection);
-      finished->store(true, std::memory_order_release);
-    });
-    std::lock_guard workers_lock(client_workers_mutex_);
-    client_workers_.push_back({std::move(worker), std::move(finished)});
   }
-  ReapClientWorkers();
-}
-
-void DistributedNode::ReapClientWorkers() {
-  std::lock_guard workers_lock(client_workers_mutex_);
-  auto worker = client_workers_.begin();
-  while (worker != client_workers_.end()) {
-    if (!worker->finished_->load(std::memory_order_acquire)) {
-      ++worker;
-      continue;
-    }
-    if (worker->thread_.joinable()) {
-      worker->thread_.join();
-    }
-    worker = client_workers_.erase(worker);
-  }
-}
-
-void DistributedNode::HandleConnection(int socket_fd) {
-  SocketGuard guard(socket_fd);
-  SetSocketTimeout(socket_fd, config_.client_timeout_ms_);
-  try {
-    std::vector<std::byte> prefix(ClientProtocolCodec::FRAME_PREFIX_BYTES);
-    if (!ReadExact(socket_fd, prefix.data(), prefix.size())) {
-      return;
-    }
-    const auto payload_size = ClientProtocolCodec::PayloadSizeFromPrefix(prefix);
-    std::vector<std::byte> frame = prefix;
-    frame.resize(prefix.size() + payload_size + sizeof(uint32_t));
-    if (!ReadExact(socket_fd, frame.data() + prefix.size(), payload_size + sizeof(uint32_t))) {
-      return;
-    }
-    const auto response = ClientProtocolCodec::EncodeResponse(HandleRequest(ClientProtocolCodec::DecodeRequest(frame)));
-    static_cast<void>(WriteExact(socket_fd, response.data(), response.size()));
-  } catch (const std::exception &) {
-    return;
-  }
+  std::lock_guard lock(mutex_);
+  for (auto &connection : connections)
+    if (connection.state_) raft_node_->CancelReadIndex(connection.state_->read_context_);
 }
 
 auto DistributedNode::HandleRequest(const ClientRequestV1 &request) -> ClientResponseV1 {
-  return std::visit(
-      [&](const auto &value) -> ClientResponseV1 {
-        using T = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<T, ClientWriteRequestV1>) {
-          return HandleWrite(value);
-        } else if constexpr (std::is_same_v<T, ClientSessionRequestV2>) {
-          return HandleSession(value);
-        } else if constexpr (std::is_same_v<T, ClientReadRequestV1>) {
-          return HandleRead(value);
-        } else {
-          return HandleStatus(value);
-        }
-      },
-      request);
+  RequestState state;
+  for (;;) {
+    if (auto response = StepRequest(request, state)) return std::move(*response);
+    std::unique_lock lock(mutex_);
+    state_changed_.wait_for(lock, std::chrono::milliseconds(config_.tick_interval_ms_));
+  }
+}
+
+auto DistributedNode::StepRequest(const ClientRequestV1 &request, RequestState &state)
+    -> std::optional<ClientResponseV1> {
+  if (auto status = std::get_if<ClientStatusRequestV1>(&request)) return HandleStatus(*status);
+  std::lock_guard lock(mutex_);
+  auto response = std::visit([&](const auto &value) -> std::optional<ClientResponseV1> {
+    using T = std::decay_t<decltype(value)>;
+    if constexpr (std::is_same_v<T, ClientWriteRequestV1>) return StepWrite(value, state);
+    else if constexpr (std::is_same_v<T, ClientSessionRequestV2>) return StepSession(value, state.write_);
+    else if constexpr (std::is_same_v<T, ClientReadRequestV1>) return StepRead(value, state);
+    else return std::nullopt;
+  }, request);
+  const auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-state.start_).count();
+  const auto id = std::visit([](const auto &value) { return value.request_id_; }, request);
+  if (!response && us >= static_cast<int64_t>(config_.client_timeout_ms_ * 1000))
+    response = MakeResponse(id, ClientResponseStatus::TIMEOUT);
+  if (response && state.read_context_) {
+    raft_node_->CancelReadIndex(state.read_context_);
+    state.read_context_ = 0;
+  }
+  return response;
 }
 
 auto DistributedNode::MakeResponse(uint64_t request_id, ClientResponseStatus status,
@@ -860,176 +892,164 @@ auto DistributedNode::HandleStatus(const ClientStatusRequestV1 &request) -> Clie
   return response;
 }
 
-auto DistributedNode::HandleWrite(const ClientWriteRequestV1 &request) -> ClientResponseV1 {
-  if (request.window_ && request.acknowledged_through_) {
-    auto ack = HandleSession({request.client_id_, request.request_id_, request.acknowledged_through_, false});
-    if (ack.status_ != ClientResponseStatus::OK) return ack;
+auto DistributedNode::StepWrite(const ClientWriteRequestV1 &request, RequestState &state)
+    -> std::optional<ClientResponseV1> {
+  if (request.window_ && request.acknowledged_through_ && !state.acknowledged_) {
+    auto ack = StepSession({request.client_id_, request.request_id_, request.acknowledged_through_, false},
+                           state.acknowledgement_);
+    if (!ack) return std::nullopt;
+    if (ack->status_ != ClientResponseStatus::OK) return ack;
+    state.acknowledged_ = true;
+    state.acknowledgement_.reset();
   }
-  RequestFingerprintV1 fingerprint;
   try {
-    fingerprint = ComputeWriteIntentFingerprintV1(request.sql_);
+    if (!state.fingerprint_) state.fingerprint_ = ComputeWriteIntentFingerprintV1(request.sql_);
   } catch (const std::exception &e) {
-    std::lock_guard lock(mutex_);
     return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
   }
-  std::unique_lock lock(mutex_);
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.client_timeout_ms_);
-  std::shared_ptr<ActiveWrite> mine;
-  for (;;) {
-    if (mine && mine->response_) return *mine->response_;
-    if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
-    if (!raft_node_->LeaderReady()) return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
-    try {
-      ReconcileActiveWrite();
-      MaybeCreateSnapshot();
-      auto existing = clients_.find(request.client_id_);
-      bool can_add = true;
-      if (auto control = control_work_.lock();
-          control && control->client_id_ == request.client_id_ && control->control_->close_)
-        can_add = false;
-      if (existing != clients_.end()) {
-        auto position = existing->second.find(request.request_id_);
-        if (position != existing->second.end()) {
-          auto active = writes_.at(position->second);
-          if (!(active->request_fingerprint_ == fingerprint) || active->window_ != request.window_)
-            return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
-                                ErrorPayload("request payload does not match request identity"));
-          mine = active;
-        }
-        can_add = can_add && request.window_ && writes_.at(existing->second.begin()->second)->window_ &&
-                  existing->second.size() < SessionTable::WINDOW_RESULTS;
-      }
-      if (!mine && can_add && !snapshot_draining_ && writes_.size() < config_.max_write_requests_) {
-        const auto bytes = 4 * config_.max_write_command_bytes_ + request.sql_.size() * 4;
-        if (bytes > config_.max_write_bytes_)
+  const auto &fingerprint = *state.fingerprint_;
+  auto &mine = state.write_;
+  if (mine && mine->response_) return *mine->response_;
+  if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+  if (!raft_node_->LeaderReady()) return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
+  try {
+    ReconcileActiveWrite();
+    MaybeCreateSnapshot();
+    auto existing = clients_.find(request.client_id_);
+    bool can_add = true;
+    if (auto control = control_work_.lock();
+        control && control->client_id_ == request.client_id_ && control->control_->close_)
+      can_add = false;
+    if (existing != clients_.end()) {
+      auto position = existing->second.find(request.request_id_);
+      if (position != existing->second.end()) {
+        auto active = writes_.at(position->second);
+        if (!(active->request_fingerprint_ == fingerprint) || active->window_ != request.window_)
           return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
-                              ErrorPayload("SQL exceeds write window capacity"));
-        if (bytes <= config_.max_write_bytes_ - write_bytes_) {
-          bool reserved;
-          try {
-            reserved = write_memory_->Reserve(bytes, false);
-          } catch (const std::invalid_argument &e) {
-            return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
-          }
-          if (reserved) {
-            ResourceCharge charge(write_memory_, bytes, false);
-            mine = std::make_shared<ActiveWrite>();
-            mine->sequence_ = ++next_write_;
-            mine->client_id_ = request.client_id_;
-            mine->request_id_ = request.request_id_;
-            mine->request_fingerprint_ = fingerprint;
-            mine->sql_ = request.sql_;
-            mine->window_ = request.window_;
-            mine->bytes_ = bytes;
-            mine->command_limit_ = config_.max_write_command_bytes_;
-            mine->charge_ = std::move(charge);
-            mine->proposal_term_ = raft_node_->CurrentTerm();
-            clients_[request.client_id_].emplace(request.request_id_, mine->sequence_);
-            writes_.emplace(mine->sequence_, mine);
-            write_bytes_ += bytes;
-            ReconcileActiveWrite();
-          }
-        }
+                              ErrorPayload("request payload does not match request identity"));
+        mine = active;
       }
-    } catch (...) {
-      fatal_error_ = std::current_exception();
-      state_changed_.notify_all();
-      return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+      can_add = can_add && request.window_ && writes_.at(existing->second.begin()->second)->window_ &&
+                existing->second.size() < SessionTable::WINDOW_RESULTS;
     }
-    if (mine && mine->response_) return *mine->response_;
-    if (state_changed_.wait_until(lock, deadline) == std::cv_status::timeout)
-      return MakeResponse(request.request_id_, ClientResponseStatus::TIMEOUT);
-  }
-}
-
-auto DistributedNode::HandleSession(const ClientSessionRequestV2 &request) -> ClientResponseV1 {
-  std::unique_lock lock(mutex_);
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.client_timeout_ms_);
-  std::shared_ptr<ActiveWrite> mine;
-  for (;;) {
-    if (mine && mine->response_) return *mine->response_;
-    if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
-    if (!raft_node_->LeaderReady()) return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
-    try {
-      ReconcileActiveWrite();
-      if (request.close_ && clients_.count(request.client_id_))
+    if (!mine && can_add && !snapshot_draining_ && writes_.size() < config_.max_write_requests_) {
+      const auto bytes = 4 * config_.max_write_command_bytes_ + request.sql_.size() * 4;
+      if (bytes > config_.max_write_bytes_)
         return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
-                            ErrorPayload("session still has in-flight writes"));
-      if (!mine && control_work_.expired() && write_memory_->Reserve(4096, true)) {
-        ResourceCharge charge(write_memory_, 4096, true);
-        mine = std::make_shared<ActiveWrite>();
-        mine->sequence_ = ++next_write_;
-        mine->client_id_ = request.client_id_;
-        mine->request_id_ = request.request_id_;
-        mine->control_ = request;
-        mine->window_ = true;
-        mine->request_fingerprint_ = ComputeWriteIntentFingerprintV1("session control");
-        mine->proposal_term_ = raft_node_->CurrentTerm();
-        mine->charge_ = std::move(charge);
-        writes_.emplace(mine->sequence_, mine);
-        control_work_ = mine;
-        ReconcileActiveWrite();
+                            ErrorPayload("SQL exceeds write window capacity"));
+      if (bytes <= config_.max_write_bytes_ - write_bytes_) {
+        bool reserved;
+        try {
+          reserved = write_memory_->Reserve(bytes, false);
+        } catch (const std::invalid_argument &e) {
+          return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
+        }
+        if (reserved) {
+          ResourceCharge charge(write_memory_, bytes, false);
+          mine = std::make_shared<ActiveWrite>();
+          mine->sequence_ = ++next_write_;
+          mine->client_id_ = request.client_id_;
+          mine->request_id_ = request.request_id_;
+          mine->request_fingerprint_ = fingerprint;
+          mine->sql_ = request.sql_;
+          mine->window_ = request.window_;
+          mine->bytes_ = bytes;
+          mine->command_limit_ = config_.max_write_command_bytes_;
+          mine->charge_ = std::move(charge);
+          mine->proposal_term_ = raft_node_->CurrentTerm();
+          clients_[request.client_id_].emplace(request.request_id_, mine->sequence_);
+          writes_.emplace(mine->sequence_, mine);
+          write_bytes_ += bytes;
+          ReconcileActiveWrite();
+        }
       }
-    } catch (...) {
-      fatal_error_ = std::current_exception();
-      state_changed_.notify_all();
-      return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
     }
-    if (mine && mine->response_) return *mine->response_;
-    if (state_changed_.wait_until(lock, deadline) == std::cv_status::timeout)
-      return MakeResponse(request.request_id_, ClientResponseStatus::TIMEOUT);
+  } catch (...) {
+    fatal_error_ = std::current_exception();
+    state_changed_.notify_all();
+    return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
   }
+  if (mine && mine->response_) return *mine->response_;
+  return std::nullopt;
 }
 
-auto DistributedNode::HandleRead(const ClientReadRequestV1 &request) -> ClientResponseV1 {
-  std::unique_lock lock(mutex_);
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.client_timeout_ms_);
-  const auto term = raft_node_->CurrentTerm();
-  const auto linear = request.consistency_ == ClientReadConsistency::LINEARIZABLE;
-  const auto context = ++next_read_context_;
-  uint64_t read_index = 0;
-  bool probe = false, barrier = !linear;
-  std::shared_ptr<TaskExecutor::Result<PublishedSqlRead>> work;
-  std::optional<PublishedSqlRead> completed;
-  for (;;) {
-    if (!running_ || fatal_error_) {
-      raft_node_->CancelReadIndex(context);
-      return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+auto DistributedNode::StepSession(const ClientSessionRequestV2 &request, std::shared_ptr<ActiveWrite> &mine)
+    -> std::optional<ClientResponseV1> {
+  if (mine && mine->response_) return *mine->response_;
+  if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+  if (!raft_node_->LeaderReady()) return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
+  try {
+    ReconcileActiveWrite();
+    if (request.close_ && clients_.count(request.client_id_))
+      return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED,
+                          ErrorPayload("session still has in-flight writes"));
+    if (!mine && control_work_.expired() && write_memory_->Reserve(4096, true)) {
+      ResourceCharge charge(write_memory_, 4096, true);
+      mine = std::make_shared<ActiveWrite>();
+      mine->sequence_ = ++next_write_;
+      mine->client_id_ = request.client_id_;
+      mine->request_id_ = request.request_id_;
+      mine->control_ = request;
+      mine->window_ = true;
+      mine->request_fingerprint_ = ComputeWriteIntentFingerprintV1("session control");
+      mine->proposal_term_ = raft_node_->CurrentTerm();
+      mine->charge_ = std::move(charge);
+      writes_.emplace(mine->sequence_, mine);
+      control_work_ = mine;
+      ReconcileActiveWrite();
     }
-    if (linear && (!raft_node_->LeaderReady() || raft_node_->CurrentTerm() != term)) {
-      raft_node_->CancelReadIndex(context);
-      return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
-    }
-    if (!barrier) {
-      if (!probe && !raft_node_->Busy()) probe = raft_node_->StartReadIndex(context);
-      if (probe)
-        if (auto index = raft_node_->TakeReadIndex(context)) {
-          read_index = *index;
-          barrier = true;
-        }
-    }
-    if (barrier && raft_node_->PublishedAppliedIndex() >= read_index && !work) {
-      work = raft_node_->BusinessTasks().Submit(
-          request.sql_.size() + ClientQueryResultCodec::MAX_RESULT_BYTES, false,
-          [state = state_machine_, sql = request.sql_, read_index] { return state->ExecuteReadSql(sql, read_index); });
-    }
-    if (work && work->Ready()) {
-      try {
-        if (!completed) completed = work->Take();
-        if (raft_node_->PublishedAppliedIndex() >= completed->index_) {
-          auto response = MakeResponse(request.request_id_, ClientResponseStatus::OK, std::move(completed->payload_));
-          response.read_timestamp_ = completed->index_;
-          return response;
-        }
-      } catch (const std::exception &e) {
-        return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED, ErrorPayload(e.what()));
+  } catch (...) {
+    fatal_error_ = std::current_exception();
+    state_changed_.notify_all();
+    return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+  }
+  if (mine && mine->response_) return *mine->response_;
+  return std::nullopt;
+}
+
+auto DistributedNode::StepRead(const ClientReadRequestV1 &request, RequestState &state)
+    -> std::optional<ClientResponseV1> {
+  const bool linear = request.consistency_ == ClientReadConsistency::LINEARIZABLE;
+  if (!state.read_started_) {
+    state.read_started_ = true;
+    state.read_term_ = raft_node_->CurrentTerm();
+    state.read_context_ = ++next_read_context_;
+    state.read_barrier_ = !linear;
+  }
+  if (!running_ || fatal_error_) return MakeResponse(request.request_id_, ClientResponseStatus::UNAVAILABLE);
+  if (linear && (!raft_node_->LeaderReady() || raft_node_->CurrentTerm() != state.read_term_))
+    return MakeResponse(request.request_id_, ClientResponseStatus::NOT_LEADER);
+  if (!state.read_barrier_) {
+    if (!state.read_probe_ && !raft_node_->Busy())
+      state.read_probe_ = raft_node_->StartReadIndex(state.read_context_);
+    if (state.read_probe_) {
+      if (auto index = raft_node_->TakeReadIndex(state.read_context_)) {
+        state.read_index_ = *index;
+        state.read_barrier_ = true;
       }
     }
-    if (state_changed_.wait_until(lock, deadline) == std::cv_status::timeout) {
-      raft_node_->CancelReadIndex(context);
-      return MakeResponse(request.request_id_, ClientResponseStatus::TIMEOUT);
+  }
+  if (state.read_barrier_ && raft_node_->PublishedAppliedIndex() >= state.read_index_ && !state.read_) {
+    state.read_ = raft_node_->BusinessTasks().Submit(
+        request.sql_.size() + ClientQueryResultCodec::MAX_RESULT_BYTES, false,
+        [owner = state_machine_, sql = request.sql_, index = state.read_index_] {
+          return owner->ExecuteReadSql(sql, index);
+        });
+  }
+  if (state.read_ && state.read_->Ready()) {
+    try {
+      if (!state.completed_) state.completed_ = state.read_->Take();
+      if (raft_node_->PublishedAppliedIndex() >= state.completed_->index_) {
+        auto response = MakeResponse(request.request_id_, ClientResponseStatus::OK,
+                                     std::move(state.completed_->payload_));
+        response.read_timestamp_ = state.completed_->index_;
+        return response;
+      }
+    } catch (const std::exception &error) {
+      return MakeResponse(request.request_id_, ClientResponseStatus::REJECTED, ErrorPayload(error.what()));
     }
   }
+  return std::nullopt;
 }
 
 auto DistributedNode::ClientEndpoint() const -> TcpEndpoint {

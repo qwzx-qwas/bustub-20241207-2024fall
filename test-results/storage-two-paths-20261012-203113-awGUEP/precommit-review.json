@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-13",
+  "kind": "offline_precommit_review_no_workload_run",
+  "parent_commit": "1c651c73c8869cf50e3235a68410cca7b815aef3",
+  "scope": [
+    "startup recovery pipeline",
+    "persistent client and Raft TCP connections"
+  ],
+  "frozen_source_and_binaries_match": true,
+  "fingerprint_sha256": "1357417ef5e32ad9581d2c552f089fafbb72e92620d88984dd0eaeb47b58a1d0",
+  "cpp_existing_results": [
+    {
+      "file": "contracts.xml",
+      "tests": 3,
+      "failures": 0,
+      "sha256": "9b4c9199af8921be369cd43c096226fe00c3ac73c2035b5e5af48b2a9b2e86a5"
+    },
+    {
+      "file": "crc.xml",
+      "tests": 4,
+      "failures": 0,
+      "sha256": "16efcdfaf55c78a8f32ba4f53313c660ea2ac3c220c0fb3f24a5be1206493d75"
+    },
+    {
+      "file": "distributed_node_test.xml",
+      "tests": 10,
+      "failures": 0,
+      "sha256": "28959e6324422b492311690bd5d41c3e8f513e7033a32b39b357082eb8e967b5"
+    },
+    {
+      "file": "raft_node_test.xml",
+      "tests": 31,
+      "failures": 0,
+      "sha256": "846ebdc3e2a0b3a7fdfa9607da1db00b35b83dd7395b501db7c02bb61899da66"
+    },
+    {
+      "file": "tcp_transport_test.xml",
+      "tests": 4,
+      "failures": 0,
+      "sha256": "5f890e333795cc0867372b4e19a5f69a16600ebe1d6e654ffc22008cd9c7a459"
+    }
+  ],
+  "python_existing_results": {
+    "report_contracts": 2,
+    "proxy_stream": 1
+  },
+  "performance_points_validated": 13,
+  "comparative_result_hashes_verified": 52,
+  "cleanup": {
+    "manifest_sha256": "6ab2d73c0c625d2a4a3795d21f7c2bfa3045c7e7c4d461dadcffeac8af6a6626",
+    "file_count": 499,
+    "allocated_bytes": 3894935552,
+    "all_listed_paths_absent": true
+  },
+  "read_index_analysis": {
+    "historical_source": ".cache/rollback-previous-20261012-191457/before/src/distributed/node.cpp",
+    "historical_source_sha256": "766d641db732ea98aa77577afc13099c821628d0cfc1d24d8b82e4c1a203001e",
+    "advance_reads_excerpt": "void DistributedNode::AdvanceReads() {\n  for (auto it = read_rounds_.begin(); it != read_rounds_.end();) {\n    auto round = it->second.lock();\n    if (!round || !raft_node_->LeaderReady() || round->term_ != raft_node_->CurrentTerm()) {\n      if (round) round->obsolete_ = true;\n      raft_node_->CancelReadIndex(it->first);\n      it = read_rounds_.erase(it);\n    } else if (auto index = raft_node_->TakeReadIndex(it->first)) {\n      round->index_ = *index;\n      it = read_rounds_.erase(it);\n      state_changed_.notify_all();\n      NotifyClients();\n    } else ++it;\n  }\n  if (!open_read_round_) return;\n  if (open_read_round_.use_count() == 1 || !raft_node_->LeaderReady() ||\n      open_read_round_->term_ != raft_node_->CurrentTerm()) {\n    open_read_round_->obsolete_ = true;\n    open_read_round_.reset();\n    return;\n  }\n  if (!raft_node_->Busy()) {\n    const auto context = next_read_context_ + 1;\n    if (raft_node_->StartReadIndex(context)) {\n      next_read_context_ = context;\n      open_read_round_->context_ = context;\n      read_rounds_.emplace(context, open_read_round_);\n      open_read_round_.reset();\n    }\n  }\n}\n",
+    "current_code": "src/distributed/node.cpp::StepRead; src/raft/raft_node.cpp::StartReadIndex",
+    "logic_risk": "Context allocation before successful admission allows a smaller pending context to be rejected after a later context is accepted. No per-request evidence proves all observed timeouts use this interleaving.",
+    "p2_measurement": "test/storage_acceptance/performance.py::p2 invokes adapter.write only; preparation and final validation reads are outside its window.",
+    "complete_optimization_p2_configs": [
+      {
+        "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/config.json",
+        "sha256": "6d189e32589c1728eb7e69576fbcabe5161d991845ebeba6144d6e4bde8e2c0e",
+        "clients": 4,
+        "local_checkpoint_interval_ms": 0,
+        "local_checkpoint_log_bytes": 0
+      },
+      {
+        "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/config.json",
+        "sha256": "2be810e935cd0e3af4d657821047a84421f701c7a8eeaf790dc8c24c622b2754",
+        "clients": 4,
+        "local_checkpoint_interval_ms": 0,
+        "local_checkpoint_log_bytes": 0
+      },
+      {
+        "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/config.json",
+        "sha256": "bd79731c38e553a2dddbbd84d7f2aef4f91198ca09ae8bf8beb3a993be9b4e40",
+        "clients": 4,
+        "local_checkpoint_interval_ms": 0,
+        "local_checkpoint_log_bytes": 0
+      },
+      {
+        "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/config.json",
+        "sha256": "a3fc1b20366479d621417881552afa0a8a9353bd5f1d0ca1827e27389aa8a147",
+        "clients": 8,
+        "local_checkpoint_interval_ms": 0,
+        "local_checkpoint_log_bytes": 0
+      },
+      {
+        "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/config.json",
+        "sha256": "0d8a9cf36b5e9690870a1459b31a58950f607616362eebc0ae3c307eb61a104e",
+        "clients": 8,
+        "local_checkpoint_interval_ms": 0,
+        "local_checkpoint_log_bytes": 0
+      },
+      {
+        "path": "test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/config.json",
+        "sha256": "2a49c3867be8855e0d4e39fa59fdc4dff2fc92a86a5cffb097523e35cd73d564",
+        "clients": 8,
+        "local_checkpoint_interval_ms": 0,
+        "local_checkpoint_log_bytes": 0
+      }
+    ],
+    "causal_limit": "Full optimization changed multiple write-path components. No single-change experiment proves ReadIndex caused or could not cause P2 regression. Periodic local-checkpoint triggers were explicitly off in those P2 runs."
+  },
+  "known_limits": [
+    "P1 still recorded 15 server TIMEOUT responses and P4 recorded 2; logical requests eventually succeeded.",
+    "P3 not rerun; prior turnover stall remains unresolved.",
+    "Retained evidence is local except the explicitly committed summaries, hashes, XML and small logs."
+  ]
+}

@@ -264,13 +264,33 @@ RaftNode::RaftNode(RaftNodeConfig config, std::shared_ptr<RaftTransport> transpo
   }
   last_applied_ = state_machine_->LastApplied();
   published_applied_index_ = last_applied_;
+  auto loader = std::make_unique<TaskExecutor>(1, 2, config_.memory_budget_, config_.wake_);
+  // A result retains its byte allowance while the next batch is prefetched.
+  auto load = [&](uint64_t first) {
+    const auto bytes = std::max(config_.append_batch_bytes_, log_store_->EntryEncodedBytes(first));
+    return loader->Submit(2 * bytes + config_.append_batch_entries_ * sizeof(ReplicatedLogEntry),
+                           true, [this, first] {
+      return log_store_->Entries(first, hard_state_.commit_index_, config_.append_batch_entries_,
+                                  config_.append_batch_bytes_);
+    });
+  };
+  auto next = last_applied_ < hard_state_.commit_index_ ? load(last_applied_ + 1) : nullptr;
   while (last_applied_ < hard_state_.commit_index_) {
-    auto entry = log_store_->EntryAt(last_applied_ + 1);
-    if (!entry) throw std::runtime_error("committed recovery entry is unavailable");
-    state_machine_->Apply(*entry);
-    last_applied_ = entry->index_;
-    published_applied_index_ = last_applied_;
+    if (!next) next = load(last_applied_ + 1);  // The previous result has now released its allowance.
+    if (!next) throw std::runtime_error("insufficient memory for a committed recovery batch");
+    auto current = std::move(next);
+    loader->Drain();
+    auto entries = current->Take();
+    if (entries.empty()) throw std::runtime_error("committed recovery entry is unavailable");
+    if (entries.back().index_ < hard_state_.commit_index_) next = load(entries.back().index_ + 1);
+    for (const auto &entry : entries) {
+      if (entry.index_ != last_applied_ + 1) throw std::runtime_error("committed recovery batch has a gap");
+      state_machine_->Apply(entry);
+      last_applied_ = entry.index_;
+      published_applied_index_ = last_applied_;
+    }
   }
+  loader.reset();  // Recovery owns two results; normal operation keeps its original one-slot limit.
   storage_tasks_ = std::make_unique<TaskExecutor>(1, 1, config_.memory_budget_, config_.wake_);
   business_tasks_ = std::make_unique<TaskExecutor>(1, 8, config_.memory_budget_, config_.wake_, 1);
   pending_memory_ = ResourceAccount::Create(config_.memory_budget_);

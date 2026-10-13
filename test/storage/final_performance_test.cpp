@@ -15,6 +15,7 @@
 #include "gtest/gtest.h"
 #include "raft/log_store.h"
 #include "raft/object_storage.h"
+#include "raft/persistent_state.h"
 #include "raft/snapshot_store.h"
 #include "recovery/node_directory.h"
 #include "storage/disk/node_storage.h"
@@ -76,13 +77,20 @@ TEST(FinalPerformanceTest, ObjectRecoveryCandidatePreservesSuffixAndRejectsWrong
   log.reset();
   auto wrong = LogStore::ProbeObjects(objects, 2);
   EXPECT_THROW(LogStore::OpenObjects(std::move(wrong), 0, 9), std::runtime_error);
-  auto candidate = LogStore::ProbeObjects(objects, 2);
-  const auto probe = candidate->RecoveryProbe(0, 2);
+  auto stable = StableStore::OpenObjects(objects);
+  stable->Update(4, std::nullopt, 2);
+  stable.reset();
+  // Preparation is independent of the FSM and must not apply anything.
+  auto prepared = PrepareRaftStores(objects);
+  auto machine = std::make_shared<KvStateMachine>();
+  const auto probe = prepared.log_->RecoveryProbe(0, 2);
   EXPECT_EQ(probe.last_log_index_, 2);
   EXPECT_EQ(probe.latest_boundary_term_, 4);
-  auto opened = LogStore::OpenObjects(std::move(candidate), 0, 0);
-  EXPECT_EQ(opened->Entries(1, 2), entries);
-  opened.reset();
+  auto recovered = RecoverRaftPersistentState(objects, machine, std::move(prepared));
+  EXPECT_EQ(machine->LastApplied(), 0);
+  EXPECT_EQ(recovered.stable_store_->State().commit_index_, 2);
+  EXPECT_EQ(recovered.log_store_->Entries(1, 2), entries);
+  recovered = {};
   objects.reset();
   storage->Close();
 }

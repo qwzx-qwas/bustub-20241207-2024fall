@@ -21,11 +21,13 @@
 #include <chrono>  // NOLINT(build/c++11)
 #include <cstring>
 #include <limits>
+#include <list>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/framed_socket.h"
 #include "raft/rpc_codec.h"
 
 namespace bustub {
@@ -73,22 +75,6 @@ void SetSocketTimeout(int socket_fd, uint64_t timeout_ms) {
   timeval timeout{static_cast<time_t>(timeout_ms / 1000), static_cast<suseconds_t>((timeout_ms % 1000) * 1000)};
   setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
   setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-}
-
-auto ReadExact(int socket_fd, std::byte *data, size_t size) -> bool {
-  size_t offset = 0;
-  while (offset < size) {
-    const auto count = recv(socket_fd, data + offset, size - offset, 0);
-    if (count > 0) {
-      offset += static_cast<size_t>(count);
-      continue;
-    }
-    if (count < 0 && errno == EINTR) {
-      continue;
-    }
-    return false;
-  }
-  return true;
 }
 
 auto WriteExact(int socket_fd, const std::byte *data, size_t size) -> bool {
@@ -197,6 +183,8 @@ auto ConnectWithTimeout(const TcpEndpoint &endpoint, uint64_t timeout_ms) -> int
       continue;
     }
     SetSocketTimeout(candidate, timeout_ms);
+    int enabled = 1;
+    setsockopt(candidate, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled));
     connected = guard.Release();
     break;
   }
@@ -240,6 +228,7 @@ TcpRaftTransport::TcpRaftTransport(NodeId local_node_id, std::string group_id, T
     throw std::runtime_error("invalid TCP Raft transport configuration");
   }
   for (const auto &[node_id, endpoint] : peers_) {
+    senders_.emplace(node_id, std::make_unique<PeerSender>());
     if (node_id == 0 || endpoint.host_.empty() || endpoint.port_ == 0) {
       throw std::runtime_error("invalid TCP Raft peer endpoint");
     }
@@ -260,7 +249,7 @@ void TcpRaftTransport::Start(Receiver receiver) {
   receiver_ = std::move(receiver);
   running_ = true;
   receive_thread_ = std::thread([this] { ReceiveLoop(); });
-  send_thread_ = std::thread([this] { SendLoop(); });
+  for (auto &[id, sender] : senders_) sender->thread_ = std::thread([this, id] { SendLoop(id); });
 }
 
 void TcpRaftTransport::Stop() {
@@ -273,25 +262,27 @@ void TcpRaftTransport::Stop() {
     // Once shutdown begins, queued Raft messages are stale and cannot affect
     // safety. Discard them instead of delaying process termination while the
     // send worker attempts every old connection in FIFO order.
-    dropped_messages_ += outbound_.size();
-    outbound_.clear();
+    dropped_messages_ += pending_;
+    pending_ = 0;
+    for (auto &[id, sender] : senders_) {
+      sender->frames_.clear();
+      if (sender->fd_ >= 0) shutdown(sender->fd_, SHUT_RDWR);
+      sender->ready_.notify_one();
+    }
   }
-  send_cv_.notify_all();
   if (listen_fd_ >= 0) {
     shutdown(listen_fd_, SHUT_RDWR);
   }
   if (receive_thread_.joinable()) {
     receive_thread_.join();
   }
-  if (send_thread_.joinable()) {
-    send_thread_.join();
-  }
+  for (auto &[id, sender] : senders_)
+    if (sender->thread_.joinable()) sender->thread_.join();
   std::lock_guard lock(mutex_);
   if (listen_fd_ >= 0) {
     close(listen_fd_);
     listen_fd_ = -1;
   }
-  outbound_.clear();
   receiver_ = nullptr;
 }
 
@@ -316,13 +307,15 @@ void TcpRaftTransport::Send(RaftEnvelope envelope) {
     if (!running_) {
       throw std::runtime_error("invalid or inactive TCP Raft send");
     }
-    if (outbound_.size() >= maximum_pending_) {
+    auto &sender = *senders_.at(envelope.to_);
+    if (pending_ >= maximum_pending_ || sender.frames_.size() >= std::max<size_t>(1, maximum_pending_ / peers_.size())) {
       dropped_messages_++;
       return;
     }
-    outbound_.push_back({envelope.to_, std::move(charge), std::move(frame)});
+    sender.frames_.push_back({std::move(charge), std::move(frame)});
+    ++pending_;
+    sender.ready_.notify_one();
   }
-  send_cv_.notify_one();
 }
 
 auto TcpRaftTransport::ListenEndpoint() const -> TcpEndpoint {
@@ -331,91 +324,90 @@ auto TcpRaftTransport::ListenEndpoint() const -> TcpEndpoint {
 }
 
 void TcpRaftTransport::ReceiveLoop() {
+  std::list<FramedSocket> connections;
   while (running_) {
-    pollfd descriptor{listen_fd_, POLLIN, 0};
-    auto status = poll(&descriptor, 1, 100);
-    if (status < 0 && errno == EINTR) {
-      continue;
+    std::vector<pollfd> descriptors{{listen_fd_, POLLIN, 0}};
+    for (auto &connection : connections) descriptors.push_back({connection.Fd(), POLLIN, 0});
+    const auto status = poll(descriptors.data(), descriptors.size(), 100);
+    if (status < 0 && errno == EINTR) continue;
+    if (status < 0 || !running_) continue;
+    size_t position = 1;
+    for (auto it = connections.begin(); it != connections.end();) {
+      const auto events = descriptors[position++].revents;
+      bool closed = events & (POLLERR | POLLNVAL);
+      try {
+        if (events & (POLLIN | POLLHUP)) {
+          auto result = it->Receive(RaftRpcCodec::PayloadSizeFromPrefix, 12);
+          closed |= result == FramedSocket::Result::Closed;
+          if (result == FramedSocket::Result::Ready) {
+            auto envelope = RaftRpcCodec::Decode(it->Input());
+            auto charge = it->Consume();
+            if (envelope.to_ != local_node_id_ || peers_.count(envelope.from_) == 0 || envelope.group_id_ != group_id_)
+              throw std::runtime_error("TCP Raft envelope is not from a configured peer");
+            if (running_) receiver_(std::move(envelope));
+          }
+        }
+        if (it->Partial() && std::chrono::steady_clock::now() - it->Started() >
+                            std::chrono::milliseconds(connect_timeout_ms_)) closed = true;
+      } catch (const std::exception &) {
+        ++dropped_messages_;
+        closed = true;
+      }
+      if (closed) it = connections.erase(it); else ++it;
     }
-    if (status <= 0 || !running_) {
-      continue;
-    }
-    const auto connection = accept(listen_fd_, nullptr, nullptr);
-    if (connection < 0) {
-      continue;
-    }
-    SocketGuard guard(connection);
-    SetSocketTimeout(connection, connect_timeout_ms_);
-    try {
-      HandleConnection(connection);
-    } catch (const std::exception &) {
-      dropped_messages_++;
+    if (descriptors[0].revents & POLLIN) {
+      const auto fd = accept(listen_fd_, nullptr, nullptr);
+      if (fd >= 0) {
+        if (connections.size() < std::max<size_t>(16, peers_.size() * 4))
+          connections.emplace_back(fd, RaftRpcCodec::FRAME_PREFIX_BYTES, memory_);
+        else close(fd);
+      }
     }
   }
 }
 
-void TcpRaftTransport::HandleConnection(int socket_fd) {
-  std::vector<std::byte> prefix(RaftRpcCodec::FRAME_PREFIX_BYTES);
-  if (!ReadExact(socket_fd, prefix.data(), prefix.size())) {
-    throw std::runtime_error("truncated TCP Raft prefix");
-  }
-  const auto payload_size = RaftRpcCodec::PayloadSizeFromPrefix(prefix);
-  // Decode also verifies canonical framing through the existing encoder.
-  // Include its temporary copies and the receiver's immediate handoff copy.
-  const auto bytes = 4096 + 12 * (prefix.size() + payload_size + sizeof(uint32_t));
-  if (!memory_->Reserve(bytes, false)) {
-    ++dropped_messages_;
-    return;
-  }
-  ResourceCharge charge(memory_, bytes, false);
-  std::vector<std::byte> frame = prefix;
-  frame.resize(prefix.size() + payload_size + sizeof(uint32_t));
-  if (!ReadExact(socket_fd, frame.data() + prefix.size(), payload_size + sizeof(uint32_t))) {
-    throw std::runtime_error("truncated TCP Raft frame");
-  }
-  auto envelope = RaftRpcCodec::Decode(frame);
-  if (envelope.to_ != local_node_id_ || peers_.count(envelope.from_) == 0 || envelope.group_id_ != group_id_) {
-    throw std::runtime_error("TCP Raft envelope is not from a configured peer");
-  }
-  Receiver receiver;
-  {
-    std::lock_guard lock(mutex_);
-    receiver = receiver_;
-  }
-  if (running_ && receiver) {
-    receiver(std::move(envelope));
-  }
-}
-
-void TcpRaftTransport::SendLoop() {
-  while (true) {
+void TcpRaftTransport::SendLoop(NodeId peer) {
+  auto &sender = *senders_.at(peer);
+  for (;;) {
     PendingFrame frame;
     {
       std::unique_lock lock(mutex_);
-      send_cv_.wait(lock, [&] { return !running_ || !outbound_.empty(); });
-      if (!running_ && outbound_.empty()) {
-        return;
+      sender.ready_.wait(lock, [&] { return !running_ || !sender.frames_.empty(); });
+      if (!running_) break;
+      frame = std::move(sender.frames_.front());
+      sender.frames_.pop_front();
+      --pending_;
+    }
+    if (sender.fd_ >= 0) {
+      // This is a one-way stream; EOF is a known closed peer, before any new
+      // envelope has been sent. Reconnect here, not after an uncertain write.
+      char byte;
+      if (recv(sender.fd_, &byte, 1, MSG_PEEK | MSG_DONTWAIT) == 0) {
+        std::lock_guard lock(mutex_);
+        close(sender.fd_);
+        sender.fd_ = -1;
       }
-      frame = std::move(outbound_.front());
-      outbound_.pop_front();
     }
-    if (!SendOne(frame)) {
-      dropped_messages_++;
+    if (sender.fd_ < 0) {
+      const auto fd = ConnectWithTimeout(peers_.at(peer), connect_timeout_ms_);
+      std::lock_guard lock(mutex_);
+      if (!running_) { if (fd >= 0) close(fd); break; }
+      sender.fd_ = fd;
+    }
+    if (sender.fd_ < 0 || !WriteExact(sender.fd_, frame.bytes_.data(), frame.bytes_.size())) {
+      std::lock_guard lock(mutex_);
+      ++dropped_messages_;
+      if (sender.fd_ >= 0) close(sender.fd_);
+      sender.fd_ = -1;
+      // Loss is handled by the Raft protocol. Do not replay a stale transport backlog.
+      dropped_messages_ += sender.frames_.size();
+      pending_ -= sender.frames_.size();
+      sender.frames_.clear();
     }
   }
-}
-
-auto TcpRaftTransport::SendOne(const PendingFrame &frame) -> bool {
-  const auto peer = peers_.find(frame.to_);
-  if (peer == peers_.end()) {
-    return false;
-  }
-  const auto socket_fd = ConnectWithTimeout(peer->second, connect_timeout_ms_);
-  if (socket_fd < 0) {
-    return false;
-  }
-  SocketGuard guard(socket_fd);
-  return WriteExact(socket_fd, frame.bytes_.data(), frame.bytes_.size());
+  std::lock_guard lock(mutex_);
+  if (sender.fd_ >= 0) close(sender.fd_);
+  sender.fd_ = -1;
 }
 
 }  // namespace bustub

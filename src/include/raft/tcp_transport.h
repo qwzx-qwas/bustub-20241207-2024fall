@@ -15,6 +15,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>  // NOLINT(build/c++11)
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
@@ -37,7 +38,7 @@ struct TcpEndpoint {
 };
 
 /**
- * Production Raft transport. Each envelope uses one checksummed TCP frame and one connection. Failed connections are
+ * Production Raft transport. Each peer reuses a framed stream and has an independent bounded sender. Failed connections are
  * treated as message loss; normal Raft heartbeats retry without blocking the node event loop.
  */
 class TcpRaftTransport : public RaftTransport {
@@ -58,14 +59,17 @@ class TcpRaftTransport : public RaftTransport {
 
  private:
   void ReceiveLoop();
-  void SendLoop();
-  void HandleConnection(int socket_fd);
+  void SendLoop(NodeId peer);
   struct PendingFrame {
-    NodeId to_;
     ResourceCharge memory_;
     std::vector<std::byte> bytes_;
   };
-  auto SendOne(const PendingFrame &frame) -> bool;
+  struct PeerSender {
+    std::deque<PendingFrame> frames_;
+    std::condition_variable ready_;
+    std::thread thread_;
+    int fd_{-1};
+  };
 
   NodeId local_node_id_;
   std::string group_id_;
@@ -76,14 +80,13 @@ class TcpRaftTransport : public RaftTransport {
   std::shared_ptr<ResourceAccount> memory_;
 
   mutable std::mutex mutex_;
-  std::condition_variable send_cv_;
-  std::deque<PendingFrame> outbound_;
+  std::map<NodeId, std::unique_ptr<PeerSender>> senders_;
+  size_t pending_{0};
   Receiver receiver_;
   int listen_fd_{-1};
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> dropped_messages_{0};
   std::thread receive_thread_;
-  std::thread send_thread_;
 };
 
 }  // namespace bustub

@@ -10,11 +10,14 @@
 
 #include <fcntl.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <cerrno>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -25,20 +28,15 @@
 namespace bustub {
 namespace {
 
-class SocketGuard {
- public:
-  explicit SocketGuard(int socket_fd) : socket_fd_(socket_fd) {}
-  ~SocketGuard() {
-    if (socket_fd_ >= 0) {
-      close(socket_fd_);
-    }
+struct ConnectionCache {
+  std::map<std::string, int> sockets_;
+  ~ConnectionCache() { for (auto [address, fd] : sockets_) close(fd); }
+  void Erase(const std::string &address) {
+    auto found = sockets_.find(address);
+    if (found != sockets_.end()) { close(found->second); sockets_.erase(found); }
   }
-  SocketGuard(const SocketGuard &) = delete;
-  auto operator=(const SocketGuard &) -> SocketGuard & = delete;
-
- private:
-  int socket_fd_;
 };
+thread_local ConnectionCache connections;
 
 void SetSocketTimeout(int socket_fd, uint64_t timeout_ms) {
   timeval timeout{static_cast<time_t>(timeout_ms / 1000), static_cast<suseconds_t>((timeout_ms % 1000) * 1000)};
@@ -96,6 +94,8 @@ auto Connect(const TcpEndpoint &endpoint, uint64_t timeout_ms) -> int {
   if (connected < 0) {
     throw std::runtime_error("cannot connect to client endpoint " + endpoint.ToString());
   }
+  int enabled = 1;
+  setsockopt(connected, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled));
   SetSocketTimeout(connected, timeout_ms);
   return connected;
 }
@@ -175,29 +175,45 @@ auto DistributedClient::Send(const TcpEndpoint &endpoint, const ClientRequestV1 
   if (endpoint.host_.empty() || endpoint.port_ == 0 || timeout_ms == 0) {
     throw std::runtime_error("invalid distributed client destination");
   }
-  const auto socket_fd = Connect(endpoint, timeout_ms);
-  SocketGuard guard(socket_fd);
-  const auto request_frame = ClientProtocolCodec::EncodeRequest(request);
-  if (!WriteExact(socket_fd, request_frame.data(), request_frame.size())) {
-    throw std::runtime_error("distributed client request write failed");
+  const auto address = endpoint.ToString();
+  if (auto found = connections.sockets_.find(address); found != connections.sockets_.end()) {
+    char byte;
+    if (recv(found->second, &byte, 1, MSG_PEEK | MSG_DONTWAIT) == 0) connections.Erase(address);
   }
-  std::vector<std::byte> prefix(ClientProtocolCodec::FRAME_PREFIX_BYTES);
-  if (!ReadExact(socket_fd, prefix.data(), prefix.size())) {
-    throw std::runtime_error("distributed client response prefix is unavailable");
+  if (!connections.sockets_.count(address)) {
+    if (connections.sockets_.size() == 8) connections.Erase(connections.sockets_.begin()->first);
+    connections.sockets_.emplace(address, Connect(endpoint, timeout_ms));
   }
-  const auto payload_size = ClientProtocolCodec::PayloadSizeFromPrefix(prefix);
-  std::vector<std::byte> response = prefix;
-  response.resize(prefix.size() + payload_size + sizeof(uint32_t));
-  if (!ReadExact(socket_fd, response.data() + prefix.size(), payload_size + sizeof(uint32_t))) {
-    throw std::runtime_error("distributed client response is truncated");
+  const auto socket_fd = connections.sockets_.at(address);
+  SetSocketTimeout(socket_fd, timeout_ms);
+  try {
+    const auto request_frame = ClientProtocolCodec::EncodeRequest(request);
+    if (!WriteExact(socket_fd, request_frame.data(), request_frame.size())) {
+      throw std::runtime_error("distributed client request write failed");
+    }
+    std::vector<std::byte> prefix(ClientProtocolCodec::FRAME_PREFIX_BYTES);
+    if (!ReadExact(socket_fd, prefix.data(), prefix.size())) {
+      throw std::runtime_error("distributed client response prefix is unavailable");
+    }
+    const auto payload_size = ClientProtocolCodec::PayloadSizeFromPrefix(prefix);
+    std::vector<std::byte> response = prefix;
+    response.resize(prefix.size() + payload_size + sizeof(uint32_t));
+    if (!ReadExact(socket_fd, response.data() + prefix.size(), payload_size + sizeof(uint32_t))) {
+      throw std::runtime_error("distributed client response is truncated");
+    }
+    auto decoded = ClientProtocolCodec::DecodeResponse(response);
+    const auto request_id = std::visit([](const auto &message) { return message.request_id_; }, request);
+    if (decoded.request_id_ != request_id) {
+      throw std::runtime_error("distributed client response request ID does not match request");
+    }
+    ValidateSuccessfulResponse(request, decoded, request_id);
+    return decoded;
+  } catch (...) {
+    // A partially sent write has an unknown outcome. Reconnect on the next explicit
+    // caller attempt; never silently replay it inside the transport.
+    connections.Erase(address);
+    throw;
   }
-  auto decoded = ClientProtocolCodec::DecodeResponse(response);
-  const auto request_id = std::visit([](const auto &message) { return message.request_id_; }, request);
-  if (decoded.request_id_ != request_id) {
-    throw std::runtime_error("distributed client response request ID does not match request");
-  }
-  ValidateSuccessfulResponse(request, decoded, request_id);
-  return decoded;
 }
 
 }  // namespace bustub

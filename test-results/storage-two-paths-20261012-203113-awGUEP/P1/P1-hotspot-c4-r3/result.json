@@ -1,0 +1,192 @@
+{
+  "attempt_summary": {
+    "all_attempt_outcomes": {
+      "NOT_ISSUED": 2,
+      "SUCCESS": 62508,
+      "UNKNOWN": 204
+    },
+    "failed_call_latency": {
+      "count": 3,
+      "p50_ms": 5000.684954,
+      "p95_ms": 5001.421067,
+      "p99_ms": 5001.421067
+    },
+    "latency_scope": "driver invocation to validated client return; window-started operations include drain tails",
+    "out_of_window_calls": 0,
+    "outcomes": {
+      "NOT_ISSUED": 1,
+      "SUCCESS": 52829,
+      "UNKNOWN": 3
+    },
+    "p99_exploratory": false,
+    "phase_outcomes": {
+      "load/SUCCESS": 313,
+      "measure/NOT_ISSUED": 1,
+      "measure/SUCCESS": 52829,
+      "measure/UNKNOWN": 3,
+      "schema/SUCCESS": 1,
+      "status/SUCCESS": 16,
+      "status/UNKNOWN": 180,
+      "storage_observation/SUCCESS": 876,
+      "storage_observation/UNKNOWN": 21,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "warmup/NOT_ISSUED": 1,
+      "warmup/SUCCESS": 8153
+    },
+    "success_ops_per_second": 293.49444444444447,
+    "successful_call_latency": {
+      "count": 52829,
+      "p50_ms": 2.073054,
+      "p95_ms": 3.178943,
+      "p99_ms": 3.433335
+    },
+    "tail_successes": 0,
+    "window_calls": 52832,
+    "window_seconds": 180.0,
+    "window_successes": 52829
+  },
+  "business_validated": true,
+  "cache_scope": "fixed 30s warmup; report actual completions; OS/host caches included",
+  "cleanup": {
+    "cluster_exit": 0,
+    "driver": {
+      "exit_code": 0,
+      "history_error": null,
+      "reader_stopped": true
+    },
+    "monitor_stopped": true
+  },
+  "elapsed_seconds": 317.8117695429992,
+  "execution_coverage": {
+    "completed_operations": null,
+    "incomplete_stage": null,
+    "measurement_complete": true,
+    "target_operations": null
+  },
+  "failures": [],
+  "logical_summary": {
+    "censored": {
+      "count": 0,
+      "display": "observed time +; success confirmation absent at cutoff",
+      "max_observed_ms": null,
+      "min_observed_ms": null
+    },
+    "deadline_misses": 0,
+    "failed_operation_latency": {
+      "count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "full_population_p99_ms": null,
+    "latency_scope": "logical start to confirmation; includes attempts, rediscovery/backoff; P4 includes queueing",
+    "logical_operations": 52830,
+    "observation_complete": true,
+    "outcomes": {
+      "NOT_ISSUED": 1,
+      "SUCCESS": 52829
+    },
+    "p99_exploratory": false,
+    "phase_outcomes": {
+      "load/SUCCESS": 313,
+      "measure/NOT_ISSUED": 1,
+      "measure/SUCCESS": 52829,
+      "schema/SUCCESS": 1,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "warmup/NOT_ISSUED": 1,
+      "warmup/SUCCESS": 8153
+    },
+    "retry_attempts": 3,
+    "success_fraction": 0.9999810713609691,
+    "success_ops_per_second": 293.47777777777776,
+    "successful_operation_latency": {
+      "count": 52829,
+      "p50_ms": 12.249979,
+      "p95_ms": 18.597505,
+      "p99_ms": 48.831038
+    },
+    "tail_successes": 3,
+    "unconfirmed_fraction": 0.0,
+    "unknown_scope": "no successful confirmation observed; not evidence that the write did not commit",
+    "window_seconds": 180.0,
+    "window_successes": 52826
+  },
+  "measurement": {
+    "drain_deadline": 11209.949803372,
+    "end_ns": 11149949325439,
+    "phase": "measure",
+    "python_end_ns": 11149949798593,
+    "python_start_ns": 10969949798593,
+    "start_ns": 10969949325439
+  },
+  "measurement_complete": true,
+  "measurement_valid": true,
+  "resource_summary": {
+    "clients": {
+      "cpu_seconds": 202.15,
+      "io": {
+        "read_bytes": 0,
+        "write_bytes": 158920704
+      },
+      "sampled_process_lifetimes": 2
+    },
+    "nodes": {
+      "cpu_seconds": 165.69,
+      "io": {
+        "read_bytes": 277676032,
+        "write_bytes": 0
+      },
+      "sampled_process_lifetimes": 3
+    },
+    "observation_seconds": 179.042916407,
+    "peak_client_rss_bytes": 46587904,
+    "peak_node_rss_bytes": 38604800,
+    "scope": "sampled process lifetimes; gaps and before/after-sample IO excluded",
+    "status": "observed"
+  },
+  "role": "baseline",
+  "scenario": "P1",
+  "service_outcomes": {
+    "load/SUCCESS": 313,
+    "measure/NOT_ISSUED": 1,
+    "measure/SUCCESS": 52829,
+    "schema/SUCCESS": 1,
+    "verify_final/SUCCESS": 160,
+    "verify_load/SUCCESS": 160,
+    "warmup/NOT_ISSUED": 1,
+    "warmup/SUCCESS": 8153
+  },
+  "stalled_client_seconds": {},
+  "status": "measured",
+  "successes_by_client": [
+    12961,
+    12473,
+    13697,
+    13698
+  ],
+  "validated_comparison": true,
+  "validation": "passed",
+  "variant": "hotspot",
+  "warmup": {
+    "failures": [],
+    "measurement": {
+      "drain_deadline": 11029.939043952,
+      "end_ns": 10969938585717,
+      "phase": "warmup",
+      "python_end_ns": 10969939040766,
+      "python_start_ns": 10939939040766,
+      "start_ns": 10939938585717
+    },
+    "measurement_complete": true,
+    "stalled_client_seconds": {},
+    "status": "measured",
+    "successes_by_client": [
+      2039,
+      2038,
+      2038,
+      2038
+    ]
+  }
+}

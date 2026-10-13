@@ -1,0 +1,1384 @@
+{
+  "kind": "offline_analysis_no_workload_run",
+  "current_root": "test-results/storage-two-paths-20261012-203113-awGUEP",
+  "scope": "only recovery pipeline and persistent connections",
+  "versions": {
+    "original_simplistic": ".cache/final-acceptance/original-performance-json",
+    "restored_baseline": "test-results/storage-fixed-20261011-160420-920SjI",
+    "rolled_back_full_optimization": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk",
+    "two_paths": "test-results/storage-two-paths-20261012-203113-awGUEP"
+  },
+  "integrity": {
+    "same_source_and_binaries_all_points": true,
+    "current_matches_frozen_source_and_binaries": true,
+    "point_count": 13,
+    "formal_profiler_enabled": false
+  },
+  "throughput": [
+    {
+      "point": "P1-uniform-c4",
+      "original_simplistic": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r1/result.json",
+            "sha256": "0d5d2f4590062ae8f6efa9f86df92563fc37c79a77efc31b1da1e5303135c733"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r2/result.json",
+            "sha256": "73d55ba7c10d73098bb513caa39bd43d03050a5e297e24ed31810f29416a442f"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-uniform-c4-r3/result.json",
+            "sha256": "0bb4dd6b9fe77e24de4b5827a034f59f131e4ac583b0e672bfaaca28183c74dd"
+          }
+        ],
+        "values": [
+          665.6777777777778,
+          657.0333333333333,
+          658.4611111111111
+        ],
+        "median": 658.4611111111111,
+        "range": [
+          657.0333333333333,
+          665.6777777777778
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 5.630083,
+          "p95_ms": 7.924143,
+          "p99_ms": 9.56625
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 121.71
+      },
+      "restored_baseline": {
+        "sources": [
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-uniform-c4-r1/result.json",
+            "sha256": "431de1efc654979c3f3fa3d5081543d482bd07136683c863958d1d03ccf268fe"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-uniform-c4-r2/result.json",
+            "sha256": "a7f74e7cf21a0b6cd3c2e358e491d24849f73ec1f0ed0bc2d57c4b162df1727b"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-uniform-c4-r3/result.json",
+            "sha256": "7042c5ed8326dafbff189c73d11a1f3df363bf09d0c169176d3aacf9c03a478e"
+          }
+        ],
+        "values": [
+          278.28333333333336,
+          277.05555555555554,
+          273.9888888888889
+        ],
+        "median": 277.05555555555554,
+        "range": [
+          273.9888888888889,
+          278.28333333333336
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 12.82242,
+          "p95_ms": 19.095822,
+          "p99_ms": 30.052787
+        },
+        "measure_retries": 19,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 215.75
+      },
+      "rolled_back_full_optimization": {
+        "sources": [
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r1/result.json",
+            "sha256": "664b67be745d01702be9e43b9bd93547d866afb6dcb48b36fb8514994f8bafd3"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r2/result.json",
+            "sha256": "9e6098de29afc665626e7134b314b4d4ddc402298ea5a7534429e92e5fa85147"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-uniform-c4-r3/result.json",
+            "sha256": "a99751533ceb54685b0ed51e5c6157548a444a2edb4e4c706b7826e56908d7a5"
+          }
+        ],
+        "values": [
+          294.68333333333334,
+          294.1611111111111,
+          295.6111111111111
+        ],
+        "median": 294.68333333333334,
+        "range": [
+          294.1611111111111,
+          295.6111111111111
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 12.255812,
+          "p95_ms": 18.541086,
+          "p99_ms": 29.924951
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 158.18
+      },
+      "two_paths": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/result.json",
+            "sha256": "58df7646d29777c99232de1a937474cf319be6aae92e25d532ca60f0e264d665"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/result.json",
+            "sha256": "01962ee80742da530926f6a0f125ae4983f4e5abea02e54c1c948e3f3ae21bf1"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/result.json",
+            "sha256": "a78470b68432b7a9111ebe556432f4b0cbf0fd7d9fb7674bbe2a76388a790512"
+          }
+        ],
+        "values": [
+          295.1666666666667,
+          295.6277777777778,
+          292.05555555555554
+        ],
+        "median": 295.1666666666667,
+        "range": [
+          292.05555555555554,
+          295.6277777777778
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 12.159527,
+          "p95_ms": 18.387879,
+          "p99_ms": 29.260312
+        },
+        "measure_retries": 12,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 202.3
+      },
+      "change_percent": {
+        "original_simplistic": -55.17325751120035,
+        "restored_baseline": 6.536996190094246,
+        "rolled_back_full_optimization": 0.16401787229229914
+      },
+      "configuration_differences": {
+        "original_simplistic": {
+          "config_sha256": {
+            "prior": "c6ef2142072a23534db213a29ff4e04ea0707bb550f0f4b99fcd976cd7647784",
+            "two_paths": "b35b24d341d12f00e7d2dafb74f12afe21c3293df2fd0cc3921f321b1e7355a2"
+          },
+          "port_base": {
+            "prior": 33100,
+            "two_paths": 39100
+          },
+          "storage_template": {
+            "prior": null,
+            "two_paths": "/home/qwzx/projects/bustub-20241207-2024fall/docs/storage_redesign/node-storage.example.conf"
+          }
+        },
+        "restored_baseline": {},
+        "rolled_back_full_optimization": {
+          "config_sha256": {
+            "prior": "26ec271de96ae21936485864417aa383120dddf29e64726508ac8b33ccbb42d7",
+            "two_paths": "b35b24d341d12f00e7d2dafb74f12afe21c3293df2fd0cc3921f321b1e7355a2"
+          },
+          "local_checkpoint_interval_ms": {
+            "prior": 0,
+            "two_paths": null
+          },
+          "local_checkpoint_log_bytes": {
+            "prior": 0,
+            "two_paths": null
+          }
+        }
+      }
+    },
+    {
+      "point": "P1-hotspot-c4",
+      "original_simplistic": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r1/result.json",
+            "sha256": "3ae7e8f2a581842c3a26af71fe40e2ef18c31bab42543222b7ce7dcc6ed77472"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r2/result.json",
+            "sha256": "479307bacffa016d7f9326fd3394d153c38f205578b2f40107853e0ae4386c0b"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P1-baseline/P1-hotspot-c4-r3/result.json",
+            "sha256": "d897dfdc25d4fdc0b008b61ad776fb6bc38346a8e0ff9cc55e7aac6cbf33008a"
+          }
+        ],
+        "values": [
+          662.9555555555555,
+          657.7722222222222,
+          656.7611111111111
+        ],
+        "median": 657.7722222222222,
+        "range": [
+          656.7611111111111,
+          662.9555555555555
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 5.608022,
+          "p95_ms": 7.845514,
+          "p99_ms": 9.724642
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 122.64
+      },
+      "restored_baseline": {
+        "sources": [
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-hotspot-c4-r1/result.json",
+            "sha256": "6cdd8fd6aa02a4b8702a463faa1e019c615cef9ca25d150f305f988469fcd5c6"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-hotspot-c4-r2/result.json",
+            "sha256": "67aec32cb41d39e3122cd43ab36e061140e592316456010876d5573cb52ff1f5"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P1/P1-hotspot-c4-r3/result.json",
+            "sha256": "b2a9f6d8a66110e79c7d3b85ac6e3882578ea609c69d67a1dfb5482124cbbd72"
+          }
+        ],
+        "values": [
+          276.0,
+          274.9111111111111,
+          272.6388888888889
+        ],
+        "median": 274.9111111111111,
+        "range": [
+          272.6388888888889,
+          276.0
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 12.704347,
+          "p95_ms": 18.787126,
+          "p99_ms": 43.871458
+        },
+        "measure_retries": 26,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 179.96
+      },
+      "rolled_back_full_optimization": {
+        "sources": [
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r1/result.json",
+            "sha256": "77a6b07113e86bf5740b575ca21f9f51b5a272d36482099c34e560ee40c03687"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r2/result.json",
+            "sha256": "a3a5011167ba1092fd9f2b98fe0358503d34cfed1d6fd5d688bfd8a3d1c59d57"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P1/P1-hotspot-c4-r3/result.json",
+            "sha256": "3c0d619b84b6925487c48bf6718351d2f23110c286a5a36236f53709d4589b53"
+          }
+        ],
+        "values": [
+          293.8,
+          291.1222222222222,
+          289.56111111111113
+        ],
+        "median": 291.1222222222222,
+        "range": [
+          289.56111111111113,
+          293.8
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 12.208352,
+          "p95_ms": 18.365194,
+          "p99_ms": 45.547377
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 142.13
+      },
+      "two_paths": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/result.json",
+            "sha256": "a27c1e99238569c8ee153e5e5705985c6158beda96cfed3cc0b21ea46316353d"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/result.json",
+            "sha256": "7e59fcb40f34ebea63df19ab76046ebdcd9a9993aadb4a9838f5c9a73f963c55"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/result.json",
+            "sha256": "ff77011674f560aee13ae35008d528073b1ffe04ec5cac9b3905a8aaa77bb22f"
+          }
+        ],
+        "values": [
+          294.69444444444446,
+          291.6611111111111,
+          293.47777777777776
+        ],
+        "median": 293.47777777777776,
+        "range": [
+          291.6611111111111,
+          294.69444444444446
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 12.190246,
+          "p95_ms": 18.419858,
+          "p99_ms": 45.388172
+        },
+        "measure_retries": 3,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 167.27
+      },
+      "change_percent": {
+        "original_simplistic": -55.38306911375941,
+        "restored_baseline": 6.75369816506346,
+        "rolled_back_full_optimization": 0.8091294225411216
+      },
+      "configuration_differences": {
+        "original_simplistic": {
+          "config_sha256": {
+            "prior": "f805fa4e236cb6336740d865adcc3bbef45b495c6e832b1c291355bedcb1acd1",
+            "two_paths": "6634dc7dccd43db4ddb5d037cd0f7346017183bc4413256153bbc0c4e67bbd10"
+          },
+          "port_base": {
+            "prior": 33100,
+            "two_paths": 39100
+          },
+          "storage_template": {
+            "prior": null,
+            "two_paths": "/home/qwzx/projects/bustub-20241207-2024fall/docs/storage_redesign/node-storage.example.conf"
+          }
+        },
+        "restored_baseline": {},
+        "rolled_back_full_optimization": {
+          "config_sha256": {
+            "prior": "ea7c85194e5876cf702e5e770d93b335b1042504d6c6602ba61d962c887cd9a3",
+            "two_paths": "6634dc7dccd43db4ddb5d037cd0f7346017183bc4413256153bbc0c4e67bbd10"
+          },
+          "local_checkpoint_interval_ms": {
+            "prior": 0,
+            "two_paths": null
+          },
+          "local_checkpoint_log_bytes": {
+            "prior": 0,
+            "two_paths": null
+          }
+        }
+      }
+    },
+    {
+      "point": "P2-c4",
+      "original_simplistic": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c4-r1/result.json",
+            "sha256": "1f8860d3970fe8f63752234b7132f401281be390a5b8a92dd8a012fe8a7b52e8"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c4-r2/result.json",
+            "sha256": "8f29a17c965c7b24c962c0607178d238619ba330e35f03fe924cfbafe434357a"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c4-r3/result.json",
+            "sha256": "fec3052258ae964ed6ad6ec3d1513e7dec6b3080da97028c589f14d5dc2c8cdf"
+          }
+        ],
+        "values": [
+          1.7777777777777777,
+          1.1055555555555556,
+          1.1
+        ],
+        "median": 1.1055555555555556,
+        "range": [
+          1.1,
+          1.7777777777777777
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 2054.30202,
+          "p95_ms": 11050.824637,
+          "p99_ms": 17162.831322
+        },
+        "measure_retries": 178,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 277.37
+      },
+      "restored_baseline": {
+        "sources": [
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c4-r1/result.json",
+            "sha256": "3b8f9f6d479c086118ec46ed9901e9151d042312ea831a08f6b07411f5399265"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c4-r2/result.json",
+            "sha256": "40c6f5a16f17f640c4d4439eb7442eae7fc3152961162e96ecf495739c1925de"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c4-r3/result.json",
+            "sha256": "6006b96b728f03617042ab984a8c1e5d28b468a9b167933e6a05f07f2145640d"
+          }
+        ],
+        "values": [
+          32.06666666666667,
+          33.022222222222226,
+          33.40555555555556
+        ],
+        "median": 33.022222222222226,
+        "range": [
+          32.06666666666667,
+          33.40555555555556
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 109.795399,
+          "p95_ms": 208.431282,
+          "p99_ms": 259.952792
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 377.1
+      },
+      "rolled_back_full_optimization": {
+        "sources": [
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r1/result.json",
+            "sha256": "e786f7bec323a08200997d44e11bc3a6508217f8360b4a50fd3530985a58b559"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r2/result.json",
+            "sha256": "af084a388bd4f80f359aff3995de4b643b9367d9f264a243a8672de8398bfa18"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c4-r3/result.json",
+            "sha256": "02669ede3955779f229629408247b91cc1c7ed67f3117fcff5986d0844a3e1bc"
+          }
+        ],
+        "values": [
+          22.211111111111112,
+          22.166666666666668,
+          28.205555555555556
+        ],
+        "median": 22.211111111111112,
+        "range": [
+          22.166666666666668,
+          28.205555555555556
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 170.208793,
+          "p95_ms": 301.860706,
+          "p99_ms": 375.200297
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 157.25
+      },
+      "two_paths": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r1/P2-c4-r1/result.json",
+            "sha256": "5c75e568042bf1a66574b1a0502f4dc9ba36cb46ac25603c8b6d5bc58945f577"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r2/P2-c4-r2/result.json",
+            "sha256": "eff40c14becedc55b1cc93230b290af91c70aa7fb9646aff333b93d2fa8b0047"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r3/P2-c4-r3/result.json",
+            "sha256": "36bc6d79ac85a133ecaa2b99c9b9c767a881bdb24f54597764edfca862598895"
+          }
+        ],
+        "values": [
+          35.50555555555555,
+          35.95,
+          35.355555555555554
+        ],
+        "median": 35.50555555555555,
+        "range": [
+          35.355555555555554,
+          35.95
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 103.880934,
+          "p95_ms": 189.776329,
+          "p99_ms": 229.753626
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 359.95
+      },
+      "change_percent": {
+        "original_simplistic": 3111.557788944723,
+        "restored_baseline": 7.520188425302798,
+        "rolled_back_full_optimization": 59.85492746373184
+      },
+      "configuration_differences": {
+        "original_simplistic": {
+          "config_sha256": {
+            "prior": "1b3dbbfc3ceb3e76b74c198e2408147416cadac793de4ff7de79ec8e0cd53536",
+            "two_paths": "ee2f41fb046da348596e18896ddbcb10a2b44851b47e0627b2bd8e53b1332fc7"
+          },
+          "port_base": {
+            "prior": 33100,
+            "two_paths": 39100
+          },
+          "storage_template": {
+            "prior": null,
+            "two_paths": "/home/qwzx/projects/bustub-20241207-2024fall/docs/storage_redesign/node-storage.example.conf"
+          }
+        },
+        "restored_baseline": {},
+        "rolled_back_full_optimization": {
+          "config_sha256": {
+            "prior": "c4cc11d39349ed788c74fd2318d4877d8b1efdbbc5c34d9c4ea1182b46beae9f",
+            "two_paths": "ee2f41fb046da348596e18896ddbcb10a2b44851b47e0627b2bd8e53b1332fc7"
+          },
+          "local_checkpoint_interval_ms": {
+            "prior": 0,
+            "two_paths": null
+          },
+          "local_checkpoint_log_bytes": {
+            "prior": 0,
+            "two_paths": null
+          }
+        }
+      }
+    },
+    {
+      "point": "P2-c8",
+      "original_simplistic": {
+        "sources": [
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c8-r1/result.json",
+            "sha256": "3b93f58813622c1963d62ea374836a92bdd84aae44870130660b678762176c48"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-baseline/P2-c8-r2/result.json",
+            "sha256": "5480a0fdc27814055984802d113e965e3742712b059b6ebb1a9ee3fd77a964e9"
+          },
+          {
+            "path": ".cache/final-acceptance/original-performance-json/P2-c8-r3-resumed/P2-c8-r3/result.json",
+            "sha256": "2abd2e0db4b6694b3b857e0b84e2fb3259b1fbb89dd7ca14b40c12df630d7e4d"
+          }
+        ],
+        "values": [
+          1.1333333333333333,
+          1.1166666666666667,
+          1.2944444444444445
+        ],
+        "median": 1.1333333333333333,
+        "range": [
+          1.1166666666666667,
+          1.2944444444444445
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 4151.540854,
+          "p95_ms": 23183.0724,
+          "p99_ms": 31771.472025
+        },
+        "measure_retries": 533,
+        "deadline_misses": 5,
+        "business_validated": true,
+        "median_node_cpu_seconds": 316.69
+      },
+      "restored_baseline": {
+        "sources": [
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c8-r1/result.json",
+            "sha256": "ceb8d086c625a6cd6a75453ba4c6a010c7f190b3c88fa04d6e8118af01072adb"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c8-r2/result.json",
+            "sha256": "cb50fa9251c88595e8029b24869a75cc6df8c6ae488b4ba2e585238571f386b7"
+          },
+          {
+            "path": "test-results/storage-fixed-20261011-160420-920SjI/P2/P2-c8-r3/result.json",
+            "sha256": "8943601651bd51d361da109b4bae9d366d5362d2172bdfa3414393687fd8600a"
+          }
+        ],
+        "values": [
+          27.416666666666668,
+          27.63888888888889,
+          32.522222222222226
+        ],
+        "median": 27.63888888888889,
+        "range": [
+          27.416666666666668,
+          32.522222222222226
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 270.921918,
+          "p95_ms": 480.791605,
+          "p99_ms": 579.963571
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 303.35
+      },
+      "rolled_back_full_optimization": {
+        "sources": [
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r1/result.json",
+            "sha256": "bb6c1d27e6ba497e99b478a9ffc58a34580aaaa2a911ecf798b2cfab136fbeea"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r2/result.json",
+            "sha256": "efeee8e2e0886e7622d6bfa079d00fa99f1cf23df32b8d19c3bf734d8b0bcf1a"
+          },
+          {
+            "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P2/P2-c8-r3/result.json",
+            "sha256": "4a644861315fb9eafc29fc14d6c6d50ffa1c81a69e9247b6db9fa6b64781d69a"
+          }
+        ],
+        "values": [
+          23.083333333333332,
+          25.57777777777778,
+          33.56666666666667
+        ],
+        "median": 25.57777777777778,
+        "range": [
+          23.083333333333332,
+          33.56666666666667
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 297.218298,
+          "p95_ms": 558.942857,
+          "p99_ms": 688.033341
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 152.06
+      },
+      "two_paths": {
+        "sources": [
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/result.json",
+            "sha256": "21741d82426af860120262cad172e00b3142fb8924ea4597adbf74c8e0c20eb2"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/result.json",
+            "sha256": "d90a02ea7a3ec38a1fe07aad5aa94bee118d7902a23389ded07a39d357c23966"
+          },
+          {
+            "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/result.json",
+            "sha256": "5226c10a74930c2077af6c643b319ab0b91beacc641de648c48b3fed02948a88"
+          }
+        ],
+        "values": [
+          33.705555555555556,
+          33.88333333333333,
+          33.87222222222222
+        ],
+        "median": 33.87222222222222,
+        "range": [
+          33.705555555555556,
+          33.88333333333333
+        ],
+        "median_per_run_latency_ms": {
+          "p50_ms": 219.025221,
+          "p95_ms": 398.652977,
+          "p99_ms": 493.25388
+        },
+        "measure_retries": 0,
+        "deadline_misses": 0,
+        "business_validated": true,
+        "median_node_cpu_seconds": 307.84
+      },
+      "change_percent": {
+        "original_simplistic": 2888.725490196078,
+        "restored_baseline": 22.55276381909548,
+        "rolled_back_full_optimization": 32.4283231972198
+      },
+      "configuration_differences": {
+        "original_simplistic": {
+          "config_sha256": {
+            "prior": "78c6f7351611e9a7d1070fd7026868a8172c3fd10c234b45f14f97d21428afb8",
+            "two_paths": "69e15b0b10da325dadb547d74de59620a86911493d7127b43d0b7fc03aafc974"
+          },
+          "port_base": {
+            "prior": 33100,
+            "two_paths": 39100
+          },
+          "storage_template": {
+            "prior": null,
+            "two_paths": "/home/qwzx/projects/bustub-20241207-2024fall/docs/storage_redesign/node-storage.example.conf"
+          }
+        },
+        "restored_baseline": {},
+        "rolled_back_full_optimization": {
+          "config_sha256": {
+            "prior": "ba2bdb2084789b6141f309af9d525757ff7380165a6be8ff860bb3da38c4b5ad",
+            "two_paths": "69e15b0b10da325dadb547d74de59620a86911493d7127b43d0b7fc03aafc974"
+          },
+          "local_checkpoint_interval_ms": {
+            "prior": 0,
+            "two_paths": null
+          },
+          "local_checkpoint_log_bytes": {
+            "prior": 0,
+            "two_paths": null
+          }
+        }
+      }
+    }
+  ],
+  "P4": {
+    "original_simplistic": {
+      "source": {
+        "path": ".cache/final-acceptance/original-performance-json/P4-baseline/P4-c6-r1/result.json",
+        "sha256": "84984754a493a7d6c77331025bcd0be89e9235b1f8d3fb66091ab782f0c55dbf"
+      },
+      "total_seconds": 2.289888171,
+      "restart_to_status_seconds": 1.993111531,
+      "status_to_k0_seconds": 0.29677664,
+      "offline_confirmed_writes": 256,
+      "L": 431,
+      "K0": 687,
+      "deadline_misses": 0,
+      "retry_attempts": 0,
+      "foreground_window_latencies": {
+        "after_k0": {
+          "count": 31,
+          "p50_ms": 9.956068,
+          "p95_ms": 275.061155,
+          "p99_ms": 275.784775
+        },
+        "follower_offline": {
+          "count": 1279,
+          "p50_ms": 19.099435,
+          "p95_ms": 278.502379,
+          "p99_ms": 290.858424
+        },
+        "healthy": {
+          "count": 31,
+          "p50_ms": 10.234841,
+          "p95_ms": 262.61906,
+          "p99_ms": 264.375475
+        },
+        "recovering_k0": {
+          "count": 2,
+          "p50_ms": 23.435949,
+          "p95_ms": 24.7222,
+          "p99_ms": 24.7222
+        }
+      }
+    },
+    "restored_baseline": {
+      "source": {
+        "path": "test-results/storage-fixed-20261011-160420-920SjI/P4/P4-c6-r1/result.json",
+        "sha256": "7d2f7d9218ba1548cb7db03a4ab93e195a94a9d496ff3d2b1e1d1d05e7b69918"
+      },
+      "total_seconds": 29.222754432,
+      "restart_to_status_seconds": 25.198727695,
+      "status_to_k0_seconds": 4.024026737,
+      "offline_confirmed_writes": 256,
+      "L": 321,
+      "K0": 577,
+      "deadline_misses": 0,
+      "retry_attempts": 0,
+      "foreground_window_latencies": {
+        "after_k0": {
+          "count": 31,
+          "p50_ms": 13.061624,
+          "p95_ms": 58.943729,
+          "p99_ms": 372.34004
+        },
+        "follower_offline": {
+          "count": 1279,
+          "p50_ms": 187.640076,
+          "p95_ms": 324.594122,
+          "p99_ms": 439.73813
+        },
+        "healthy": {
+          "count": 31,
+          "p50_ms": 11.579778,
+          "p95_ms": 49.750485,
+          "p99_ms": 50.539639
+        },
+        "recovering_k0": {
+          "count": 29,
+          "p50_ms": 282.523085,
+          "p95_ms": 1370.776149,
+          "p99_ms": 2374.734635
+        }
+      }
+    },
+    "rolled_back_full_optimization": {
+      "source": {
+        "path": "/home/qwzx/projects/bustub-20241207-2024fall/test-results/storage-runtime-20261012-124833-DyLmHk/P4/P4-c6-r1/result.json",
+        "sha256": "b9c6c5f095a1cd64901061b26fd696f4ceb323741f37b62aa70bfa1c3eb4b841"
+      },
+      "total_seconds": 14.347149198,
+      "restart_to_status_seconds": 10.867324533,
+      "status_to_k0_seconds": 3.479824665,
+      "offline_confirmed_writes": 256,
+      "L": 321,
+      "K0": 577,
+      "deadline_misses": 0,
+      "retry_attempts": 0,
+      "foreground_window_latencies": {
+        "after_k0": {
+          "count": 31,
+          "p50_ms": 11.034252,
+          "p95_ms": 43.018687,
+          "p99_ms": 70.552525
+        },
+        "follower_offline": {
+          "count": 1279,
+          "p50_ms": 120.050878,
+          "p95_ms": 211.377335,
+          "p99_ms": 239.224539
+        },
+        "healthy": {
+          "count": 31,
+          "p50_ms": 7.508944,
+          "p95_ms": 35.295769,
+          "p99_ms": 36.574409
+        },
+        "recovering_k0": {
+          "count": 14,
+          "p50_ms": 189.792648,
+          "p95_ms": 1832.42642,
+          "p99_ms": 1832.42642
+        }
+      }
+    },
+    "two_paths": {
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/result.json",
+        "sha256": "b1460b516673914c5df584bc73114b07c0d4e8eb6dda4a198cda701240d5e2ae"
+      },
+      "total_seconds": 25.223217751,
+      "restart_to_status_seconds": 21.528757909,
+      "status_to_k0_seconds": 3.694459842,
+      "offline_confirmed_writes": 256,
+      "L": 321,
+      "K0": 577,
+      "deadline_misses": 0,
+      "retry_attempts": 2,
+      "foreground_window_latencies": {
+        "after_k0": {
+          "count": 31,
+          "p50_ms": 8.365469,
+          "p95_ms": 47.747348,
+          "p99_ms": 471.984384
+        },
+        "follower_offline": {
+          "count": 1279,
+          "p50_ms": 179.521581,
+          "p95_ms": 311.2487,
+          "p99_ms": 336.788643
+        },
+        "healthy": {
+          "count": 31,
+          "p50_ms": 7.846071,
+          "p95_ms": 37.081798,
+          "p99_ms": 43.179499
+        },
+        "recovering_k0": {
+          "count": 25,
+          "p50_ms": 242.879701,
+          "p95_ms": 5110.67916,
+          "p99_ms": 5123.801735
+        }
+      }
+    }
+  },
+  "current_points": [
+    {
+      "point": "P1-hotspot-c4-r1",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r1/result.json",
+        "sha256": "a27c1e99238569c8ee153e5e5705985c6158beda96cfed3cc0b21ea46316353d"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P1-hotspot-c4-r2",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r2/result.json",
+        "sha256": "7e59fcb40f34ebea63df19ab76046ebdcd9a9993aadb4a9838f5c9a73f963c55"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P1-hotspot-c4-r3",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/result.json",
+        "sha256": "ff77011674f560aee13ae35008d528073b1ffe04ec5cac9b3905a8aaa77bb22f"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P1-uniform-c4-r1",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/result.json",
+        "sha256": "58df7646d29777c99232de1a937474cf319be6aae92e25d532ca60f0e264d665"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P1-uniform-c4-r2",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/result.json",
+        "sha256": "01962ee80742da530926f6a0f125ae4983f4e5abea02e54c1c948e3f3ae21bf1"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P1-uniform-c4-r3",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/result.json",
+        "sha256": "a78470b68432b7a9111ebe556432f4b0cbf0fd7d9fb7674bbe2a76388a790512"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P2-c4-r1",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r1/P2-c4-r1/result.json",
+        "sha256": "5c75e568042bf1a66574b1a0502f4dc9ba36cb46ac25603c8b6d5bc58945f577"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P2-c4-r2",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r2/P2-c4-r2/result.json",
+        "sha256": "eff40c14becedc55b1cc93230b290af91c70aa7fb9646aff333b93d2fa8b0047"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P2-c4-r3",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c4-r3/P2-c4-r3/result.json",
+        "sha256": "36bc6d79ac85a133ecaa2b99c9b9c767a881bdb24f54597764edfca862598895"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P2-c8-r1",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r1/P2-c8-r1/result.json",
+        "sha256": "21741d82426af860120262cad172e00b3142fb8924ea4597adbf74c8e0c20eb2"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P2-c8-r2",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r2/P2-c8-r2/result.json",
+        "sha256": "d90a02ea7a3ec38a1fe07aad5aa94bee118d7902a23389ded07a39d357c23966"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P2-c8-r3",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P2-c8-r3/P2-c8-r3/result.json",
+        "sha256": "5226c10a74930c2077af6c643b319ab0b91beacc641de648c48b3fed02948a88"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    },
+    {
+      "point": "P4-c6-r1",
+      "source": {
+        "path": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/result.json",
+        "sha256": "b1460b516673914c5df584bc73114b07c0d4e8eb6dda4a198cda701240d5e2ae"
+      },
+      "passed_measurement_and_business": true,
+      "cleanup": {
+        "cluster_exit": 0,
+        "driver": {
+          "exit_code": 0,
+          "history_error": null,
+          "reader_stopped": true
+        },
+        "monitor_stopped": true
+      }
+    }
+  ],
+  "server_timeouts_in_measurement": [
+    {
+      "point": "P1-hotspot-c4-r3",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/history.jsonl",
+      "correlation": 27508,
+      "kind": "READ",
+      "request_id": 26729,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5000.684954
+    },
+    {
+      "point": "P1-hotspot-c4-r3",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/history.jsonl",
+      "correlation": 48135,
+      "kind": "READ",
+      "request_id": 47140,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5001.421067
+    },
+    {
+      "point": "P1-hotspot-c4-r3",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-hotspot-c4-r3/history.jsonl",
+      "correlation": 48136,
+      "kind": "READ",
+      "request_id": 47141,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5000.653633
+    },
+    {
+      "point": "P1-uniform-c4-r1",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/history.jsonl",
+      "correlation": 20607,
+      "kind": "READ",
+      "request_id": 19903,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5000.578964
+    },
+    {
+      "point": "P1-uniform-c4-r1",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/history.jsonl",
+      "correlation": 20608,
+      "kind": "READ",
+      "request_id": 19904,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5003.809206
+    },
+    {
+      "point": "P1-uniform-c4-r1",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r1/history.jsonl",
+      "correlation": 35705,
+      "kind": "READ",
+      "request_id": 34848,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5001.614011
+    },
+    {
+      "point": "P1-uniform-c4-r2",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/history.jsonl",
+      "correlation": 13677,
+      "kind": "READ",
+      "request_id": 13039,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5001.074641
+    },
+    {
+      "point": "P1-uniform-c4-r2",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/history.jsonl",
+      "correlation": 13678,
+      "kind": "READ",
+      "request_id": 13040,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5001.086672
+    },
+    {
+      "point": "P1-uniform-c4-r2",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/history.jsonl",
+      "correlation": 26535,
+      "kind": "READ",
+      "request_id": 25768,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5002.027414
+    },
+    {
+      "point": "P1-uniform-c4-r2",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/history.jsonl",
+      "correlation": 26536,
+      "kind": "READ",
+      "request_id": 25769,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5001.444169
+    },
+    {
+      "point": "P1-uniform-c4-r2",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r2/history.jsonl",
+      "correlation": 47512,
+      "kind": "READ",
+      "request_id": 46535,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5001.094012
+    },
+    {
+      "point": "P1-uniform-c4-r3",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/history.jsonl",
+      "correlation": 43158,
+      "kind": "READ",
+      "request_id": 42208,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5001.089469
+    },
+    {
+      "point": "P1-uniform-c4-r3",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/history.jsonl",
+      "correlation": 55554,
+      "kind": "READ",
+      "request_id": 54478,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5005.03624
+    },
+    {
+      "point": "P1-uniform-c4-r3",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/history.jsonl",
+      "correlation": 55555,
+      "kind": "READ",
+      "request_id": 54479,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5002.506058
+    },
+    {
+      "point": "P1-uniform-c4-r3",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P1/P1-uniform-c4-r3/history.jsonl",
+      "correlation": 59015,
+      "kind": "READ",
+      "request_id": 57903,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 315,
+      "last_applied": 315,
+      "published_applied_index": 315,
+      "leader_ready": true,
+      "latency_ms": 5000.554515
+    },
+    {
+      "point": "P4-c6-r1",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/history.jsonl",
+      "correlation": 5153,
+      "kind": "READ",
+      "request_id": 1650,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 581,
+      "last_applied": 581,
+      "published_applied_index": 581,
+      "leader_ready": true,
+      "latency_ms": 5005.573197
+    },
+    {
+      "point": "P4-c6-r1",
+      "source": "test-results/storage-two-paths-20261012-203113-awGUEP/P4/P4-c6-r1/history.jsonl",
+      "correlation": 5167,
+      "kind": "READ",
+      "request_id": 1661,
+      "status": "TIMEOUT",
+      "node_id": 1,
+      "term": 1,
+      "commit_index": 582,
+      "last_applied": 582,
+      "published_applied_index": 582,
+      "leader_ready": true,
+      "latency_ms": 5000.880952
+    }
+  ],
+  "limitations": [
+    "P1/P2 compare medians of three runs, not statistical causal attribution.",
+    "P4 is one restart per version and log catchup after 256 confirmed writes, not full snapshot installation.",
+    "Original file backend/Clang 14 versus current Direct object backend/GCC 16.2; same declared business workload but a whole-system historical comparison.",
+    "Recovery pipeline and persistent connections were enabled together; no single-change ablation.",
+    "P3 and P2 clients 1/2 were intentionally not rerun; old P3 issues remain unverified."
+  ]
+}

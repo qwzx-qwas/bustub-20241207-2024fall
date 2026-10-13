@@ -496,6 +496,10 @@ auto ObjectLogStore::ReadEntry(const Location &loc, const std::vector<Segment> &
   }
   return std::move(*result.entry_);
 }
+auto ObjectLogStore::EntryEncodedBytes(uint64_t index) const -> size_t {
+  if (index <= base_ || index > Last()) throw std::out_of_range("Raft log size unavailable");
+  return index_[index - base_ - 1].size_;
+}
 auto ObjectLogStore::Entries(uint64_t first, uint64_t last, size_t maximum_entries, size_t maximum_bytes) const
     -> std::vector<ReplicatedLogEntry> {
   if (first > last) {

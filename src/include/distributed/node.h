@@ -9,6 +9,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>  // NOLINT(build/c++11)
 #include <cstddef>
 #include <cstdint>
@@ -63,7 +64,6 @@ struct DistributedNodeConfig {
   uint64_t client_timeout_ms_{5000};
   size_t buffer_pool_size_{128};
   uint64_t snapshot_threshold_entries_{10000};
-
   // Explicitly provisioned device/namespace. Empty preserves existing file deployments.
   std::optional<RaftObjectDeployment> object_storage_{std::nullopt};
 
@@ -95,9 +95,9 @@ class DistributedNode {
   void Initialize();
   void TickLoop();
   void ClientLoop();
-  void HandleConnection(int socket_fd);
+  void Wake();
+  void NotifyClients();
   void MaybeCreateSnapshot();
-  void ReapClientWorkers();
   void ReconcileActiveWrite();
   struct ActiveWrite;
   auto AcquireWrite(const std::shared_ptr<ActiveWrite> &active) -> bool;
@@ -105,9 +105,23 @@ class DistributedNode {
   void FinishWrite(const std::shared_ptr<ActiveWrite> &active, ClientResponseStatus status,
                    std::vector<std::byte> bytes = {});
 
-  auto HandleWrite(const ClientWriteRequestV1 &request) -> ClientResponseV1;
-  auto HandleSession(const ClientSessionRequestV2 &request) -> ClientResponseV1;
-  auto HandleRead(const ClientReadRequestV1 &request) -> ClientResponseV1;
+  struct RequestState {
+    std::chrono::steady_clock::time_point start_{std::chrono::steady_clock::now()};
+    std::shared_ptr<ActiveWrite> write_, acknowledgement_;
+    std::optional<RequestFingerprintV1> fingerprint_;
+    bool acknowledged_{false};
+    // One original ReadIndex per request. Connection reuse does not introduce read cohorts.
+    bool read_started_{false}, read_probe_{false}, read_barrier_{false};
+    uint64_t read_context_{0}, read_term_{0}, read_index_{0};
+    std::shared_ptr<TaskExecutor::Result<PublishedSqlRead>> read_;
+    std::optional<PublishedSqlRead> completed_;
+    ResourceCharge charge_;
+  };
+  auto StepRequest(const ClientRequestV1 &request, RequestState &state) -> std::optional<ClientResponseV1>;
+  auto StepWrite(const ClientWriteRequestV1 &request, RequestState &state) -> std::optional<ClientResponseV1>;
+  auto StepSession(const ClientSessionRequestV2 &request, std::shared_ptr<ActiveWrite> &mine)
+      -> std::optional<ClientResponseV1>;
+  auto StepRead(const ClientReadRequestV1 &request, RequestState &state) -> std::optional<ClientResponseV1>;
   auto HandleStatus(const ClientStatusRequestV1 &request) -> ClientResponseV1;
   auto MakeResponse(uint64_t request_id, ClientResponseStatus status, std::vector<std::byte> payload = {}) const
       -> ClientResponseV1;
@@ -166,6 +180,7 @@ class DistributedNode {
   std::shared_ptr<ResourceAccount> write_memory_;
   bool snapshot_draining_{false};
   uint64_t next_read_context_{0};
+  int client_wake_fd_{-1};
   uint64_t logical_now_ms_{0};
   std::atomic<bool> work_ready_{false};
   int client_listen_fd_{-1};
@@ -173,12 +188,6 @@ class DistributedNode {
   std::atomic<bool> running_{false};
   std::thread tick_thread_;
   std::thread client_thread_;
-  std::mutex client_workers_mutex_;
-  struct ClientWorker {
-    std::thread thread_;
-    std::shared_ptr<std::atomic<bool>> finished_;
-  };
-  std::vector<ClientWorker> client_workers_;
   // Destroy executors before their completion wake-up targets, including when
   // Stop's protocol drain reports a storage failure.
   std::unique_ptr<RaftNode> raft_node_;

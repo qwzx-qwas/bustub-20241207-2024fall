@@ -1,0 +1,172 @@
+{
+  "attempt_summary": {
+    "all_attempt_outcomes": {
+      "NOT_ISSUED": 1,
+      "SUCCESS": 8879,
+      "UNKNOWN": 199
+    },
+    "failed_call_latency": {
+      "count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "latency_scope": "driver invocation to validated client return; window-started operations include drain tails",
+    "out_of_window_calls": 0,
+    "outcomes": {
+      "NOT_ISSUED": 1,
+      "SUCCESS": 6074
+    },
+    "p99_exploratory": true,
+    "phase_outcomes": {
+      "load/SUCCESS": 313,
+      "measure/NOT_ISSUED": 1,
+      "measure/SUCCESS": 6074,
+      "precondition/SUCCESS": 1000,
+      "schema/SUCCESS": 1,
+      "status/SUCCESS": 8,
+      "status/UNKNOWN": 179,
+      "storage_observation/SUCCESS": 1003,
+      "storage_observation/UNKNOWN": 20,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "verify_precondition/SUCCESS": 160
+    },
+    "success_ops_per_second": 33.705555555555556,
+    "successful_call_latency": {
+      "count": 6074,
+      "p50_ms": 218.33832,
+      "p95_ms": 396.828385,
+      "p99_ms": 501.831935
+    },
+    "tail_successes": 7,
+    "window_calls": 6074,
+    "window_seconds": 180.0,
+    "window_successes": 6067
+  },
+  "business_validated": true,
+  "cleanup": {
+    "cluster_exit": 0,
+    "driver": {
+      "exit_code": 0,
+      "history_error": null,
+      "reader_stopped": true
+    },
+    "monitor_stopped": true
+  },
+  "elapsed_seconds": 360.0122497100001,
+  "execution_coverage": {
+    "completed_operations": null,
+    "incomplete_stage": null,
+    "measurement_complete": true,
+    "target_operations": null
+  },
+  "failures": [],
+  "logical_summary": {
+    "censored": {
+      "count": 0,
+      "display": "observed time +; success confirmation absent at cutoff",
+      "max_observed_ms": null,
+      "min_observed_ms": null
+    },
+    "deadline_misses": 0,
+    "failed_operation_latency": {
+      "count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "full_population_p99_ms": null,
+    "latency_scope": "logical start to confirmation; includes attempts, rediscovery/backoff; P4 includes queueing",
+    "logical_operations": 6075,
+    "observation_complete": true,
+    "outcomes": {
+      "NOT_ISSUED": 1,
+      "SUCCESS": 6074
+    },
+    "p99_exploratory": true,
+    "phase_outcomes": {
+      "load/SUCCESS": 313,
+      "measure/NOT_ISSUED": 1,
+      "measure/SUCCESS": 6074,
+      "precondition/SUCCESS": 1000,
+      "schema/SUCCESS": 1,
+      "verify_final/SUCCESS": 160,
+      "verify_load/SUCCESS": 160,
+      "verify_precondition/SUCCESS": 160
+    },
+    "retry_attempts": 0,
+    "success_fraction": 0.9998353909465021,
+    "success_ops_per_second": 33.705555555555556,
+    "successful_operation_latency": {
+      "count": 6074,
+      "p50_ms": 220.95186,
+      "p95_ms": 398.652977,
+      "p99_ms": 503.248092
+    },
+    "tail_successes": 7,
+    "unconfirmed_fraction": 0.0,
+    "unknown_scope": "no successful confirmation observed; not evidence that the write did not commit",
+    "window_seconds": 180.0,
+    "window_successes": 6067
+  },
+  "measurement": {
+    "drain_deadline": 14170.030846765,
+    "end_ns": 14110030413152,
+    "phase": "measure",
+    "python_end_ns": 14110030841275,
+    "python_start_ns": 13930030841275,
+    "start_ns": 13930030413152
+  },
+  "measurement_complete": true,
+  "measurement_valid": true,
+  "resource_summary": {
+    "clients": {
+      "cpu_seconds": 16.83,
+      "io": {
+        "read_bytes": 0,
+        "write_bytes": 14114816
+      },
+      "sampled_process_lifetimes": 2
+    },
+    "nodes": {
+      "cpu_seconds": 306.89,
+      "io": {
+        "read_bytes": 1318547456,
+        "write_bytes": 1771089920
+      },
+      "sampled_process_lifetimes": 3
+    },
+    "observation_seconds": 179.035984388,
+    "peak_client_rss_bytes": 44142592,
+    "peak_node_rss_bytes": 45891584,
+    "scope": "sampled process lifetimes; gaps and before/after-sample IO excluded",
+    "status": "observed"
+  },
+  "role": "baseline",
+  "scenario": "P2",
+  "service_outcomes": {
+    "load/SUCCESS": 313,
+    "measure/NOT_ISSUED": 1,
+    "measure/SUCCESS": 6074,
+    "precondition/SUCCESS": 1000,
+    "schema/SUCCESS": 1,
+    "verify_final/SUCCESS": 160,
+    "verify_load/SUCCESS": 160,
+    "verify_precondition/SUCCESS": 160
+  },
+  "stalled_client_seconds": {},
+  "status": "measured",
+  "successes_by_client": [
+    759,
+    760,
+    759,
+    760,
+    759,
+    759,
+    759,
+    759
+  ],
+  "validated_comparison": true,
+  "validation": "passed"
+}

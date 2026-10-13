@@ -1,0 +1,90 @@
+{
+  "baseline": "1c651c7",
+  "unchanged": [
+    {
+      "path": "src/storage/disk/io_executor.cpp",
+      "unchanged": true,
+      "sha256": "55efc92d797348dd3b692f6bbe149669243fbfa4385fdec4ce135b6627742fd4"
+    },
+    {
+      "path": "src/storage/disk/journal_service.cpp",
+      "unchanged": true,
+      "sha256": "4035bf4e643e718be447469b267b69b99caab9fa74278cceb8061a7821819a47"
+    },
+    {
+      "path": "src/storage/disk/journal_backend.cpp",
+      "unchanged": true,
+      "sha256": "2d25f7952c2a90c7786e0f957e05aaebaae9e06766875a3af49f135d7ef8f86d"
+    },
+    {
+      "path": "src/include/common/task_executor.h",
+      "unchanged": true,
+      "sha256": "ec5715767f0ccadbf1443a16ae1fc277357b8d7fa38df256f632ee1613fb25ee"
+    },
+    {
+      "path": "src/distributed/raft_state_machine.cpp",
+      "unchanged": true,
+      "sha256": "055003166d2dd3d6a1cd555ac3359f66cc80a1fec1d4dc63ad32f11d3aeee04b"
+    },
+    {
+      "path": "src/buffer/page_storage.cpp",
+      "unchanged": true,
+      "sha256": "b5c5ae9115d1652744a3abb22ee8be2c492ab73e02f5dcc3b8472832b68fc904"
+    },
+    {
+      "path": "test/storage_acceptance/run.py",
+      "unchanged": true,
+      "sha256": "04f5df1bad8702c769ad978cb7f162a551bc1d96f2b21fcecead1e0c813c1d7a"
+    },
+    {
+      "path": "test/storage_acceptance/performance.py",
+      "unchanged": true,
+      "sha256": "bc1ed5861299648ebdc49f037392143326f4576ad124e8848951a015bbe574ba"
+    },
+    {
+      "path": "docs/storage_redesign/node-storage.example.conf",
+      "unchanged": true,
+      "sha256": "640bf18c3f54bf52f8389c6bfd74f88c507136254bafb68a491455999de00bba"
+    },
+    {
+      "region": "checkpoint_trigger",
+      "unchanged": true,
+      "sha256": "6749c00da7454fbaa16650c5048a3e574f0fa51c72feb66ec9bfd8cc8109e4e8"
+    },
+    {
+      "region": "write_dependencies_and_proposals",
+      "unchanged": true,
+      "sha256": "a2370ec746674c5b89c190dd4d6a89af017ce282ec5d893caca5f1ede64f81ea"
+    }
+  ],
+  "production_changes": [
+    "src/distributed/client.cpp",
+    "src/distributed/node.cpp",
+    "src/include/distributed/client_protocol.h",
+    "src/include/distributed/node.h",
+    "src/include/raft/log_store.h",
+    "src/include/raft/persistent_state.h",
+    "src/include/raft/tcp_transport.h",
+    "src/raft/log_store.cpp",
+    "src/raft/object_log_store.cpp",
+    "src/raft/object_log_store.h",
+    "src/raft/persistent_state.cpp",
+    "src/raft/raft_node.cpp",
+    "src/raft/tcp_transport.cpp",
+    "src/include/common/framed_socket.h"
+  ],
+  "formal_workload_started": false,
+  "selected_points": {
+    "P1": [
+      "uniform x3",
+      "hotspot x3"
+    ],
+    "P4": [
+      "fixed-rate 1 x1"
+    ],
+    "P2": [
+      "clients 4 x3",
+      "clients 8 x3"
+    ]
+  }
+}

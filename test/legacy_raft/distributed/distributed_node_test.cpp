@@ -318,6 +318,61 @@ class ThreeNodeInProcessCluster {
 
 }  // namespace
 
+TEST(DistributedNodeTest, PartialClientFrameDoesNotBlockOthersAndStreamServesFurtherRequests) {
+  ThreeNodeInProcessCluster cluster;
+  const auto leader = cluster.AwaitLeader();
+  const auto created = cluster.Send(
+      leader, ClientWriteRequestV1{991, 1, "CREATE TABLE stream_test(id int PRIMARY KEY, balance int);"});
+  ASSERT_EQ(created.status_, ClientResponseStatus::COMMITTED);
+  const auto endpoint = TcpEndpoint::Parse(created.leader_address_);
+  struct Socket {
+    int fd_{socket(AF_INET, SOCK_STREAM, 0)};
+    ~Socket() { if (fd_ >= 0) close(fd_); }
+  } stream;
+  ASSERT_GE(stream.fd_, 0);
+  timeval timeout{4, 0};
+  ASSERT_EQ(setsockopt(stream.fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)), 0);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = htons(endpoint.port_);
+  ASSERT_EQ(connect(stream.fd_, reinterpret_cast<sockaddr *>(&address), sizeof(address)), 0);
+  const auto read = ClientProtocolCodec::EncodeRequest(
+      ClientReadRequestV1{101, ClientReadConsistency::LINEARIZABLE, "SELECT balance FROM stream_test WHERE id = 7;"});
+  ASSERT_EQ(send(stream.fd_, read.data(), 7, MSG_NOSIGNAL), 7);
+  // Leave a real frame unfinished while another connection executes a write.
+  ASSERT_EQ(cluster.Send(leader, ClientWriteRequestV1{991, 2, "INSERT INTO stream_test VALUES (7, 17);"}).status_,
+            ClientResponseStatus::COMMITTED);
+  ASSERT_EQ(send(stream.fd_, read.data() + 7, read.size() - 7, MSG_NOSIGNAL), static_cast<ssize_t>(read.size() - 7));
+  auto receive = [&] {
+    std::vector<std::byte> frame(ClientProtocolCodec::FRAME_PREFIX_BYTES);
+    auto exact = [&](size_t begin, size_t end) {
+      while (begin < end) {
+        const auto n = recv(stream.fd_, frame.data() + begin, end - begin, 0);
+        if (n <= 0) throw std::runtime_error("client stream did not return a complete response");
+        begin += n;
+      }
+    };
+    exact(0, frame.size());
+    const auto prefix = frame.size();
+    frame.resize(prefix + ClientProtocolCodec::PayloadSizeFromPrefix(frame) + sizeof(uint32_t));
+    exact(prefix, frame.size());
+    return ClientProtocolCodec::DecodeResponse(frame);
+  };
+  const auto first = receive();
+  ASSERT_EQ(first.status_, ClientResponseStatus::OK);
+  EXPECT_EQ(first.request_id_, 101);
+  EXPECT_EQ(ClientQueryResultCodec::Decode(first.payload_).rows_, (std::vector<std::vector<std::string>>{{"17"}}));
+  const auto update = ClientProtocolCodec::EncodeRequest(
+      ClientWriteRequestV1{992, 1, "UPDATE stream_test SET balance = balance + 7 WHERE id = 7;"});
+  ASSERT_EQ(send(stream.fd_, update.data(), update.size(), MSG_NOSIGNAL), static_cast<ssize_t>(update.size()));
+  ASSERT_EQ(receive().status_, ClientResponseStatus::COMMITTED);
+  ASSERT_EQ(send(stream.fd_, read.data(), read.size(), MSG_NOSIGNAL), static_cast<ssize_t>(read.size()));
+  const auto last = receive();
+  ASSERT_EQ(last.status_, ClientResponseStatus::OK);
+  EXPECT_EQ(ClientQueryResultCodec::Decode(last.payload_).rows_, (std::vector<std::vector<std::string>>{{"24"}}));
+}
+
 // M6-IT02: three production assemblies communicate only through the stable TCP protocols and real node directories.
 TEST(DistributedNodeTest, TcpWriteReadLeaderChangeRetryAndReopenCatchup) {
   ThreeNodeInProcessCluster cluster;

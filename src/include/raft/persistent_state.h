@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <exception>
 #include <filesystem>
 #include <memory>
 
@@ -25,6 +26,18 @@ struct RecoveredRaftPersistentState {
   std::unique_ptr<LogStore> log_store_;
   std::unique_ptr<SnapshotStore> snapshot_store_;
 };
+
+/** Read-only preparation. Ownership is transferred once to the validated open. */
+struct PreparedRaftStores {
+  std::unique_ptr<StableStore> stable_;
+  std::unique_ptr<SnapshotStore> snapshots_;
+  std::unique_ptr<LogStore> log_;
+  std::exception_ptr log_error_;
+};
+auto PrepareRaftStores(const std::shared_ptr<RaftObjectStorage> &objects) -> PreparedRaftStores;
+auto RecoverRaftPersistentState(std::shared_ptr<RaftObjectStorage> objects,
+                                const std::shared_ptr<RaftStateMachine> &machine, PreparedRaftStores prepared)
+    -> RecoveredRaftPersistentState;
 
 /**
  * Recover HARD_STATE, the mutation journal, and published snapshots as one

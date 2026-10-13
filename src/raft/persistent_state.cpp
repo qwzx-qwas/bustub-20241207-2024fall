@@ -18,16 +18,19 @@ namespace bustub {
 
 namespace {
 auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<DurableStorage> &storage,
-             const std::shared_ptr<RaftStateMachine> &state_machine, const std::shared_ptr<RaftObjectStorage> &objects)
+             const std::shared_ptr<RaftStateMachine> &state_machine, const std::shared_ptr<RaftObjectStorage> &objects,
+             PreparedRaftStores *prepared = nullptr)
     -> RecoveredRaftPersistentState {
   if ((!objects && (raft_directory.empty() || storage == nullptr)) || state_machine == nullptr ||
       (state_machine->LastApplied() != 0 && !state_machine->LocalRecoveryPoint())) {
     throw std::runtime_error("invalid Raft persistent-state recovery configuration");
   }
 
-  auto stable_store = objects ? StableStore::OpenObjects(objects) : StableStore::Open(raft_directory, storage);
+  auto stable_store = prepared ? std::move(prepared->stable_) :
+      (objects ? StableStore::OpenObjects(objects) : StableStore::Open(raft_directory, storage));
   auto snapshot_store =
-      objects ? SnapshotStore::OpenObjects(objects) : SnapshotStore::Open(raft_directory / "snapshots", storage);
+      prepared ? std::move(prepared->snapshots_) :
+      (objects ? SnapshotStore::OpenObjects(objects) : SnapshotStore::Open(raft_directory / "snapshots", storage));
   const auto latest_snapshot = snapshot_store->Latest();
   const auto latest_index = latest_snapshot.has_value() ? latest_snapshot->last_included_index_ : 0;
   const auto recovery_snapshot = snapshot_store->OldestRetained();
@@ -50,7 +53,8 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
   try {
     const auto boundary = use_local && !latest_snapshot ? local->index_ : latest_index;
     if (objects) {
-      object_candidate = LogStore::ProbeObjects(objects, effective_commit);
+      if (prepared && prepared->log_error_) std::rethrow_exception(prepared->log_error_);
+      object_candidate = prepared ? std::move(prepared->log_) : LogStore::ProbeObjects(objects, effective_commit);
       probe = object_candidate->RecoveryProbe(recovery_index, boundary);
     } else {
       probe = LogStore::ProbeRecovery(raft_directory / "log", storage, effective_commit, recovery_index, boundary);
@@ -155,6 +159,23 @@ auto Recover(const std::filesystem::path &raft_directory, const std::shared_ptr<
 }
 
 }  // namespace
+
+auto PrepareRaftStores(const std::shared_ptr<RaftObjectStorage> &objects) -> PreparedRaftStores {
+  PreparedRaftStores result;
+  result.stable_ = StableStore::OpenObjects(objects);
+  result.snapshots_ = SnapshotStore::OpenObjects(objects);
+  const auto latest = result.snapshots_->Latest();
+  const auto commit = std::max(result.stable_->State().commit_index_, latest ? latest->last_included_index_ : 0);
+  try { result.log_ = LogStore::ProbeObjects(objects, commit); }
+  catch (...) { result.log_error_ = std::current_exception(); }
+  return result;
+}
+auto RecoverRaftPersistentState(std::shared_ptr<RaftObjectStorage> objects,
+                                const std::shared_ptr<RaftStateMachine> &machine, PreparedRaftStores prepared)
+    -> RecoveredRaftPersistentState {
+  if (!objects || !prepared.stable_ || !prepared.snapshots_) throw std::invalid_argument("missing prepared stores");
+  return Recover({}, nullptr, machine, objects, &prepared);
+}
 
 auto RecoverRaftPersistentState(const std::filesystem::path &directory, const std::shared_ptr<DurableStorage> &storage,
                                 const std::shared_ptr<RaftStateMachine> &machine) -> RecoveredRaftPersistentState {
