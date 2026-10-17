@@ -355,6 +355,10 @@ auto BusTubRaftStateMachine::CaptureCheckpoint(uint64_t requested_index, uint64_
     std::lock_guard lock(lifecycle_mutex_);
     state = state_;
     auto exclusive = visibility_.LockExclusive();
+    // A failed Apply may have changed pages without advancing LastApplied.
+    if (fsm_->IsStopped()) {
+      throw std::runtime_error("cannot capture checkpoint from a fail-stopped state machine");
+    }
     const auto index = fsm_->LastApplied();
     const auto term = index == requested_index ? requested_term : applied_term_;
     if (index < requested_index || term == 0) throw std::runtime_error("checkpoint request lacks its applied term");
@@ -852,11 +856,14 @@ void BusTubRaftStateMachine::WriteSnapshot(const SnapshotAppend &append) const {
   uint64_t snapshot_index = 0;
   {
     std::lock_guard lifecycle(lifecycle_mutex_);
+    auto exclusive = visibility_.LockExclusive();
+    if (fsm_->IsStopped()) {
+      throw std::runtime_error("cannot capture snapshot from a fail-stopped state machine");
+    }
     snapshot_index = fsm_->LastApplied();
     capture_directory =
         runtime_directory_ / ("capture-" + std::to_string(snapshot_index) + "-" + std::to_string(next_generation_++));
     storage_->RemoveTree(capture_directory);
-    auto exclusive = visibility_.LockExclusive();
     state_->sessions_->ValidateSnapshotBoundary(snapshot_index);
     CanonicalSnapshotBuilder::BuildUnsynced(
         *state_->catalog_, *state_->sessions_,
